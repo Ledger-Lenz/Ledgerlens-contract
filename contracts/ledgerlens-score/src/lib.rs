@@ -49,6 +49,7 @@ impl LedgerLensScoreContract {
     /// Register a freshly computed risk score for `wallet` / `asset_pair`.
     /// Requires authorization from the configured scoring service account.
     /// Returns `ContractPaused` if the admin has activated the circuit breaker.
+    /// `timestamp` must be non-zero; `0` is rejected with `InvalidTimestamp`.
     #[allow(clippy::too_many_arguments)]
     pub fn submit_score(
         env: Env,
@@ -76,6 +77,9 @@ impl LedgerLensScoreContract {
         }
         if confidence > 100 {
             return Err(Error::InvalidConfidence);
+        }
+        if timestamp == 0 {
+            return Err(Error::InvalidTimestamp);
         }
 
         let risk_score =
@@ -121,7 +125,7 @@ impl LedgerLensScoreContract {
         for i in 0..submissions.len() {
             let sub = submissions.get(i).unwrap();
 
-            if sub.score > 100 || sub.confidence > 100 {
+            if sub.score > 100 || sub.confidence > 100 || sub.timestamp == 0 {
                 continue;
             }
 

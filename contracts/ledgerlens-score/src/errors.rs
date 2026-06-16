@@ -20,4 +20,6 @@ pub enum Error {
     EmptyBatch = 9,
     /// Returned when a batch exceeds the MAX_BATCH_SIZE limit.
     BatchTooLarge = 10,
+    /// Returned when a submitted timestamp is zero or otherwise invalid.
+    InvalidTimestamp = 11,
 }

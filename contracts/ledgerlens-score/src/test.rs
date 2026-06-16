@@ -101,6 +101,31 @@ fn test_submit_score_invalid_confidence_range_rejected() {
 }
 
 #[test]
+fn test_submit_score_zero_timestamp_rejected() {
+    let (env, client, admin, service) = setup();
+    client.initialize(&admin, &service);
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    let result = client.try_submit_score(&wallet, &asset_pair, &50, &false, &false, &0, &50, &1);
+    assert_eq!(result, Err(Ok(Error::InvalidTimestamp)));
+}
+
+#[test]
+fn test_submit_score_nonzero_timestamp_accepted() {
+    let (env, client, admin, service) = setup();
+    client.initialize(&admin, &service);
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    client.submit_score(&wallet, &asset_pair, &50, &false, &false, &1, &50, &1);
+
+    assert_eq!(client.get_score(&wallet, &asset_pair).timestamp, 1);
+}
+
+#[test]
 fn test_submit_score_overwrites_previous() {
     let (env, client, admin, service) = setup();
     client.initialize(&admin, &service);
@@ -146,7 +171,7 @@ fn test_set_service_rotates_authorised_account() {
 
     let wallet = Address::generate(&env);
     let asset_pair = symbol_short!("XLM_USDC");
-    client.submit_score(&wallet, &asset_pair, &10, &false, &false, &0, &10, &1);
+    client.submit_score(&wallet, &asset_pair, &10, &false, &false, &1, &10, &1);
 }
 
 // ── Pause circuit breaker ─────────────────────────────────────────────────────
@@ -374,7 +399,16 @@ fn test_score_history_max_depth_enforced() {
 
     // 12 entries — two are evicted once the ring is full (max depth = 10).
     for i in 0u32..12 {
-        client.submit_score(&wallet, &asset_pair, &(i * 8), &false, &false, &(i as u64), &50, &1);
+        client.submit_score(
+            &wallet,
+            &asset_pair,
+            &(i * 8),
+            &false,
+            &false,
+            &(i as u64 + 1),
+            &50,
+            &1,
+        );
     }
 
     let history = client.get_score_history(&wallet, &asset_pair);
@@ -476,6 +510,46 @@ fn test_submit_scores_batch_skips_invalid_entries() {
 
     assert_eq!(client.get_score(&wallet_ok, &asset_pair).score, 60);
     assert_eq!(client.try_get_score(&wallet_bad, &asset_pair), Err(Ok(Error::ScoreNotFound)));
+}
+
+#[test]
+fn test_batch_skips_zero_timestamp_entries() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet_zero_timestamp = Address::generate(&env);
+    let wallet_ok = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    let mut batch: Vec<ScoreSubmission> = Vec::new(&env);
+    batch.push_back(ScoreSubmission {
+        wallet: wallet_zero_timestamp.clone(),
+        asset_pair: asset_pair.clone(),
+        score: 50,
+        benford_flag: false,
+        ml_flag: false,
+        timestamp: 0,
+        confidence: 50,
+        model_version: 1,
+    });
+    batch.push_back(ScoreSubmission {
+        wallet: wallet_ok.clone(),
+        asset_pair: asset_pair.clone(),
+        score: 60,
+        benford_flag: false,
+        ml_flag: false,
+        timestamp: 1,
+        confidence: 75,
+        model_version: 1,
+    });
+
+    let accepted = client.submit_scores_batch(&batch);
+
+    assert_eq!(accepted, 1);
+    assert_eq!(client.get_score(&wallet_ok, &asset_pair).score, 60);
+    assert_eq!(
+        client.try_get_score(&wallet_zero_timestamp, &asset_pair),
+        Err(Ok(Error::ScoreNotFound))
+    );
 }
 
 #[test]

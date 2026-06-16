@@ -59,7 +59,7 @@ LedgerLens detects wash trading and artificial volume on the Stellar Decentralis
 One-time setup. Sets the admin (who can rotate the service address) and the LedgerLens off-chain service account authorised to submit scores.
 
 ### `submit_score(wallet: Address, asset_pair: Symbol, score: u32, benford_flag: bool, ml_flag: bool, timestamp: u64, confidence: u32)`
-Called by the authorised LedgerLens off-chain service to register a computed risk score on-chain. Requires authorization from the configured LedgerLens service account. `score` and `confidence` must be in the range 0-100.
+Called by the authorised LedgerLens off-chain service to register a computed risk score on-chain. Requires authorization from the configured LedgerLens service account. `score` and `confidence` must be in the range 0-100, and `timestamp` must be non-zero.
 
 ### `get_score(wallet: Address, asset_pair: Symbol) -> RiskScore`
 Read-only function callable by any Soroban contract. Returns the most recent LedgerLens risk score and metadata for a given wallet and asset pair.
@@ -87,7 +87,8 @@ pub struct RiskScore {
 1. **Authorization Checks**: Only the authorised LedgerLens service account can submit scores
 2. **Read-Only Composability**: `get_score` is permissionless and side-effect free, safe for any contract to call
 3. **Bounded Values**: Scores and confidence are constrained to the 0-100 range
-4. **Overflow Protection**: Safe math operations with overflow checks
+4. **Timestamp Validation**: `timestamp = 0` is rejected with `InvalidTimestamp = 11`
+5. **Overflow Protection**: Safe math operations with overflow checks
 
 ## Testing
 
