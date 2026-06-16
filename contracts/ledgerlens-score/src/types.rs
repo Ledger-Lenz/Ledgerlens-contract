@@ -54,6 +54,8 @@ pub enum DataKey {
     Watchlist(Address),
     /// Global risk-score threshold; scores ≥ threshold emit a breach event.
     RiskThreshold,
+    /// Configurable max depth for each wallet/pair score history ring.
+    HistoryMaxDepth,
     /// Ordered ring buffer of the last N risk scores for a wallet/pair.
     ScoreHistory(Address, Symbol),
     /// Baked-in contract version number.

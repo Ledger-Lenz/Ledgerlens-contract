@@ -64,6 +64,12 @@ Called by the authorised LedgerLens off-chain service to register a computed ris
 ### `get_score(wallet: Address, asset_pair: Symbol) -> RiskScore`
 Read-only function callable by any Soroban contract. Returns the most recent LedgerLens risk score and metadata for a given wallet and asset pair.
 
+### `set_history_max_depth(depth: u32)`
+Updates the per-wallet/asset-pair score history ring-buffer depth. Admin only; values must be between 1 and 50. Reducing the depth truncates existing histories lazily on the next score submission.
+
+### `get_history_max_depth() -> u32`
+Read-only lookup of the current score history ring-buffer depth. Defaults to 10.
+
 ### `set_service(new_service: Address)`
 Rotates the authorised off-chain scoring service address. Admin only.
 
@@ -240,6 +246,8 @@ pub struct RiskScore {
 | `initialize(admin, service)` | deployer | admin (one-time) | deployment tooling only |
 | `submit_score(wallet, asset_pair, score, benford_flag, ml_flag, timestamp, confidence)` | LedgerLens service account | `service.require_auth()` | **`api`** — writes scores produced by `core` |
 | `get_score(wallet, asset_pair)` | anyone | none (read-only) | **`api`**, **`dashboard`** (via api), and any third-party Soroban contract that wants to gate on LedgerLens risk |
+| `set_history_max_depth(depth)` | admin | `admin.require_auth()` | ops/admin tooling for tuning score-history retention without redeployment |
+| `get_history_max_depth()` | anyone | none (read-only) | **`api`**, **`dashboard`**, and monitoring tools that display score-history policy |
 | `set_service(new_service)` | admin | `admin.require_auth()` | ops/admin tooling for key rotation |
 | `get_admin()` / `get_service()` | anyone | none (read-only) | ops tooling, `api` health checks |
 

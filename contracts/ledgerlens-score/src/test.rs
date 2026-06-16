@@ -25,6 +25,15 @@ fn initialized<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address, Addres
     (env, client, admin, service)
 }
 
+fn submit_history_score(
+    client: &LedgerLensScoreContractClient<'_>,
+    wallet: &Address,
+    asset_pair: &soroban_sdk::Symbol,
+    index: u32,
+) {
+    client.submit_score(wallet, asset_pair, &(index * 2), &false, &false, &(index as u64), &50, &1);
+}
+
 // ── Initialization ────────────────────────────────────────────────────────────
 
 #[test]
@@ -383,6 +392,80 @@ fn test_score_history_max_depth_enforced() {
     assert_eq!(history.get(0).unwrap().score, 16);
     // Newest: i=11 → score=88
     assert_eq!(history.get(9).unwrap().score, 88);
+}
+
+#[test]
+fn test_default_history_depth_is_10() {
+    let (_env, client, _admin, _service) = initialized();
+
+    assert_eq!(client.get_history_max_depth(), 10);
+}
+
+#[test]
+fn test_set_history_max_depth_increases_ring() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    client.set_history_max_depth(&20);
+
+    for i in 0u32..15 {
+        submit_history_score(&client, &wallet, &asset_pair, i);
+    }
+
+    let history = client.get_score_history(&wallet, &asset_pair);
+    assert_eq!(history.len(), 15);
+    assert_eq!(history.get(0).unwrap().score, 0);
+    assert_eq!(history.get(14).unwrap().score, 28);
+}
+
+#[test]
+fn test_set_history_max_depth_decreases_ring_on_next_write() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    client.set_history_max_depth(&5);
+    for i in 0u32..5 {
+        submit_history_score(&client, &wallet, &asset_pair, i);
+    }
+
+    client.set_history_max_depth(&3);
+    assert_eq!(client.get_score_history(&wallet, &asset_pair).len(), 5);
+
+    submit_history_score(&client, &wallet, &asset_pair, 5);
+
+    let history = client.get_score_history(&wallet, &asset_pair);
+    assert_eq!(history.len(), 3);
+    assert_eq!(history.get(0).unwrap().score, 6);
+    assert_eq!(history.get(2).unwrap().score, 10);
+}
+
+#[test]
+fn test_history_depth_zero_rejected() {
+    let (_env, client, _admin, _service) = initialized();
+
+    let result = client.try_set_history_max_depth(&0);
+    assert_eq!(result, Err(Ok(Error::InvalidHistoryDepth)));
+}
+
+#[test]
+fn test_history_depth_above_ceiling_rejected() {
+    let (_env, client, _admin, _service) = initialized();
+
+    let result = client.try_set_history_max_depth(&51);
+    assert_eq!(result, Err(Ok(Error::InvalidHistoryDepth)));
+}
+
+#[test]
+fn test_history_depth_at_ceiling_accepted() {
+    let (_env, client, _admin, _service) = initialized();
+
+    client.set_history_max_depth(&50);
+
+    assert_eq!(client.get_history_max_depth(), 50);
 }
 
 #[test]

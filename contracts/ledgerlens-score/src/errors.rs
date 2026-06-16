@@ -20,4 +20,6 @@ pub enum Error {
     EmptyBatch = 9,
     /// Returned when a batch exceeds the MAX_BATCH_SIZE limit.
     BatchTooLarge = 10,
+    /// Returned when a history depth of 0 or above MAX_HISTORY_DEPTH is requested.
+    InvalidHistoryDepth = 13,
 }

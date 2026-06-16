@@ -303,6 +303,30 @@ impl LedgerLensScoreContract {
         storage::get_risk_threshold(&env)
     }
 
+    // ── Score history depth ──────────────────────────────────────────────────
+
+    /// Set the per-wallet/pair score history ring-buffer depth.  Admin only.
+    ///
+    /// Reducing the depth does not retroactively truncate existing histories;
+    /// extra entries are evicted lazily the next time `submit_score` or
+    /// `submit_scores_batch` appends to that wallet/pair history.
+    pub fn set_history_max_depth(env: Env, depth: u32) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if depth == 0 || depth > constants::MAX_HISTORY_DEPTH {
+            return Err(Error::InvalidHistoryDepth);
+        }
+        storage::get_admin(&env).require_auth();
+        storage::set_history_max_depth(&env, depth);
+        Ok(())
+    }
+
+    /// Returns the current per-wallet/pair score history depth.
+    pub fn get_history_max_depth(env: Env) -> u32 {
+        storage::get_history_max_depth(&env)
+    }
+
     // ── Read-only admin / service ─────────────────────────────────────────────
 
     /// Returns the current admin address.

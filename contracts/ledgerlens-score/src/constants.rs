@@ -2,8 +2,11 @@
 pub const SCORE_TTL_THRESHOLD: u32 = 518_400; // ~30 days
 pub const SCORE_TTL_EXTEND_TO: u32 = 777_600; // ~45 days
 
-/// Maximum score-history entries retained per wallet/asset-pair ring buffer.
-pub const HISTORY_MAX_DEPTH: u32 = 10;
+/// Hard ceiling on the ring-buffer depth to bound storage costs.
+pub const MAX_HISTORY_DEPTH: u32 = 50;
+
+/// Default score-history entries retained per wallet/asset-pair ring buffer.
+pub const DEFAULT_HISTORY_MAX_DEPTH: u32 = 10;
 
 /// Maximum number of entries accepted in a single batch submission call.
 pub const MAX_BATCH_SIZE: u32 = 20;

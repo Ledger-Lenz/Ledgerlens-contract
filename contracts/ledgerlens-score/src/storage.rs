@@ -1,7 +1,7 @@
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
 use crate::constants::{
-    DEFAULT_RISK_THRESHOLD, HISTORY_MAX_DEPTH, SCORE_TTL_EXTEND_TO, SCORE_TTL_THRESHOLD,
+    DEFAULT_HISTORY_MAX_DEPTH, DEFAULT_RISK_THRESHOLD, SCORE_TTL_EXTEND_TO, SCORE_TTL_THRESHOLD,
 };
 use crate::types::{DataKey, RiskScore};
 
@@ -101,6 +101,17 @@ pub fn set_risk_threshold(env: &Env, threshold: u32) {
     env.storage().instance().set(&DataKey::RiskThreshold, &threshold);
 }
 
+// ── Score history depth ──────────────────────────────────────────────────────
+
+pub fn get_history_max_depth(env: &Env) -> u32 {
+    let result: Option<u32> = env.storage().instance().get(&DataKey::HistoryMaxDepth);
+    result.unwrap_or(DEFAULT_HISTORY_MAX_DEPTH)
+}
+
+pub fn set_history_max_depth(env: &Env, depth: u32) {
+    env.storage().instance().set(&DataKey::HistoryMaxDepth, &depth);
+}
+
 // ── Score history ring buffer ────────────────────────────────────────────────
 
 pub fn push_score_history(env: &Env, wallet: &Address, asset_pair: &Symbol, score: &RiskScore) {
@@ -111,7 +122,8 @@ pub fn push_score_history(env: &Env, wallet: &Address, asset_pair: &Symbol, scor
     history.push_back(score.clone());
 
     // Evict oldest entry when the ring exceeds the depth cap.
-    while history.len() > HISTORY_MAX_DEPTH {
+    let max_depth = get_history_max_depth(env);
+    while history.len() > max_depth {
         history.remove(0);
     }
 
