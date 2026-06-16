@@ -1,6 +1,10 @@
 #![cfg(test)]
 
-use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env, Vec};
+use soroban_sdk::{
+    symbol_short,
+    testutils::{Address as _, Ledger},
+    Address, Env, Vec,
+};
 
 use crate::{Error, LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreSubmission};
 
@@ -23,6 +27,12 @@ fn initialized<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address, Addres
     let (env, client, admin, service) = setup();
     client.initialize(&admin, &service);
     (env, client, admin, service)
+}
+
+fn set_ledger_timestamp(env: &Env, timestamp: u64) {
+    env.ledger().with_mut(|ledger| {
+        ledger.timestamp = timestamp;
+    });
 }
 
 // ── Initialization ────────────────────────────────────────────────────────────
@@ -74,6 +84,93 @@ fn test_get_score_not_found() {
 
     let result = client.try_get_score(&wallet, &asset_pair);
     assert_eq!(result, Err(Ok(Error::ScoreNotFound)));
+}
+
+#[test]
+fn test_is_score_stale_no_score() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    assert!(client.is_score_stale(&wallet, &asset_pair));
+}
+
+#[test]
+fn test_is_score_stale_fresh_score() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+    set_ledger_timestamp(&env, 1_700_000_000);
+
+    client.submit_score(&wallet, &asset_pair, &45, &false, &false, &1_700_000_000, &80, &1);
+
+    assert!(!client.is_score_stale(&wallet, &asset_pair));
+}
+
+#[test]
+fn test_is_score_stale_after_window() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+    let score_timestamp = 1_700_000_000;
+    set_ledger_timestamp(&env, score_timestamp);
+
+    client.submit_score(&wallet, &asset_pair, &45, &false, &false, &score_timestamp, &80, &1);
+
+    set_ledger_timestamp(&env, score_timestamp + 604_800 + 1);
+
+    assert!(client.is_score_stale(&wallet, &asset_pair));
+}
+
+#[test]
+fn test_is_score_stale_exactly_at_window() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+    let score_timestamp = 1_700_000_000;
+    set_ledger_timestamp(&env, score_timestamp);
+
+    client.submit_score(&wallet, &asset_pair, &45, &false, &false, &score_timestamp, &80, &1);
+
+    set_ledger_timestamp(&env, score_timestamp + 604_800);
+
+    assert!(!client.is_score_stale(&wallet, &asset_pair));
+}
+
+#[test]
+fn test_set_staleness_window_zero_rejected() {
+    let (_env, client, _admin, _service) = initialized();
+
+    let result = client.try_set_staleness_window(&0);
+    assert_eq!(result, Err(Ok(Error::InvalidStalenessWindow)));
+}
+
+#[test]
+fn test_default_staleness_window_is_7_days() {
+    let (_env, client, _admin, _service) = initialized();
+
+    assert_eq!(client.get_staleness_window(), 604_800);
+}
+
+#[test]
+fn test_set_staleness_window_updates_stale_check() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+    let score_timestamp = 1_700_000_000;
+    set_ledger_timestamp(&env, score_timestamp);
+
+    client.submit_score(&wallet, &asset_pair, &45, &false, &false, &score_timestamp, &80, &1);
+
+    client.set_staleness_window(&60);
+    set_ledger_timestamp(&env, score_timestamp + 61);
+
+    assert!(client.is_score_stale(&wallet, &asset_pair));
 }
 
 #[test]

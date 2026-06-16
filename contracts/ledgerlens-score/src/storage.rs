@@ -1,7 +1,8 @@
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
 use crate::constants::{
-    DEFAULT_RISK_THRESHOLD, HISTORY_MAX_DEPTH, SCORE_TTL_EXTEND_TO, SCORE_TTL_THRESHOLD,
+    DEFAULT_RISK_THRESHOLD, DEFAULT_STALENESS_WINDOW_SECS, HISTORY_MAX_DEPTH, SCORE_TTL_EXTEND_TO,
+    SCORE_TTL_THRESHOLD,
 };
 use crate::types::{DataKey, RiskScore};
 
@@ -99,6 +100,17 @@ pub fn get_risk_threshold(env: &Env) -> u32 {
 
 pub fn set_risk_threshold(env: &Env, threshold: u32) {
     env.storage().instance().set(&DataKey::RiskThreshold, &threshold);
+}
+
+// ── Score staleness window ───────────────────────────────────────────────────
+
+pub fn get_staleness_window(env: &Env) -> u64 {
+    let result: Option<u64> = env.storage().instance().get(&DataKey::StalenessWindow);
+    result.unwrap_or(DEFAULT_STALENESS_WINDOW_SECS)
+}
+
+pub fn set_staleness_window(env: &Env, window_secs: u64) {
+    env.storage().instance().set(&DataKey::StalenessWindow, &window_secs);
 }
 
 // ── Score history ring buffer ────────────────────────────────────────────────

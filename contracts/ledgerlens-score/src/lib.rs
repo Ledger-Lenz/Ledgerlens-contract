@@ -162,6 +162,39 @@ impl LedgerLensScoreContract {
         storage::get_score(&env, &wallet, &asset_pair).ok_or(Error::ScoreNotFound)
     }
 
+    /// Returns `true` when no score exists for this pair, or when the stored
+    /// score is older than the configured staleness window.  The age check uses
+    /// `saturating_sub`, so a future-dated score timestamp is treated as age 0
+    /// instead of underflowing; this covers ledger clock skew safely.
+    pub fn is_score_stale(env: Env, wallet: Address, asset_pair: Symbol) -> bool {
+        match storage::get_score(&env, &wallet, &asset_pair) {
+            None => true,
+            Some(score) => {
+                let window = storage::get_staleness_window(&env);
+                let ledger_ts = env.ledger().timestamp();
+                ledger_ts.saturating_sub(score.timestamp) > window
+            }
+        }
+    }
+
+    /// Set the staleness window in seconds.  Zero is rejected.  Admin only.
+    pub fn set_staleness_window(env: Env, window_secs: u64) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if window_secs == 0 {
+            return Err(Error::InvalidStalenessWindow);
+        }
+        storage::get_admin(&env).require_auth();
+        storage::set_staleness_window(&env, window_secs);
+        Ok(())
+    }
+
+    /// Returns the current staleness window in seconds.
+    pub fn get_staleness_window(env: Env) -> u64 {
+        storage::get_staleness_window(&env)
+    }
+
     /// Returns the ordered history of the last `HISTORY_MAX_DEPTH` risk scores
     /// for `wallet` / `asset_pair`, oldest first.  Returns an empty Vec when no
     /// scores have been submitted yet.

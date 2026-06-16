@@ -64,6 +64,15 @@ Called by the authorised LedgerLens off-chain service to register a computed ris
 ### `get_score(wallet: Address, asset_pair: Symbol) -> RiskScore`
 Read-only function callable by any Soroban contract. Returns the most recent LedgerLens risk score and metadata for a given wallet and asset pair.
 
+### `is_score_stale(wallet: Address, asset_pair: Symbol) -> bool`
+Read-only function callable by any Soroban contract. Returns `true` when no score exists, or when the stored score is older than the configured staleness window.
+
+### `set_staleness_window(window_secs: u64)`
+Updates the staleness window in seconds. Admin only; zero is rejected.
+
+### `get_staleness_window() -> u64`
+Read-only lookup of the current staleness window in seconds. Defaults to 604800 seconds (7 days).
+
 ### `set_service(new_service: Address)`
 Rotates the authorised off-chain scoring service address. Admin only.
 
@@ -240,6 +249,9 @@ pub struct RiskScore {
 | `initialize(admin, service)` | deployer | admin (one-time) | deployment tooling only |
 | `submit_score(wallet, asset_pair, score, benford_flag, ml_flag, timestamp, confidence)` | LedgerLens service account | `service.require_auth()` | **`api`** — writes scores produced by `core` |
 | `get_score(wallet, asset_pair)` | anyone | none (read-only) | **`api`**, **`dashboard`** (via api), and any third-party Soroban contract that wants to gate on LedgerLens risk |
+| `is_score_stale(wallet, asset_pair)` | anyone | none (read-only) | **`api`**, **`dashboard`**, and third-party contracts that need to reject outdated scores |
+| `set_staleness_window(window_secs)` | admin | `admin.require_auth()` | ops/admin tooling for freshness policy changes |
+| `get_staleness_window()` | anyone | none (read-only) | **`api`**, **`dashboard`**, and monitoring tools that display freshness policy |
 | `set_service(new_service)` | admin | `admin.require_auth()` | ops/admin tooling for key rotation |
 | `get_admin()` / `get_service()` | anyone | none (read-only) | ops tooling, `api` health checks |
 

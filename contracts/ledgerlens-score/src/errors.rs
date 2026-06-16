@@ -20,4 +20,6 @@ pub enum Error {
     EmptyBatch = 9,
     /// Returned when a batch exceeds the MAX_BATCH_SIZE limit.
     BatchTooLarge = 10,
+    /// Returned when a staleness window value of 0 is provided.
+    InvalidStalenessWindow = 12,
 }

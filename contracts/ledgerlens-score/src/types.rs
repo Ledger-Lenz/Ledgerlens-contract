@@ -54,6 +54,8 @@ pub enum DataKey {
     Watchlist(Address),
     /// Global risk-score threshold; scores ≥ threshold emit a breach event.
     RiskThreshold,
+    /// Staleness window in seconds for submitted risk scores.
+    StalenessWindow,
     /// Ordered ring buffer of the last N risk scores for a wallet/pair.
     ScoreHistory(Address, Symbol),
     /// Baked-in contract version number.

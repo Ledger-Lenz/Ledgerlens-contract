@@ -11,5 +11,8 @@ pub const MAX_BATCH_SIZE: u32 = 20;
 /// Default risk threshold used when no threshold has been configured by admin.
 pub const DEFAULT_RISK_THRESHOLD: u32 = 75;
 
+/// Default staleness window: 7 days in seconds.
+pub const DEFAULT_STALENESS_WINDOW_SECS: u64 = 604_800;
+
 /// Semantic contract version; bump on breaking ABI changes.
 pub const CONTRACT_VERSION: u32 = 1;
