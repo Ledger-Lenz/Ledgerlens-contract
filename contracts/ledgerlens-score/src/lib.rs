@@ -12,7 +12,7 @@ mod test;
 use soroban_sdk::{contract, contractimpl, Address, Env, Symbol, Vec};
 
 pub use errors::Error;
-pub use types::{RiskScore, ScoreSubmission};
+pub use types::{BatchEntryResult, BatchResult, RiskScore, ScoreSubmission};
 
 /// On-chain truth layer for LedgerLens risk scores.
 ///
@@ -95,9 +95,12 @@ impl LedgerLensScoreContract {
 
     /// Submit multiple risk scores in a single invocation.  The service
     /// account authorises once for the whole batch.  Entries with
-    /// out-of-range `score` or `confidence` are silently skipped; the
-    /// function returns the count of successfully written entries.
-    pub fn submit_scores_batch(env: Env, submissions: Vec<ScoreSubmission>) -> Result<u32, Error> {
+    /// out-of-range `score` or `confidence` are rejected in the returned
+    /// `BatchResult`, which preserves one result per submitted entry.
+    pub fn submit_scores_batch(
+        env: Env,
+        submissions: Vec<ScoreSubmission>,
+    ) -> Result<BatchResult, Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
         }
@@ -116,12 +119,24 @@ impl LedgerLensScoreContract {
         }
 
         let threshold = storage::get_risk_threshold(&env);
-        let mut accepted: u32 = 0;
+        let mut accepted_count: u32 = 0;
+        let mut rejected_count: u32 = 0;
+        let mut results: Vec<BatchEntryResult> = Vec::new(&env);
 
         for i in 0..submissions.len() {
             let sub = submissions.get(i).unwrap();
 
-            if sub.score > 100 || sub.confidence > 100 {
+            let rejection_code = if sub.score > 100 {
+                Error::InvalidScore as u32
+            } else if sub.confidence > 100 {
+                Error::InvalidConfidence as u32
+            } else {
+                0
+            };
+
+            if rejection_code != 0 {
+                rejected_count += 1;
+                results.push_back(BatchEntryResult { index: i, accepted: false, rejection_code });
                 continue;
             }
 
@@ -148,10 +163,11 @@ impl LedgerLensScoreContract {
             }
 
             events::score_submitted(&env, &sub.wallet, &sub.asset_pair, &risk_score);
-            accepted += 1;
+            accepted_count += 1;
+            results.push_back(BatchEntryResult { index: i, accepted: true, rejection_code: 0 });
         }
 
-        Ok(accepted)
+        Ok(BatchResult { accepted_count, rejected_count, results })
     }
 
     // ── Score retrieval ──────────────────────────────────────────────────────

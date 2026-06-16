@@ -25,6 +25,25 @@ fn initialized<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address, Addres
     (env, client, admin, service)
 }
 
+fn submission(
+    wallet: &Address,
+    asset_pair: &soroban_sdk::Symbol,
+    score: u32,
+    confidence: u32,
+    timestamp: u64,
+) -> ScoreSubmission {
+    ScoreSubmission {
+        wallet: wallet.clone(),
+        asset_pair: asset_pair.clone(),
+        score,
+        benford_flag: false,
+        ml_flag: false,
+        timestamp,
+        confidence,
+        model_version: 1,
+    }
+}
+
 // ── Initialization ────────────────────────────────────────────────────────────
 
 #[test]
@@ -434,8 +453,12 @@ fn test_submit_scores_batch_writes_all_entries() {
         model_version: 2,
     });
 
-    let accepted = client.submit_scores_batch(&batch);
-    assert_eq!(accepted, 2);
+    let result = client.submit_scores_batch(&batch);
+    assert_eq!(result.accepted_count, 2);
+    assert_eq!(result.rejected_count, 0);
+    assert_eq!(result.results.len(), 2);
+    assert!(result.results.get(0).unwrap().accepted);
+    assert!(result.results.get(1).unwrap().accepted);
 
     assert_eq!(client.get_score(&wallet1, &asset_pair).score, 45);
     assert_eq!(client.get_score(&wallet2, &asset_pair).score, 85);
@@ -471,11 +494,117 @@ fn test_submit_scores_batch_skips_invalid_entries() {
         model_version: 1,
     });
 
-    let accepted = client.submit_scores_batch(&batch);
-    assert_eq!(accepted, 1);
+    let result = client.submit_scores_batch(&batch);
+    assert_eq!(result.accepted_count, 1);
+    assert_eq!(result.rejected_count, 1);
+    assert_eq!(result.results.len(), 2);
+    assert!(!result.results.get(0).unwrap().accepted);
+    assert_eq!(result.results.get(0).unwrap().rejection_code, Error::InvalidScore as u32);
+    assert!(result.results.get(1).unwrap().accepted);
 
     assert_eq!(client.get_score(&wallet_ok, &asset_pair).score, 60);
     assert_eq!(client.try_get_score(&wallet_bad, &asset_pair), Err(Ok(Error::ScoreNotFound)));
+}
+
+#[test]
+fn test_batch_result_all_accepted() {
+    let (env, client, _admin, _service) = initialized();
+
+    let asset_pair = symbol_short!("XLM_USDC");
+    let mut batch: Vec<ScoreSubmission> = Vec::new(&env);
+    for i in 0u32..3 {
+        batch.push_back(submission(
+            &Address::generate(&env),
+            &asset_pair,
+            40 + i,
+            80,
+            i as u64 + 1,
+        ));
+    }
+
+    let result = client.submit_scores_batch(&batch);
+
+    assert_eq!(result.accepted_count, 3);
+    assert_eq!(result.rejected_count, 0);
+    assert_eq!(result.results.len(), 3);
+    for i in 0..3 {
+        let entry = result.results.get(i).unwrap();
+        assert_eq!(entry.index, i);
+        assert!(entry.accepted);
+        assert_eq!(entry.rejection_code, 0);
+    }
+}
+
+#[test]
+fn test_batch_result_mixed() {
+    let (env, client, _admin, _service) = initialized();
+
+    let asset_pair = symbol_short!("XLM_USDC");
+    let mut batch: Vec<ScoreSubmission> = Vec::new(&env);
+    batch.push_back(submission(&Address::generate(&env), &asset_pair, 40, 80, 1));
+    batch.push_back(submission(&Address::generate(&env), &asset_pair, 101, 80, 2));
+    batch.push_back(submission(&Address::generate(&env), &asset_pair, 55, 90, 3));
+
+    let result = client.submit_scores_batch(&batch);
+
+    assert_eq!(result.accepted_count, 2);
+    assert_eq!(result.rejected_count, 1);
+    assert!(result.results.get(0).unwrap().accepted);
+    assert!(!result.results.get(1).unwrap().accepted);
+    assert_eq!(result.results.get(1).unwrap().rejection_code, Error::InvalidScore as u32);
+    assert!(result.results.get(2).unwrap().accepted);
+}
+
+#[test]
+fn test_batch_result_index_correct() {
+    let (env, client, _admin, _service) = initialized();
+
+    let asset_pair = symbol_short!("XLM_USDC");
+    let mut batch: Vec<ScoreSubmission> = Vec::new(&env);
+    batch.push_back(submission(&Address::generate(&env), &asset_pair, 45, 80, 1));
+    batch.push_back(submission(&Address::generate(&env), &asset_pair, 45, 101, 2));
+    batch.push_back(submission(&Address::generate(&env), &asset_pair, 45, 80, 3));
+
+    let result = client.submit_scores_batch(&batch);
+    let rejected = result.results.get(1).unwrap();
+
+    assert_eq!(rejected.index, 1);
+    assert!(!rejected.accepted);
+    assert_eq!(rejected.rejection_code, Error::InvalidConfidence as u32);
+}
+
+#[test]
+fn test_batch_result_all_rejected() {
+    let (env, client, _admin, _service) = initialized();
+
+    let asset_pair = symbol_short!("XLM_USDC");
+    let mut batch: Vec<ScoreSubmission> = Vec::new(&env);
+    batch.push_back(submission(&Address::generate(&env), &asset_pair, 101, 80, 1));
+    batch.push_back(submission(&Address::generate(&env), &asset_pair, 45, 101, 2));
+
+    let result = client.submit_scores_batch(&batch);
+
+    assert_eq!(result.accepted_count, 0);
+    assert_eq!(result.rejected_count, 2);
+    assert_eq!(result.results.len(), 2);
+    assert!(!result.results.get(0).unwrap().accepted);
+    assert!(!result.results.get(1).unwrap().accepted);
+}
+
+#[test]
+fn test_batch_result_vec_length_matches_input() {
+    let (env, client, _admin, _service) = initialized();
+
+    let asset_pair = symbol_short!("XLM_USDC");
+    let mut batch: Vec<ScoreSubmission> = Vec::new(&env);
+    batch.push_back(submission(&Address::generate(&env), &asset_pair, 101, 80, 1));
+    batch.push_back(submission(&Address::generate(&env), &asset_pair, 45, 80, 2));
+    batch.push_back(submission(&Address::generate(&env), &asset_pair, 45, 101, 3));
+    batch.push_back(submission(&Address::generate(&env), &asset_pair, 55, 75, 4));
+
+    let result = client.submit_scores_batch(&batch);
+
+    assert_eq!(result.results.len(), batch.len());
 }
 
 #[test]
@@ -541,9 +670,9 @@ fn test_batch_also_populates_score_history() {
 // ── Contract version ──────────────────────────────────────────────────────────
 
 #[test]
-fn test_get_version_returns_one() {
+fn test_get_version_returns_two() {
     let (_env, client, _admin, _service) = initialized();
-    assert_eq!(client.get_version(), 1);
+    assert_eq!(client.get_version(), 2);
 }
 
 // ── Not-initialized guards ────────────────────────────────────────────────────

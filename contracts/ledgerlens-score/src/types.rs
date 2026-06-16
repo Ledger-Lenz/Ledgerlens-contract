@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Symbol};
+use soroban_sdk::{contracttype, Address, Symbol, Vec};
 
 /// On-chain record of the latest LedgerLens risk assessment for a
 /// wallet / asset-pair combination. Written by `submit_score` and
@@ -35,6 +35,30 @@ pub struct ScoreSubmission {
     pub timestamp: u64,
     pub confidence: u32,
     pub model_version: u32,
+}
+
+/// Per-entry outcome returned by `submit_scores_batch`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchEntryResult {
+    /// Zero-based index of this entry in the submitted batch.
+    pub index: u32,
+    /// True if the entry was written to storage.
+    pub accepted: bool,
+    /// Error code if rejected, or 0 when accepted.
+    pub rejection_code: u32,
+}
+
+/// Structured outcome for a batch score submission.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchResult {
+    /// Number of entries successfully written to storage.
+    pub accepted_count: u32,
+    /// Number of entries rejected during per-entry validation.
+    pub rejected_count: u32,
+    /// One result per submitted entry, preserving input order.
+    pub results: Vec<BatchEntryResult>,
 }
 
 #[contracttype]

@@ -61,6 +61,9 @@ One-time setup. Sets the admin (who can rotate the service address) and the Ledg
 ### `submit_score(wallet: Address, asset_pair: Symbol, score: u32, benford_flag: bool, ml_flag: bool, timestamp: u64, confidence: u32)`
 Called by the authorised LedgerLens off-chain service to register a computed risk score on-chain. Requires authorization from the configured LedgerLens service account. `score` and `confidence` must be in the range 0-100.
 
+### `submit_scores_batch(submissions: Vec<ScoreSubmission>) -> BatchResult`
+Called by the authorised LedgerLens off-chain service to register multiple risk scores in one invocation. Returns `accepted_count`, `rejected_count`, and one `BatchEntryResult` per input entry so callers can audit which submissions were written or rejected.
+
 ### `get_score(wallet: Address, asset_pair: Symbol) -> RiskScore`
 Read-only function callable by any Soroban contract. Returns the most recent LedgerLens risk score and metadata for a given wallet and asset pair.
 
@@ -239,9 +242,12 @@ pub struct RiskScore {
 |---|---|---|---|
 | `initialize(admin, service)` | deployer | admin (one-time) | deployment tooling only |
 | `submit_score(wallet, asset_pair, score, benford_flag, ml_flag, timestamp, confidence)` | LedgerLens service account | `service.require_auth()` | **`api`** — writes scores produced by `core` |
+| `submit_scores_batch(submissions)` | LedgerLens service account | `service.require_auth()` | **`api`** — writes multiple scores and receives structured per-entry results |
 | `get_score(wallet, asset_pair)` | anyone | none (read-only) | **`api`**, **`dashboard`** (via api), and any third-party Soroban contract that wants to gate on LedgerLens risk |
 | `set_service(new_service)` | admin | `admin.require_auth()` | ops/admin tooling for key rotation |
 | `get_admin()` / `get_service()` | anyone | none (read-only) | ops tooling, `api` health checks |
+
+`submit_scores_batch` returning `BatchResult` is a breaking ABI change. Contract version `2` signals that callers should decode the structured result instead of a bare accepted count.
 
 `asset_pair` is a `Symbol` (≤ 9 chars in Soroban's short-symbol form, e.g. `XLM_USDC`). If `core`/`api` need pair identifiers longer than 9 characters, they must agree on a canonical short encoding here before the contract is deployed to mainnet.
 
