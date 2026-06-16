@@ -44,6 +44,22 @@ pub fn get_score(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<Ris
     score
 }
 
+pub fn increment_score_count(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    let key = DataKey::ScoreCount(wallet.clone(), asset_pair.clone());
+    let current: u32 = env.storage().persistent().get(&key).unwrap_or(0);
+    env.storage().persistent().set(&key, &(current + 1));
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+pub fn get_score_count(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 {
+    let key = DataKey::ScoreCount(wallet.clone(), asset_pair.clone());
+    let count: u32 = env.storage().persistent().get(&key).unwrap_or(0);
+    if count > 0 {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    count
+}
+
 // ── Pause circuit breaker ────────────────────────────────────────────────────
 
 pub fn is_paused(env: &Env) -> bool {

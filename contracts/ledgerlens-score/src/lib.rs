@@ -83,6 +83,7 @@ impl LedgerLensScoreContract {
 
         storage::set_score(&env, &wallet, &asset_pair, &risk_score);
         storage::push_score_history(&env, &wallet, &asset_pair, &risk_score);
+        storage::increment_score_count(&env, &wallet, &asset_pair);
 
         let threshold = storage::get_risk_threshold(&env);
         if score >= threshold {
@@ -136,6 +137,7 @@ impl LedgerLensScoreContract {
 
             storage::set_score(&env, &sub.wallet, &sub.asset_pair, &risk_score);
             storage::push_score_history(&env, &sub.wallet, &sub.asset_pair, &risk_score);
+            storage::increment_score_count(&env, &sub.wallet, &sub.asset_pair);
 
             if sub.score >= threshold {
                 events::threshold_breached(
@@ -167,6 +169,15 @@ impl LedgerLensScoreContract {
     /// scores have been submitted yet.
     pub fn get_score_history(env: Env, wallet: Address, asset_pair: Symbol) -> Vec<RiskScore> {
         storage::get_score_history(&env, &wallet, &asset_pair)
+    }
+
+    /// Returns the total accepted submissions for `wallet` / `asset_pair`.
+    ///
+    /// Unlike `get_score_history`, this count is not capped by
+    /// `HISTORY_MAX_DEPTH`; it continues increasing after old history entries
+    /// are evicted from the ring buffer.
+    pub fn get_score_count(env: Env, wallet: Address, asset_pair: Symbol) -> u32 {
+        storage::get_score_count(&env, &wallet, &asset_pair)
     }
 
     // ── Service management ───────────────────────────────────────────────────

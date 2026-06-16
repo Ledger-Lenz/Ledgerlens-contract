@@ -56,6 +56,8 @@ pub enum DataKey {
     RiskThreshold,
     /// Ordered ring buffer of the last N risk scores for a wallet/pair.
     ScoreHistory(Address, Symbol),
+    /// Total accepted score submissions for a wallet/pair.
+    ScoreCount(Address, Symbol),
     /// Baked-in contract version number.
     ContractVersion,
 }

@@ -64,6 +64,9 @@ Called by the authorised LedgerLens off-chain service to register a computed ris
 ### `get_score(wallet: Address, asset_pair: Symbol) -> RiskScore`
 Read-only function callable by any Soroban contract. Returns the most recent LedgerLens risk score and metadata for a given wallet and asset pair.
 
+### `get_score_count(wallet: Address, asset_pair: Symbol) -> u32`
+Read-only function returning the total accepted submissions for a wallet and asset pair. This count is not capped by the score history ring-buffer depth.
+
 ### `set_service(new_service: Address)`
 Rotates the authorised off-chain scoring service address. Admin only.
 
@@ -240,6 +243,7 @@ pub struct RiskScore {
 | `initialize(admin, service)` | deployer | admin (one-time) | deployment tooling only |
 | `submit_score(wallet, asset_pair, score, benford_flag, ml_flag, timestamp, confidence)` | LedgerLens service account | `service.require_auth()` | **`api`** — writes scores produced by `core` |
 | `get_score(wallet, asset_pair)` | anyone | none (read-only) | **`api`**, **`dashboard`** (via api), and any third-party Soroban contract that wants to gate on LedgerLens risk |
+| `get_score_count(wallet, asset_pair)` | anyone | none (read-only) | **`api`** and operator tooling — tracks total accepted submissions beyond the history ring-buffer depth |
 | `set_service(new_service)` | admin | `admin.require_auth()` | ops/admin tooling for key rotation |
 | `get_admin()` / `get_service()` | anyone | none (read-only) | ops tooling, `api` health checks |
 

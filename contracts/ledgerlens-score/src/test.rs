@@ -402,6 +402,96 @@ fn test_score_history_is_per_pair() {
     assert_eq!(client.get_score_history(&wallet, &pair2).get(0).unwrap().score, 90);
 }
 
+// ── Score count ──────────────────────────────────────────────────────────────
+
+#[test]
+fn test_score_count_starts_at_zero() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    assert_eq!(client.get_score_count(&wallet, &asset_pair), 0);
+}
+
+#[test]
+fn test_score_count_increments_on_submit() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    client.submit_score(&wallet, &asset_pair, &10, &false, &false, &1, &50, &1);
+    assert_eq!(client.get_score_count(&wallet, &asset_pair), 1);
+
+    client.submit_score(&wallet, &asset_pair, &20, &false, &false, &2, &60, &1);
+    assert_eq!(client.get_score_count(&wallet, &asset_pair), 2);
+}
+
+#[test]
+fn test_score_count_exceeds_history_depth() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    for i in 0u32..15 {
+        client.submit_score(&wallet, &asset_pair, &(i * 5), &false, &false, &(i as u64), &50, &1);
+    }
+
+    assert_eq!(client.get_score_history(&wallet, &asset_pair).len(), 10);
+    assert_eq!(client.get_score_count(&wallet, &asset_pair), 15);
+}
+
+#[test]
+fn test_score_count_increments_via_batch() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    let mut batch: Vec<ScoreSubmission> = Vec::new(&env);
+    batch.push_back(ScoreSubmission {
+        wallet: wallet.clone(),
+        asset_pair: asset_pair.clone(),
+        score: 45,
+        benford_flag: false,
+        ml_flag: false,
+        timestamp: 1000,
+        confidence: 80,
+        model_version: 2,
+    });
+    batch.push_back(ScoreSubmission {
+        wallet: wallet.clone(),
+        asset_pair: asset_pair.clone(),
+        score: 85,
+        benford_flag: true,
+        ml_flag: true,
+        timestamp: 2000,
+        confidence: 90,
+        model_version: 2,
+    });
+
+    assert_eq!(client.submit_scores_batch(&batch), 2);
+    assert_eq!(client.get_score_count(&wallet, &asset_pair), 2);
+}
+
+#[test]
+fn test_score_count_is_per_pair() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet = Address::generate(&env);
+    let pair1 = symbol_short!("XLM_USDC");
+    let pair2 = symbol_short!("XLM_BTC");
+
+    client.submit_score(&wallet, &pair1, &10, &false, &false, &1, &50, &1);
+    client.submit_score(&wallet, &pair2, &90, &true, &true, &2, &95, &1);
+    client.submit_score(&wallet, &pair2, &80, &true, &true, &3, &90, &1);
+
+    assert_eq!(client.get_score_count(&wallet, &pair1), 1);
+    assert_eq!(client.get_score_count(&wallet, &pair2), 2);
+}
+
 // ── Batch submission ──────────────────────────────────────────────────────────
 
 #[test]
