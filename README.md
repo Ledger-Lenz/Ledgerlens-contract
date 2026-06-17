@@ -70,6 +70,9 @@ Rotates the authorised off-chain scoring service address. Admin only.
 ### `get_admin() -> Address` / `get_service() -> Address`
 Read-only lookups of the current admin and authorised scoring service addresses.
 
+### `get_pending_admin() -> Address` / `has_pending_admin_transfer() -> Address`
+Read-only function to check the state of a pending admin.
+
 ### `get_aggregate_score(wallet: Address) -> AggregateRiskScore`
 Read-only function. Returns `wallet`'s cross-asset aggregate risk score — a weighted average computed live from every asset pair the wallet has a `RiskScore` for. Always recomputed from current per-pair scores, never served from a stale cache. Returns `ScoreNotFound` if the wallet has no scores.
 
