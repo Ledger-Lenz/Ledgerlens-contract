@@ -44,6 +44,15 @@ pub fn get_score(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<Ris
     score
 }
 
+/// Strictly read-only score lookup that, unlike [`get_score`], does **not**
+/// extend the entry's TTL. Used by the infallible cross-contract gate
+/// (`query_risk_gate`) so that calling it from another contract's guard
+/// clause has no observable side effect on this contract's state.
+pub fn peek_score(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<RiskScore> {
+    let key = DataKey::Score(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().get(&key)
+}
+
 // ── Pause circuit breaker ────────────────────────────────────────────────────
 
 pub fn is_paused(env: &Env) -> bool {

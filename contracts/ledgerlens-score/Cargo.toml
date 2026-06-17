@@ -19,3 +19,11 @@ soroban-sdk = { version = "21.0.0", features = ["testutils"] }
 
 [features]
 testutils = ["soroban-sdk/testutils"]
+
+# Reference integration showing how a third-party contract gates on a
+# LedgerLens risk score. Built as a library (it is a Soroban contract, not a
+# `fn main` binary) via: cargo build --example amm_gate -p ledgerlens-score
+[[example]]
+name = "amm_gate"
+path = "../../examples/amm_gate.rs"
+crate-type = ["lib"]
