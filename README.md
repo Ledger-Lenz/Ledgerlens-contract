@@ -320,6 +320,35 @@ The service account's `require_auth` proves a transaction was sent by the author
 
 The full byte layout and verification algorithm are specified in [`docs/attestation-spec.md`](docs/attestation-spec.md).
 
+## Batch Attestation
+
+`submit_scores_batch` enforces the service account's `require_auth` for the whole batch but leaves a *payload integrity* gap: a compromised or unauthorised service key can fill a batch with arbitrary scores. `submit_scores_batch_attested` closes that gap for batch submissions specifically.
+
+The off-chain pipeline builds a Merkle tree over every entry's per-score commitment (the same 175-byte SHA-256 preimage `submit_score` already binds) with **domain-separated prefix hashing** (RFC 9162 style: `0x00` for leaves, `0x01` for internal nodes), then signs `SHA256(merkle_root)` — *not* `merkle_root` directly — with the same secp256k1 key registered via `set_service_pubkey`. The pipeline submits the batch with one `BatchAttestation { merkle_root, signature }`. The contract performs one `secp256k1_recover` over the SHA-256-wrapped root (a soroban-sdk 21.x compatibility shim — see the spec for why), then walks each entry's inclusion proof `O(log N)` style. The result is one signature per batch (instead of one per entry) plus per-entry cryptographic payload integrity.
+
+Key properties:
+
+- **Single secp256k1 signature per batch.** One `secp256k1_recover` on-chain call regardless of batch size.
+- **Same key as `submit_score`.** No key rotation needed — the same `set_service_pubkey`-registered key signs both per-score and per-batch attestations.
+- **Backward-compatible surface.** `submit_scores_batch` is unchanged; `submit_scores_batch_attested` is a new opt-in entry point.
+- **Cost-bounded.** Per-entry Merkle proofs are capped at `MAX_MERKLE_PROOF_DEPTH` (30 levels = up to ~2^30 leaves, far above `MAX_BATCH_SIZE` of 20) and the loop walks the proof in constant gas regardless of intermediate hash mismatches.
+- **Domain-separated Merkle scheme.** Leaves (`0x00`-prefixed 33-byte preimage) and internal nodes (`0x01`-prefixed 65-byte preimage) cannot collide at any level.
+- **Capability-detectable.** `supports_interface(Symbol::new(&env, "batch_attested"))` returns `true` on deployments that include this feature.
+
+Detection: integrators can feature-detect before using it —
+
+```rust
+let cap = soroban_sdk::Symbol::new(&env, "batch_attested");
+let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+if client.supports_interface(&cap) {
+    // Use the attested batch path (one signature per batch, per-entry proofs).
+} else {
+    // Fall back to the plain `submit_scores_batch` (no payload integrity).
+}
+```
+
+Full specification (off-chain tree-construction algorithm, on-chain verification, XDR layout, reference Python/TypeScript snippets, edge cases) is in [`docs/batch-attestation-spec.md`](docs/batch-attestation-spec.md).
+
 ## Composability
 
 LedgerLens is only useful if other protocols can actually *act* on its scores. A risk score that lives in isolation is a dashboard widget; a risk score that an AMM, a lending market, or a DEX aggregator can read mid-transaction is a shared fraud-prevention layer for the entire Stellar DeFi ecosystem.

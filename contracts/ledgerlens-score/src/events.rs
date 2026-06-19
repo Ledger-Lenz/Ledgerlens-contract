@@ -141,6 +141,26 @@ pub fn service_pubkey_updated(env: &Env, pubkey: &Bytes) {
     env.events().publish((symbol_short!("pk_upd"),), pubkey.clone());
 }
 
+// ── Merkle-root batch attestation ───────────────────────────────────────────
+
+/// Emitted by `submit_scores_batch_attested` once the batch has been
+/// processed. `accepted` and `rejected` mirror the counts the function
+/// returns in its `BatchResult`; `merkle_root` is the root the secp256k1
+/// signature was produced over, so an off-chain indexer can reconcile
+/// on-chain outcomes against the originally-signed batch without
+/// re-reading the per-entry proofs.
+pub fn batch_attested(
+    env: &Env,
+    accepted: u32,
+    rejected: u32,
+    merkle_root: &BytesN<32>,
+) {
+    env.events().publish(
+        (symbol_short!("bat_ok"), merkle_root.clone()),
+        (accepted, rejected),
+    );
+}
+
 // ── History depth ─────────────────────────────────────────────────────────────
 
 /// Emitted when the admin changes the ring-buffer depth via

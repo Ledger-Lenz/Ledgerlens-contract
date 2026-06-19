@@ -66,15 +66,23 @@ Returns `true` if this deployment supports the named capability. Use it to
 feature-detect at runtime instead of hardcoding a contract version. Recognised
 capabilities (all `symbol_short!`):
 
-| Capability | Backing functionality                              |
-|------------|----------------------------------------------------|
-| `score`    | `get_score` / `submit_score`                       |
-| `history`  | `get_score_history`                                |
-| `batch`    | `submit_scores_batch`                              |
-| `gate`     | `query_risk_gate`                                  |
-| `aggr`     | `get_aggregate_score` (cross-asset aggregate risk) |
+| Capability      | Backing functionality                                                |
+|-----------------|----------------------------------------------------------------------|
+| `score`         | `get_score` / `submit_score`                                         |
+| `history`       | `get_score_history`                                                  |
+| `batch`         | `submit_scores_batch`                                                |
+| `gate`          | `query_risk_gate`                                                    |
+| `aggr`          | `get_aggregate_score` (cross-asset aggregate risk)                   |
+| `batch_attested`| `submit_scores_batch_attested` (Merkle-root attestation)             |
 
 Unrecognised capabilities return `false`.
+
+> Note: `batch_attested` is a 14-character symbol, longer than
+> `symbol_short!`'s 9-character ceiling, so it is constructed via
+> `Symbol::new(&env, "batch_attested")` rather than the `symbol_short!`
+> macro used for the shorter capabilities. The byte-level equality
+> check `capability == Symbol::new(&env, "batch_attested")` works
+> regardless of how the caller constructed the symbol.
 
 ### 1.3 Direct read functions
 
@@ -253,4 +261,6 @@ an older deployment instead of trapping on a missing function.
 
 - Reference integration: [`examples/amm_gate.rs`](../examples/amm_gate.rs)
 - Interface stability tests: `contracts/ledgerlens-score/src/test_interface.rs`
+- Batch Attestation spec: [`docs/batch-attestation-spec.md`](batch-attestation-spec.md)
+- Batch Attestation tests: `contracts/ledgerlens-score/src/test_batch_attestation.rs`
 - Contract source: `contracts/ledgerlens-score/src/lib.rs`

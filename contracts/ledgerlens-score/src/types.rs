@@ -110,6 +110,83 @@ pub struct BatchResult {
     pub results: soroban_sdk::Vec<BatchEntryResult>,
 }
 
+/// Merkle-root attestation for an entire `submit_scores_batch_attested`
+/// call: a single secp256k1 signature over the Merkle root of every entry
+/// in the batch. See `docs/batch-attestation-spec.md` for the off-chain
+/// tree-construction algorithm, the on-chain verification path, and the
+/// rationale for choosing domain-separated prefix hashing (RFC 9162 style,
+/// `0x00` for leaves / `0x01` for internal nodes) over the alternative
+/// sorted-pair scheme.
+///
+/// The signature format is intentionally byte-identical to that of
+/// [`ScoreAttestation`] — 65 bytes: 32-byte `r`, 32-byte `s`, 1-byte
+/// recovery id — so the same off-chain signing key can be reused for both
+/// per-score and per-batch paths, and so `verify_signature` can be a
+/// single shared helper.
+///
+/// # Verified-digest convention
+///
+/// `signature` is over `SHA256(merkle_root)`, **not** over `merkle_root`
+/// directly. This is a one-extra-hash convention forced by the soroban-sdk
+/// 21.x API: `env.crypto().secp256k1_recover` takes an opaque `Hash<32>`,
+/// and `Hash<32>` has no public constructor — it can only be built via a
+/// host crypto function call. Both sides wrap through SHA-256 once:
+///
+/// * **Off-chain** (`api`/`core` pipeline): build `root`, then sign
+///   `SHA256(root)`.
+/// * **On-chain** (`submit_scores_batch_attested`): wrap
+///   `attestation.merkle_root` through `env.crypto().sha256` once before
+///   calling `verify_signature`.
+///
+/// The pipeline produces exactly the same merkle_root as the verifier
+/// recomputes from the entry commitments — the SHA-256 wrap is purely a
+/// soroban-sdk compatibility shim, not a security downgrade.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchAttestation {
+    /// `SHA-256(0x01 || SHA-256(0x00 || commit_i) || SHA-256(0x00 || commit_{i+1}))`
+    /// (recursively, until the 32-byte root). Bound to one specific
+    /// deployment on one specific network by including the contract
+    /// address and `network_id` inside every leaf's underlying commitment
+    /// (see [`ScoreAttestation`]'s preimage layout for context).
+    ///
+    /// The contract does **not** sign this value directly — see the struct
+    /// rustdoc's "Verified-digest convention" above for the SHA-256 wrap.
+    pub merkle_root: BytesN<32>,
+    /// 65-byte secp256k1 ECDSA signature over `SHA256(merkle_root)`: 32-byte `r`,
+    /// 32-byte `s`, then a 1-byte recovery id which must be `0` or `1`.
+    pub signature: BytesN<65>,
+}
+
+/// A single entry in an attested batch score submission. Mirrors
+/// [`ScoreSubmission`] so the service can submit many scores in one call,
+/// and carries its own Merkle inclusion proof against the
+/// [`BatchAttestation`]'s `merkle_root`.
+///
+/// # `proof_flags` bit layout
+///
+/// `proof_flags` is a `u32` bit field that records, for every level of the
+/// Merkle tree from the leaf (`i == 0`) upward, whether the sibling at that
+/// level sits to the **left** (1) or right (0) of the current node being
+/// walked up. So an attestation for leaf index `5` in an 8-leaf tree will
+/// typically produce three flag bits; a single-entry batch produces
+/// `proof_flags == 0` and an empty `proof` ([`verify_merkle_proof`] handles
+/// this case explicitly).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScoreSubmissionWithProof {
+    pub submission: ScoreSubmission,
+    /// Sibling hashes from leaf to root, left-to-right (ordered to match
+    /// `proof_flags`'s LSB-first indexing). Length must be in
+    /// `[0, MAX_MERKLE_PROOF_DEPTH]` — anything longer is rejected with
+    /// `Error::InvalidAttestation`.
+    pub proof: soroban_sdk::Vec<BytesN<32>>,
+    /// Bit-field encoding the left/right direction at each level. Bit `i`
+    /// (LSB = 0) is `0` if the sibling at level `i` is to the right, `1` if
+    /// to the left.
+    pub proof_flags: u32,
+}
+
 /// A pending, time-locked contract WASM upgrade.
 ///
 /// Created by `propose_upgrade` and cleared by `execute_upgrade` /

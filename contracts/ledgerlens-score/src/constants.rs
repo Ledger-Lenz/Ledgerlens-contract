@@ -17,9 +17,25 @@ pub const DEFAULT_RISK_THRESHOLD: u32 = 75;
 
 /// Semantic contract version; bump on breaking ABI changes.
 ///
-/// Bumped to 2 when `submit_score` gained its `attestation` parameter (see
-/// `docs/attestation-spec.md`).
-pub const CONTRACT_VERSION: u32 = 2;
+/// History:
+///
+/// * `1` — initial release (`submit_score` / `get_score`).
+/// * `2` — `submit_score` gained the `attestation: Option<ScoreAttestation>`
+///   parameter and `set_service_pubkey` / `get_service_pubkey` were added
+///   (see `docs/attestation-spec.md`).
+/// * `3` — `submit_scores_batch_attested` and the `batch_attested`
+///   `supports_interface` capability were added (see
+///   `docs/batch-attestation-spec.md`).
+pub const CONTRACT_VERSION: u32 = 3;
+
+/// Hard upper bound on Merkle proof length accepted by
+/// `submit_scores_batch_attested`. Thirty levels of a binary tree can
+/// accommodate up to 2^30 ≈ 1.07 billion leaves — well above the
+/// `MAX_BATCH_SIZE` of 20 today, but large enough that the field cannot be
+/// exploited as an unbounded loop budget. Beyond this, the contract
+/// rejects the call with `Error::InvalidAttestation` (see
+/// `docs/batch-attestation-spec.md` for the rationale).
+pub const MAX_MERKLE_PROOF_DEPTH: u32 = 30;
 
 /// Practical upper bound on the number of distinct asset pairs tracked per
 /// wallet. `get_aggregate_score` iterates the wallet's full `AssetPairs`
