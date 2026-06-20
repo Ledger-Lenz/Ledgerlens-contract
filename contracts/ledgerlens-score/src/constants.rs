@@ -94,3 +94,17 @@ pub const BAND_STATE_TTL_THRESHOLD: u32 = 518_400;
 /// TTL value to extend risk band state entries to when refreshing
 /// (~45 days at 5 s/ledger).
 pub const BAND_STATE_TTL_EXTEND_TO: u32 = 777_600;
+
+// ── Score embargo ─────────────────────────────────────────────────────────────
+//
+// Per-wallet embargo state is kept in temporary storage. The TTL is intentionally
+// much longer than the band-state TTL so that indefinite embargoes survive without
+// constant admin intervention, while still being subject to Soroban's TTL
+// mechanics and expirable if the wallet goes completely dormant.
+
+/// Re-extend embargo TTL when remaining lifetime falls below this many ledgers
+/// (~90 days at 5 s/ledger).
+pub const EMBARGO_TTL_THRESHOLD: u32 = 1_555_200;
+
+/// Target TTL for embargo entries on creation or refresh (~180 days at 5 s/ledger).
+pub const EMBARGO_TTL_EXTEND_TO: u32 = 3_110_400;

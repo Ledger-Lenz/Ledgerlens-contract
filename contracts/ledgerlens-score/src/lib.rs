@@ -25,6 +25,9 @@ mod test_attestation;
 #[cfg(test)]
 mod test_hysteresis;
 
+#[cfg(test)]
+mod test_embargo;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, Address, Bytes, BytesN, Env, Symbol,
     SymbolStr, TryFromVal, Vec,
@@ -32,7 +35,7 @@ use soroban_sdk::{
 
 pub use errors::Error;
 pub use types::{
-    AggregateRiskScore, BatchEntryResult, BatchResult, RiskScore, ScoreAttestation,
+    AggregateRiskScore, BatchEntryResult, BatchResult, EmbargoExpiry, RiskScore, ScoreAttestation,
     ScoreSubmission, UpgradeProposal,
 };
 
@@ -403,6 +406,9 @@ impl LedgerLensScoreContract {
     /// assert_eq!(score.score, 10);
     /// ```
     pub fn get_score(env: Env, wallet: Address, asset_pair: Symbol) -> Result<RiskScore, Error> {
+        if storage::is_embargoed(&env, &wallet) {
+            return Err(Error::ScoreEmbargoed);
+        }
         storage::get_score(&env, &wallet, &asset_pair).ok_or(Error::ScoreNotFound)
     }
 
@@ -436,6 +442,9 @@ impl LedgerLensScoreContract {
     /// assert_eq!(history.get(1).unwrap().score, 20);
     /// ```
     pub fn get_score_history(env: Env, wallet: Address, asset_pair: Symbol) -> Vec<RiskScore> {
+        if storage::is_embargoed(&env, &wallet) {
+            return Vec::new(&env);
+        }
         storage::get_score_history(&env, &wallet, &asset_pair)
     }
 
@@ -587,6 +596,9 @@ impl LedgerLensScoreContract {
     /// would overflow — this can only happen with extreme admin-configured
     /// weights, since per-pair scores are bounded to 0-100.
     pub fn get_aggregate_score(env: Env, wallet: Address) -> Result<AggregateRiskScore, Error> {
+        if storage::is_embargoed(&env, &wallet) {
+            return Err(Error::ScoreEmbargoed);
+        }
         Self::compute_aggregate_score(&env, &wallet)
     }
 
@@ -672,6 +684,11 @@ impl LedgerLensScoreContract {
         asset_pair: Symbol,
         gate_threshold: u32,
     ) -> bool {
+        // Embargoed wallets: conservative false — treat as "no signal available".
+        // Uses peek (no TTL extension) to remain side-effect free.
+        if storage::peek_is_embargoed(&env, &wallet) {
+            return false;
+        }
         // A wallet currently in the high-risk band fails the gate even if its
         // raw score has dipped below gate_threshold — the hysteresis state is
         // sticky until the score crosses the full exit boundary.
@@ -1339,6 +1356,56 @@ impl LedgerLensScoreContract {
     /// yet or after the TTL-bounded temporary state has expired.
     pub fn is_in_risk_band(env: Env, wallet: Address, asset_pair: Symbol) -> bool {
         storage::get_risk_band_state(&env, &wallet, &asset_pair)
+    }
+
+    // ── Score embargo ─────────────────────────────────────────────────────────
+
+    /// Places `wallet` under a score embargo, blocking external read access to
+    /// its risk scores without interrupting score ingestion.
+    ///
+    /// - `expiry = None` — indefinite embargo; only [`lift_score_embargo`]
+    ///   removes it.
+    /// - `expiry = Some(ts)` — timed embargo; auto-expires when
+    ///   `ledger_timestamp > ts`.
+    ///
+    /// Calling this again on an already-embargoed wallet **replaces** the
+    /// existing expiry. Admin only.
+    pub fn set_score_embargo(env: Env, wallet: Address, expiry: Option<u64>) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        let admin = storage::get_admin(&env);
+        admin.require_auth();
+        let embargo_expiry = match expiry {
+            None => EmbargoExpiry::Indefinite,
+            Some(ts) => EmbargoExpiry::Until(ts),
+        };
+        storage::set_embargo(&env, &wallet, &embargo_expiry);
+        events::embargo_set(&env, &wallet, expiry);
+        Ok(())
+    }
+
+    /// Explicitly lifts the embargo on `wallet`, immediately restoring external
+    /// read access to its risk scores.  No-op if the wallet is not currently
+    /// embargoed. Admin only.
+    pub fn lift_score_embargo(env: Env, wallet: Address) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        let admin = storage::get_admin(&env);
+        admin.require_auth();
+        storage::remove_embargo(&env, &wallet);
+        events::embargo_lifted(&env, &wallet);
+        Ok(())
+    }
+
+    /// Returns `true` when `wallet` is currently under an active score embargo.
+    ///
+    /// A timed embargo (`Some(ts)`) is considered active while
+    /// `ledger_timestamp <= ts` and automatically inactive once that timestamp
+    /// is exceeded — no admin action required for expiry.
+    pub fn is_embargoed(env: Env, wallet: Address) -> bool {
+        storage::is_embargoed(&env, &wallet)
     }
 
     // ── Staleness window ──────────────────────────────────────────────────────

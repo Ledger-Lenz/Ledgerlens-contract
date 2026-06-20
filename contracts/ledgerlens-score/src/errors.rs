@@ -85,4 +85,9 @@ pub enum Error {
     /// Returned when `set_hysteresis_margin` is called with a value above
     /// `MAX_HYSTERESIS_MARGIN` (50).
     InvalidHysteresisMargin = 30,
+    /// Returned by `get_score` and `get_aggregate_score` when the wallet is
+    /// currently under an active score embargo set by the admin. The embargo
+    /// blocks external read access while preserving audit history internally.
+    /// Callers should treat this the same as `ScoreNotFound` for gating logic.
+    ScoreEmbargoed = 31,
 }
