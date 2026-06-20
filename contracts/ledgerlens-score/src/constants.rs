@@ -19,7 +19,8 @@ pub const DEFAULT_RISK_THRESHOLD: u32 = 75;
 ///
 /// Bumped to 2 when `submit_score` gained its `attestation` parameter (see
 /// `docs/attestation-spec.md`).
-pub const CONTRACT_VERSION: u32 = 2;
+/// Bumped to 3 when `AggregateRiskScore` gained `decay_lambda_applied` field.
+pub const CONTRACT_VERSION: u32 = 3;
 
 /// Practical upper bound on the number of distinct asset pairs tracked per
 /// wallet. `get_aggregate_score` iterates the wallet's full `AssetPairs`
@@ -74,3 +75,25 @@ pub const MAX_SERVICE_SIGNERS: u32 = 10;
 
 /// Default staleness window: 7 days in seconds.
 pub const DEFAULT_STALENESS_WINDOW_SECS: u64 = 604_800;
+
+// ── Time-weighted exponential decay ──────────────────────────────────────────
+//
+// The decay function applies an age-based multiplier to per-pair scores
+// in the aggregate computation. The formula is:
+//   decay_factor(age_seconds) = e^(-λ * age_seconds)
+// where λ is the admin-configurable decay rate. When λ = 0, no decay occurs.
+
+/// Maximum allowed decay rate (numerator / denominator).
+/// Bounded at 0.01 per second to prevent misconfiguration from
+/// driving all scores toward zero within the staleness window.
+/// Corresponds to a half-life of ~69 seconds.
+pub const MAX_DECAY_LAMBDA_NUM: u32 = 1;
+pub const MAX_DECAY_LAMBDA_DEN: u32 = 100;
+
+/// Default decay rate: 0 (no decay), for backward compatibility.
+pub const DEFAULT_DECAY_LAMBDA_NUM: u32 = 0;
+pub const DEFAULT_DECAY_LAMBDA_DEN: u32 = 1;
+
+/// Scaling factor for fixed-point decay approximation.
+/// Using 1e6 for 6 decimal places of precision in integer math.
+pub const DECAY_FIXED_POINT_SCALE: u64 = 1_000_000;

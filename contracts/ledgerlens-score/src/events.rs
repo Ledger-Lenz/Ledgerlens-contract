@@ -148,3 +148,10 @@ pub fn service_pubkey_updated(env: &Env, pubkey: &Bytes) {
 pub fn history_depth_updated(env: &Env, depth: u32) {
     env.events().publish((symbol_short!("hd_upd"),), depth);
 }
+
+// ── Time-weighted exponential decay ────────────────────────────────────────
+
+/// Emitted when the admin sets the exponential decay rate via `set_decay_rate`.
+pub fn decay_rate_updated(env: &Env, numerator: u32, denominator: u32) {
+    env.events().publish((symbol_short!("decay_upd"),), (numerator, denominator));
+}
