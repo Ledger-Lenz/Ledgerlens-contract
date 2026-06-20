@@ -148,3 +148,43 @@ pub fn service_pubkey_updated(env: &Env, pubkey: &Bytes) {
 pub fn history_depth_updated(env: &Env, depth: u32) {
     env.events().publish((symbol_short!("hd_upd"),), depth);
 }
+
+// ── Hysteresis / risk band ────────────────────────────────────────────────────
+
+/// Emitted exactly once when a wallet transitions from not-in-band to
+/// in-band (first submission where `score >= risk_threshold`). Never emitted
+/// again while the wallet remains in the high-risk band.
+pub fn risk_band_entered(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    score: u32,
+    threshold: u32,
+) {
+    env.events().publish(
+        (symbol_short!("band_in"), wallet.clone()),
+        (asset_pair.clone(), score, threshold),
+    );
+}
+
+/// Emitted when a wallet exits the high-risk band because its score dropped
+/// below `(risk_threshold - hysteresis_margin)`. `exit_threshold` is the
+/// effective boundary that was crossed (i.e. `risk_threshold - margin`).
+pub fn risk_band_cleared(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    score: u32,
+    exit_threshold: u32,
+) {
+    env.events().publish(
+        (symbol_short!("band_out"), wallet.clone()),
+        (asset_pair.clone(), score, exit_threshold),
+    );
+}
+
+/// Emitted when the admin updates the hysteresis margin via
+/// `set_hysteresis_margin`.
+pub fn hysteresis_margin_updated(env: &Env, old_margin: u32, new_margin: u32) {
+    env.events().publish((symbol_short!("hys_upd"),), (old_margin, new_margin));
+}

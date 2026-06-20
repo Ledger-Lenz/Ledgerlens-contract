@@ -82,4 +82,7 @@ pub enum Error {
     /// Returned when `set_history_max_depth` is called with `0` or a value
     /// above `MAX_HISTORY_DEPTH`.
     InvalidHistoryDepth = 29,
+    /// Returned when `set_hysteresis_margin` is called with a value above
+    /// `MAX_HYSTERESIS_MARGIN` (50).
+    InvalidHysteresisMargin = 30,
 }

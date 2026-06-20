@@ -22,6 +22,9 @@ mod test_rate_limit;
 #[cfg(test)]
 mod test_attestation;
 
+#[cfg(test)]
+mod test_hysteresis;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, Address, Bytes, BytesN, Env, Symbol,
     SymbolStr, TryFromVal, Vec,
@@ -239,6 +242,7 @@ impl LedgerLensScoreContract {
         if score >= score_threshold {
             events::threshold_breached(&env, &wallet, &asset_pair, score, score_threshold);
         }
+        Self::evaluate_risk_band(&env, &wallet, &asset_pair, score, score_threshold);
 
         events::score_submitted(&env, &wallet, &asset_pair, &risk_score);
         Ok(())
@@ -352,6 +356,13 @@ impl LedgerLensScoreContract {
                             threshold,
                         );
                     }
+                    Self::evaluate_risk_band(
+                        &env,
+                        &sub.wallet,
+                        &sub.asset_pair,
+                        sub.score,
+                        threshold,
+                    );
 
                     events::score_submitted(&env, &sub.wallet, &sub.asset_pair, &risk_score);
                     accepted = true;
@@ -661,6 +672,14 @@ impl LedgerLensScoreContract {
         asset_pair: Symbol,
         gate_threshold: u32,
     ) -> bool {
+        // A wallet currently in the high-risk band fails the gate even if its
+        // raw score has dipped below gate_threshold — the hysteresis state is
+        // sticky until the score crosses the full exit boundary.
+        // Uses peek (no TTL extension) to remain side-effect free per the
+        // ILedgerLensScore interface contract.
+        if storage::peek_risk_band_state(&env, &wallet, &asset_pair) {
+            return false;
+        }
         match storage::peek_score(&env, &wallet, &asset_pair) {
             Some(risk) => risk.score < gate_threshold,
             None => false,
@@ -1281,6 +1300,47 @@ impl LedgerLensScoreContract {
         storage::get_risk_threshold(&env)
     }
 
+    // ── Hysteresis layer ─────────────────────────────────────────────────────
+
+    /// Set the hysteresis margin (0-50) used to widen the exit threshold
+    /// below the entry threshold, preventing event oscillation at the boundary.
+    ///
+    /// When `margin > 0`, a wallet that entered the high-risk band
+    /// (`score >= risk_threshold`) only exits when
+    /// `score < (risk_threshold - margin)`, requiring a more significant
+    /// recovery before the band is cleared.  When `margin == 0` the exit
+    /// threshold equals the entry threshold (no hysteresis).
+    ///
+    /// The value is rejected with [`Error::InvalidHysteresisMargin`] when it
+    /// exceeds [`constants::MAX_HYSTERESIS_MARGIN`] (50). Admin only.
+    pub fn set_hysteresis_margin(env: Env, margin: u32) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if margin > constants::MAX_HYSTERESIS_MARGIN {
+            return Err(Error::InvalidHysteresisMargin);
+        }
+        let admin = storage::get_admin(&env);
+        admin.require_auth();
+        let old = storage::get_hysteresis_margin(&env);
+        storage::set_hysteresis_margin(&env, margin);
+        events::hysteresis_margin_updated(&env, old, margin);
+        Ok(())
+    }
+
+    /// Returns the current hysteresis margin.  Defaults to `0` (no hysteresis)
+    /// until the admin sets one explicitly.
+    pub fn get_hysteresis_margin(env: Env) -> u32 {
+        storage::get_hysteresis_margin(&env)
+    }
+
+    /// Returns `true` when `wallet` is currently inside the high-risk band
+    /// for `asset_pair`.  Defaults to `false` when no state has been recorded
+    /// yet or after the TTL-bounded temporary state has expired.
+    pub fn is_in_risk_band(env: Env, wallet: Address, asset_pair: Symbol) -> bool {
+        storage::get_risk_band_state(&env, &wallet, &asset_pair)
+    }
+
     // ── Staleness window ──────────────────────────────────────────────────────
 
     /// Returns `true` when no score exists for this pair, or when the stored
@@ -1508,7 +1568,46 @@ impl LedgerLensScoreContract {
         storage::has_pending_admin(&env)
     }
 
-    // ── Internal helpers ──────────────────────────────────────────────────────
+    // ── Internal helpers ─────────────────────────────────────────────────────
+
+    /// Applies the hysteresis-aware risk band state machine for a single
+    /// `(wallet, asset_pair, score)` triple.
+    ///
+    /// Rules:
+    /// - `score >= risk_threshold` AND not currently in band → enter band,
+    ///   emit `risk_band_entered` exactly once.
+    /// - `score >= risk_threshold` AND already in band → stay, no event.
+    /// - Currently in band AND `score < (risk_threshold - margin)` → exit
+    ///   band, emit `risk_band_cleared`.
+    /// - Currently in band AND `score >= (risk_threshold - margin)` → stay in
+    ///   band (hysteresis: score dropped but not below the exit boundary).
+    /// - Not in band AND `score < risk_threshold` → nothing to do.
+    fn evaluate_risk_band(
+        env: &Env,
+        wallet: &Address,
+        asset_pair: &Symbol,
+        score: u32,
+        risk_threshold: u32,
+    ) {
+        let in_band = storage::get_risk_band_state(env, wallet, asset_pair);
+        let margin = storage::get_hysteresis_margin(env);
+        let exit_threshold = risk_threshold.saturating_sub(margin);
+
+        if score >= risk_threshold {
+            if !in_band {
+                storage::set_risk_band_state(env, wallet, asset_pair, true);
+                events::risk_band_entered(env, wallet, asset_pair, score, risk_threshold);
+            }
+            // Already in band: stay, no event.
+        } else if in_band {
+            if score < exit_threshold {
+                storage::set_risk_band_state(env, wallet, asset_pair, false);
+                events::risk_band_cleared(env, wallet, asset_pair, score, exit_threshold);
+            }
+            // score >= exit_threshold: hysteresis holds, stay in band, no event.
+        }
+        // Not in band and score < threshold: nothing to do.
+    }
 
     /// Shared implementation behind `get_aggregate_score`. Iterates the
     /// wallet's registered pairs once, accumulating the weighted sum and

@@ -1,8 +1,8 @@
 use soroban_sdk::{Address, Bytes, Env, Symbol, Vec};
 
 use crate::constants::{
-    DEFAULT_COOLDOWN_SECS, DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS, SCORE_TTL_EXTEND_TO,
-    SCORE_TTL_THRESHOLD,
+    BAND_STATE_TTL_EXTEND_TO, BAND_STATE_TTL_THRESHOLD, DEFAULT_COOLDOWN_SECS,
+    DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS, SCORE_TTL_EXTEND_TO, SCORE_TTL_THRESHOLD,
 };
 use crate::types::{AggregateRiskScore, DataKey, RiskScore, UpgradeProposal};
 
@@ -364,4 +364,60 @@ pub fn get_service_pubkey(env: &Env) -> Option<Bytes> {
 
 pub fn set_service_pubkey(env: &Env, pubkey: &Bytes) {
     env.storage().instance().set(&DataKey::ServicePubKey, pubkey);
+}
+
+// ── Hysteresis margin ─────────────────────────────────────────────────────────
+
+/// Returns the admin-configured hysteresis margin, defaulting to 0 (no
+/// hysteresis — entry and exit thresholds are identical).
+pub fn get_hysteresis_margin(env: &Env) -> u32 {
+    let result: Option<u32> = env.storage().instance().get(&DataKey::HysteresisMargin);
+    result.unwrap_or(0)
+}
+
+pub fn set_hysteresis_margin(env: &Env, margin: u32) {
+    env.storage().instance().set(&DataKey::HysteresisMargin, &margin);
+}
+
+// ── Per-(wallet, asset_pair) risk band state ──────────────────────────────────
+
+/// Returns `true` when `wallet` is currently inside the high-risk band for
+/// `asset_pair`. Defaults to `false` when no state exists (first evaluation
+/// or after TTL expiry). Extends the TTL on each read so active wallets keep
+/// their state alive.
+pub fn get_risk_band_state(env: &Env, wallet: &Address, asset_pair: &Symbol) -> bool {
+    let key = DataKey::RiskBandState(wallet.clone(), asset_pair.clone());
+    let result: Option<bool> = env.storage().temporary().get(&key);
+    if result.is_some() {
+        env.storage()
+            .temporary()
+            .extend_ttl(&key, BAND_STATE_TTL_THRESHOLD, BAND_STATE_TTL_EXTEND_TO);
+    }
+    result.unwrap_or(false)
+}
+
+/// Strictly read-only band state lookup that, unlike [`get_risk_band_state`],
+/// does **not** extend the entry's TTL. Used by the infallible cross-contract
+/// gate (`query_risk_gate`) so that calling it from another contract's guard
+/// clause has no observable side effect on this contract's storage.
+pub fn peek_risk_band_state(env: &Env, wallet: &Address, asset_pair: &Symbol) -> bool {
+    let key = DataKey::RiskBandState(wallet.clone(), asset_pair.clone());
+    let result: Option<bool> = env.storage().temporary().get(&key);
+    result.unwrap_or(false)
+}
+
+/// Sets the risk band state for `(wallet, asset_pair)`. Passing `true`
+/// records that the wallet has entered the high-risk band; passing `false`
+/// removes the entry (equivalent to `false`, the default) so storage is not
+/// wasted on cleared state.
+pub fn set_risk_band_state(env: &Env, wallet: &Address, asset_pair: &Symbol, in_band: bool) {
+    let key = DataKey::RiskBandState(wallet.clone(), asset_pair.clone());
+    if in_band {
+        env.storage().temporary().set(&key, &true);
+        env.storage()
+            .temporary()
+            .extend_ttl(&key, BAND_STATE_TTL_THRESHOLD, BAND_STATE_TTL_EXTEND_TO);
+    } else {
+        env.storage().temporary().remove(&key);
+    }
 }

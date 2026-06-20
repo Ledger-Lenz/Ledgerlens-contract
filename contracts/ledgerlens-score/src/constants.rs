@@ -74,3 +74,23 @@ pub const MAX_SERVICE_SIGNERS: u32 = 10;
 
 /// Default staleness window: 7 days in seconds.
 pub const DEFAULT_STALENESS_WINDOW_SECS: u64 = 604_800;
+
+// ── Hysteresis layer ───────────────────────────────────────────────────────────
+//
+// Prevents event oscillation at the risk threshold boundary. Once a wallet
+// enters the high-risk band (score >= threshold), it only exits when the score
+// drops below (threshold - hysteresis_margin), requiring a more significant
+// recovery before the band is cleared.
+
+/// Maximum value the admin may configure for the hysteresis margin.
+/// Bounded so the effective exit threshold stays non-negative and
+/// the margin cannot be set to a value that makes the system unusable.
+pub const MAX_HYSTERESIS_MARGIN: u32 = 50;
+
+/// TTL threshold for risk band state entries: re-extend when remaining TTL
+/// drops below this many ledgers (~30 days at 5 s/ledger).
+pub const BAND_STATE_TTL_THRESHOLD: u32 = 518_400;
+
+/// TTL value to extend risk band state entries to when refreshing
+/// (~45 days at 5 s/ledger).
+pub const BAND_STATE_TTL_EXTEND_TO: u32 = 777_600;
