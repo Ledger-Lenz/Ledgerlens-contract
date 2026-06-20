@@ -17,9 +17,10 @@ pub const DEFAULT_RISK_THRESHOLD: u32 = 75;
 
 /// Semantic contract version; bump on breaking ABI changes.
 ///
-/// Bumped to 2 when `submit_score` gained its `attestation` parameter (see
-/// `docs/attestation-spec.md`).
-pub const CONTRACT_VERSION: u32 = 2;
+/// Bumped to 3 when all admin-tier functions gained `admin_signers: Vec<Address>`
+/// for M-of-N governance and the `AdminSet` / `AdminThreshold` storage keys
+/// were introduced.
+pub const CONTRACT_VERSION: u32 = 3;
 
 /// Practical upper bound on the number of distinct asset pairs tracked per
 /// wallet. `get_aggregate_score` iterates the wallet's full `AssetPairs`
@@ -72,25 +73,16 @@ pub const DEFAULT_UPGRADE_DELAY_SECS: u64 = 172_800; // 48 hours
 /// Maximum number of addresses in the M-of-N service signer set.
 pub const MAX_SERVICE_SIGNERS: u32 = 10;
 
+/// Maximum number of addresses in the M-of-N admin signer set.
+pub const MAX_ADMIN_SIGNERS: u32 = 5;
+
 /// Default staleness window: 7 days in seconds.
 pub const DEFAULT_STALENESS_WINDOW_SECS: u64 = 604_800;
 
-// ── Hysteresis layer ───────────────────────────────────────────────────────────
-//
-// Prevents event oscillation at the risk threshold boundary. Once a wallet
-// enters the high-risk band (score >= threshold), it only exits when the score
-// drops below (threshold - hysteresis_margin), requiring a more significant
-// recovery before the band is cleared.
+// ── Per-asset-pair circuit breaker ────────────────────────────────────────────
 
-/// Maximum value the admin may configure for the hysteresis margin.
-/// Bounded so the effective exit threshold stays non-negative and
-/// the margin cannot be set to a value that makes the system unusable.
-pub const MAX_HYSTERESIS_MARGIN: u32 = 50;
-
-/// TTL threshold for risk band state entries: re-extend when remaining TTL
-/// drops below this many ledgers (~30 days at 5 s/ledger).
-pub const BAND_STATE_TTL_THRESHOLD: u32 = 518_400;
-
-/// TTL value to extend risk band state entries to when refreshing
-/// (~45 days at 5 s/ledger).
-pub const BAND_STATE_TTL_EXTEND_TO: u32 = 777_600;
+/// Hard ceiling on the number of distinct asset pairs that may be paused at
+/// once. Bounds `PausedPairIndex`'s storage cost and the O(N) work done on
+/// the rare admin pause/unpause path; the hot `is_pair_paused` read used by
+/// every submission never touches the index. See `set_pair_paused`.
+pub const MAX_PAUSED_PAIRS: u32 = 50;

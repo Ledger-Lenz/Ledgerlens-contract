@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 //! Interface stability suite for the `ILedgerLensScore` composability surface.
 //!
 //! Unlike `test.rs`, which exercises the contract's *implementation* (auth,

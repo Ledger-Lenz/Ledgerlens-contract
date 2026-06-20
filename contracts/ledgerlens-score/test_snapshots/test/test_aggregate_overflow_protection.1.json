@@ -15,101 +15,10 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "P0"
-                },
-                {
-                  "u32": 4294967295
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "submit_score",
-              "args": [
-                {
                   "vec": []
                 },
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
                   "symbol": "P0"
-                },
-                {
-                  "u32": 50
-                },
-                {
-                  "bool": false
-                },
-                {
-                  "bool": false
-                },
-                {
-                  "u64": 0
-                },
-                {
-                  "u32": 90
-                },
-                {
-                  "u32": 1
-                },
-                "void"
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "set_pair_weight",
-              "args": [
-                {
-                  "symbol": "P1"
-                },
-                {
-                  "u32": 4294967295
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "submit_score",
-              "args": [
-                {
-                  "vec": []
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "symbol": "P1"
                 },
                 {
                   "u32": 50
@@ -147,7 +56,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "P2"
+                  "symbol": "P1"
                 },
                 {
                   "u32": 4294967295
@@ -159,9 +68,19 @@
         }
       ]
     ],
-    [
+    []
+  ],
+  "ledger": {
+    "protocol_version": 21,
+    "sequence_number": 0,
+    "timestamp": 0,
+    "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
+    "base_reserve": 0,
+    "min_persistent_entry_ttl": 4096,
+    "min_temp_entry_ttl": 16,
+    "max_entry_ttl": 6312000,
+    "ledger_entries": [
       [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
         {
           "function": {
             "contract_fn": {
@@ -175,7 +94,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "P2"
+                  "symbol": "P1"
                 },
                 {
                   "u32": 50
@@ -190,44 +109,45 @@
                   "u64": 2
                 },
                 {
-                  "u32": 90
+                  "symbol": "PairWeight"
                 },
                 {
-                  "u32": 1
-                },
-                "void"
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "set_pair_weight",
-              "args": [
-                {
-                  "symbol": "P3"
-                },
-                {
-                  "u32": 4294967295
+                  "symbol": "P0"
                 }
               ]
-            }
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "PairWeight"
+                    },
+                    {
+                      "symbol": "P0"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "u32": 4294967295
+                }
+              }
+            },
+            "ext": "v0"
           },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
+          777600
+        ]
+      ],
       [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
         {
           "function": {
             "contract_fn": {
@@ -241,7 +161,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "P3"
+                  "symbol": "P2"
                 },
                 {
                   "u32": 50
@@ -265,13 +185,10 @@
               ]
             }
           },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
+          4095
+        ]
+      ],
       [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
         {
           "function": {
             "contract_fn": {
@@ -279,7 +196,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "P4"
+                  "symbol": "P3"
                 },
                 {
                   "u32": 4294967295
@@ -307,7 +224,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "P4"
+                  "symbol": "P3"
                 },
                 {
                   "u32": 50
@@ -345,7 +262,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "P5"
+                  "symbol": "P4"
                 },
                 {
                   "u32": 4294967295
@@ -373,7 +290,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "P5"
+                  "symbol": "P4"
                 },
                 {
                   "u32": 50
@@ -411,7 +328,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "P6"
+                  "symbol": "P5"
                 },
                 {
                   "u32": 4294967295
@@ -439,7 +356,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "P6"
+                  "symbol": "P5"
                 },
                 {
                   "u32": 50
@@ -477,7 +394,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "P7"
+                  "symbol": "P6"
                 },
                 {
                   "u32": 4294967295
@@ -505,7 +422,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "P7"
+                  "symbol": "P6"
                 },
                 {
                   "u32": 50
@@ -543,7 +460,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "P8"
+                  "symbol": "P7"
                 },
                 {
                   "u32": 4294967295
@@ -571,7 +488,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "P8"
+                  "symbol": "P7"
                 },
                 {
                   "u32": 50
@@ -609,7 +526,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "P9"
+                  "symbol": "P8"
                 },
                 {
                   "u32": 4294967295
@@ -637,7 +554,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "P9"
+                  "symbol": "P8"
                 },
                 {
                   "u32": 50
@@ -675,7 +592,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "PA"
+                  "symbol": "P9"
                 },
                 {
                   "u32": 4294967295
@@ -703,7 +620,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "PA"
+                  "symbol": "P9"
                 },
                 {
                   "u32": 50
@@ -741,7 +658,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "PB"
+                  "symbol": "PA"
                 },
                 {
                   "u32": 4294967295
@@ -769,7 +686,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "PB"
+                  "symbol": "PA"
                 },
                 {
                   "u32": 50
@@ -807,7 +724,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "PC"
+                  "symbol": "PB"
                 },
                 {
                   "u32": 4294967295
@@ -835,7 +752,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "PC"
+                  "symbol": "PB"
                 },
                 {
                   "u32": 50
@@ -873,7 +790,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "PD"
+                  "symbol": "PC"
                 },
                 {
                   "u32": 4294967295
@@ -901,7 +818,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "PD"
+                  "symbol": "PC"
                 },
                 {
                   "u32": 50
@@ -939,7 +856,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "PE"
+                  "symbol": "PD"
                 },
                 {
                   "u32": 4294967295
@@ -967,7 +884,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "PE"
+                  "symbol": "PD"
                 },
                 {
                   "u32": 50
@@ -1005,7 +922,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "PF"
+                  "symbol": "PE"
                 },
                 {
                   "u32": 4294967295
@@ -1033,7 +950,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "PF"
+                  "symbol": "PE"
                 },
                 {
                   "u32": 50
@@ -1071,7 +988,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "PG"
+                  "symbol": "PF"
                 },
                 {
                   "u32": 4294967295
@@ -1099,7 +1016,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "PG"
+                  "symbol": "PF"
                 },
                 {
                   "u32": 50
@@ -1137,7 +1054,7 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
-                  "symbol": "PH"
+                  "symbol": "PG"
                 },
                 {
                   "u32": 4294967295
@@ -1165,7 +1082,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "PH"
+                  "symbol": "PG"
                 },
                 {
                   "u32": 50
@@ -1203,6 +1120,72 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
+                  "symbol": "PH"
+                },
+                {
+                  "u32": 4294967295
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "submit_score",
+              "args": [
+                {
+                  "vec": []
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "symbol": "PH"
+                },
+                {
+                  "u32": 50
+                },
+                {
+                  "bool": false
+                },
+                {
+                  "bool": false
+                },
+                {
+                  "u64": 18
+                },
+                {
+                  "u32": 90
+                },
+                {
+                  "u32": 1
+                },
+                "void"
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "set_pair_weight",
+              "args": [
+                {
                   "symbol": "PI"
                 },
                 {
@@ -1243,7 +1226,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 18
+                  "u64": 19
                 },
                 {
                   "u32": 90
@@ -1309,7 +1292,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 19
+                  "u64": 20
                 },
                 {
                   "u32": 90
@@ -3451,7 +3434,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 0
+                        "u64": 1
                       }
                     }
                   ]
@@ -3500,106 +3483,6 @@
                     },
                     {
                       "symbol": "P1"
-                    }
-                  ]
-                },
-                "durability": "persistent",
-                "val": {
-                  "map": [
-                    {
-                      "key": {
-                        "symbol": "benford_flag"
-                      },
-                      "val": {
-                        "bool": false
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "confidence"
-                      },
-                      "val": {
-                        "u32": 90
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "ml_flag"
-                      },
-                      "val": {
-                        "bool": false
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "model_version"
-                      },
-                      "val": {
-                        "u32": 1
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "score"
-                      },
-                      "val": {
-                        "u32": 50
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "timestamp"
-                      },
-                      "val": {
-                        "u64": 1
-                      }
-                    }
-                  ]
-                }
-              }
-            },
-            "ext": "v0"
-          },
-          777600
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-            "key": {
-              "vec": [
-                {
-                  "symbol": "Score"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "symbol": "P2"
-                }
-              ]
-            },
-            "durability": "persistent"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-                "key": {
-                  "vec": [
-                    {
-                      "symbol": "Score"
-                    },
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                    },
-                    {
-                      "symbol": "P2"
                     }
                   ]
                 },
@@ -3676,6 +3559,106 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
+                  "symbol": "P2"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "Score"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    },
+                    {
+                      "symbol": "P2"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "benford_flag"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "confidence"
+                      },
+                      "val": {
+                        "u32": 90
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "ml_flag"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "model_version"
+                      },
+                      "val": {
+                        "u32": 1
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "score"
+                      },
+                      "val": {
+                        "u32": 50
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "timestamp"
+                      },
+                      "val": {
+                        "u64": 3
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          777600
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "Score"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
                   "symbol": "P3"
                 }
               ]
@@ -3751,7 +3734,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 3
+                        "u64": 4
                       }
                     }
                   ]
@@ -3851,7 +3834,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 4
+                        "u64": 5
                       }
                     }
                   ]
@@ -3951,7 +3934,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 5
+                        "u64": 6
                       }
                     }
                   ]
@@ -4051,7 +4034,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 6
+                        "u64": 7
                       }
                     }
                   ]
@@ -4151,7 +4134,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 7
+                        "u64": 8
                       }
                     }
                   ]
@@ -4251,7 +4234,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 8
+                        "u64": 9
                       }
                     }
                   ]
@@ -4351,7 +4334,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 9
+                        "u64": 10
                       }
                     }
                   ]
@@ -4451,7 +4434,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 10
+                        "u64": 11
                       }
                     }
                   ]
@@ -4551,7 +4534,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 11
+                        "u64": 12
                       }
                     }
                   ]
@@ -4651,7 +4634,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 12
+                        "u64": 13
                       }
                     }
                   ]
@@ -4751,7 +4734,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 13
+                        "u64": 14
                       }
                     }
                   ]
@@ -4851,7 +4834,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 14
+                        "u64": 15
                       }
                     }
                   ]
@@ -4951,7 +4934,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 15
+                        "u64": 16
                       }
                     }
                   ]
@@ -5051,7 +5034,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 16
+                        "u64": 17
                       }
                     }
                   ]
@@ -5151,7 +5134,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 17
+                        "u64": 18
                       }
                     }
                   ]
@@ -5251,7 +5234,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 18
+                        "u64": 19
                       }
                     }
                   ]
@@ -5351,7 +5334,7 @@
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 19
+                        "u64": 20
                       }
                     }
                   ]
@@ -6420,110 +6403,6 @@
                     },
                     {
                       "symbol": "P0"
-                    }
-                  ]
-                },
-                "durability": "persistent",
-                "val": {
-                  "vec": [
-                    {
-                      "map": [
-                        {
-                          "key": {
-                            "symbol": "benford_flag"
-                          },
-                          "val": {
-                            "bool": false
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "confidence"
-                          },
-                          "val": {
-                            "u32": 90
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "ml_flag"
-                          },
-                          "val": {
-                            "bool": false
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "model_version"
-                          },
-                          "val": {
-                            "u32": 1
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "score"
-                          },
-                          "val": {
-                            "u32": 50
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "timestamp"
-                          },
-                          "val": {
-                            "u64": 0
-                          }
-                        }
-                      ]
-                    }
-                  ]
-                }
-              }
-            },
-            "ext": "v0"
-          },
-          777600
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-            "key": {
-              "vec": [
-                {
-                  "symbol": "ScoreHistory"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "symbol": "P1"
-                }
-              ]
-            },
-            "durability": "persistent"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-                "key": {
-                  "vec": [
-                    {
-                      "symbol": "ScoreHistory"
-                    },
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                    },
-                    {
-                      "symbol": "P1"
                     }
                   ]
                 },
@@ -6604,6 +6483,110 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
+                  "symbol": "P1"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "ScoreHistory"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    },
+                    {
+                      "symbol": "P1"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "vec": [
+                    {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "benford_flag"
+                          },
+                          "val": {
+                            "bool": false
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "confidence"
+                          },
+                          "val": {
+                            "u32": 90
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "ml_flag"
+                          },
+                          "val": {
+                            "bool": false
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "model_version"
+                          },
+                          "val": {
+                            "u32": 1
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "score"
+                          },
+                          "val": {
+                            "u32": 50
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "timestamp"
+                          },
+                          "val": {
+                            "u64": 2
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          777600
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "ScoreHistory"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
                   "symbol": "P2"
                 }
               ]
@@ -6681,7 +6664,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 2
+                            "u64": 3
                           }
                         }
                       ]
@@ -6785,7 +6768,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 3
+                            "u64": 4
                           }
                         }
                       ]
@@ -6889,7 +6872,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 4
+                            "u64": 5
                           }
                         }
                       ]
@@ -6993,7 +6976,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 5
+                            "u64": 6
                           }
                         }
                       ]
@@ -7097,7 +7080,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 6
+                            "u64": 7
                           }
                         }
                       ]
@@ -7201,7 +7184,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 7
+                            "u64": 8
                           }
                         }
                       ]
@@ -7305,7 +7288,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 8
+                            "u64": 9
                           }
                         }
                       ]
@@ -7409,7 +7392,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 9
+                            "u64": 10
                           }
                         }
                       ]
@@ -7513,7 +7496,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 10
+                            "u64": 11
                           }
                         }
                       ]
@@ -7617,7 +7600,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 11
+                            "u64": 12
                           }
                         }
                       ]
@@ -7721,7 +7704,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 12
+                            "u64": 13
                           }
                         }
                       ]
@@ -7825,7 +7808,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 13
+                            "u64": 14
                           }
                         }
                       ]
@@ -7929,7 +7912,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 14
+                            "u64": 15
                           }
                         }
                       ]
@@ -8033,7 +8016,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 15
+                            "u64": 16
                           }
                         }
                       ]
@@ -8137,7 +8120,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 16
+                            "u64": 17
                           }
                         }
                       ]
@@ -8241,7 +8224,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 17
+                            "u64": 18
                           }
                         }
                       ]
@@ -8345,7 +8328,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 18
+                            "u64": 19
                           }
                         }
                       ]
@@ -8449,7 +8432,7 @@
                             "symbol": "timestamp"
                           },
                           "val": {
-                            "u64": 19
+                            "u64": 20
                           }
                         }
                       ]
@@ -10034,7 +10017,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 0
+                  "u64": 1
                 },
                 {
                   "u32": 90
@@ -10083,7 +10066,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 0
+                  "u64": 1
                 }
               ]
             }
@@ -10229,7 +10212,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 1
+                  "u64": 2
                 },
                 {
                   "u32": 90
@@ -10278,7 +10261,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 1
+                  "u64": 2
                 }
               ]
             }
@@ -10424,7 +10407,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 2
+                  "u64": 3
                 },
                 {
                   "u32": 90
@@ -10473,7 +10456,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 2
+                  "u64": 3
                 }
               ]
             }
@@ -10619,7 +10602,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 3
+                  "u64": 4
                 },
                 {
                   "u32": 90
@@ -10668,7 +10651,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 3
+                  "u64": 4
                 }
               ]
             }
@@ -10814,7 +10797,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 4
+                  "u64": 5
                 },
                 {
                   "u32": 90
@@ -10863,7 +10846,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 4
+                  "u64": 5
                 }
               ]
             }
@@ -11009,7 +10992,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 5
+                  "u64": 6
                 },
                 {
                   "u32": 90
@@ -11058,7 +11041,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 5
+                  "u64": 6
                 }
               ]
             }
@@ -11204,7 +11187,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 6
+                  "u64": 7
                 },
                 {
                   "u32": 90
@@ -11253,7 +11236,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 6
+                  "u64": 7
                 }
               ]
             }
@@ -11399,7 +11382,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 7
+                  "u64": 8
                 },
                 {
                   "u32": 90
@@ -11448,7 +11431,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 7
+                  "u64": 8
                 }
               ]
             }
@@ -11594,7 +11577,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 8
+                  "u64": 9
                 },
                 {
                   "u32": 90
@@ -11643,7 +11626,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 8
+                  "u64": 9
                 }
               ]
             }
@@ -11789,7 +11772,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 9
+                  "u64": 10
                 },
                 {
                   "u32": 90
@@ -11838,7 +11821,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 9
+                  "u64": 10
                 }
               ]
             }
@@ -11984,7 +11967,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 10
+                  "u64": 11
                 },
                 {
                   "u32": 90
@@ -12033,7 +12016,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 10
+                  "u64": 11
                 }
               ]
             }
@@ -12179,7 +12162,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 11
+                  "u64": 12
                 },
                 {
                   "u32": 90
@@ -12228,7 +12211,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 11
+                  "u64": 12
                 }
               ]
             }
@@ -12374,7 +12357,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 12
+                  "u64": 13
                 },
                 {
                   "u32": 90
@@ -12423,7 +12406,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 12
+                  "u64": 13
                 }
               ]
             }
@@ -12569,7 +12552,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 13
+                  "u64": 14
                 },
                 {
                   "u32": 90
@@ -12618,7 +12601,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 13
+                  "u64": 14
                 }
               ]
             }
@@ -12764,7 +12747,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 14
+                  "u64": 15
                 },
                 {
                   "u32": 90
@@ -12813,7 +12796,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 14
+                  "u64": 15
                 }
               ]
             }
@@ -12959,7 +12942,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 15
+                  "u64": 16
                 },
                 {
                   "u32": 90
@@ -13008,7 +12991,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 15
+                  "u64": 16
                 }
               ]
             }
@@ -13154,7 +13137,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 16
+                  "u64": 17
                 },
                 {
                   "u32": 90
@@ -13203,7 +13186,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 16
+                  "u64": 17
                 }
               ]
             }
@@ -13349,7 +13332,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 17
+                  "u64": 18
                 },
                 {
                   "u32": 90
@@ -13398,7 +13381,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 17
+                  "u64": 18
                 }
               ]
             }
@@ -13420,6 +13403,157 @@
               },
               {
                 "symbol": "submit_score"
+              }
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+                "key": {
+                  "ledger_key_nonce": {
+                    "nonce": 801925984706572462
+                  }
+                },
+                "durability": "temporary",
+                "val": "void"
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
+        ]
+      ],
+      [
+        {
+          "contract_code": {
+            "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_code": {
+                "ext": "v0",
+                "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "code": ""
+              }
+            },
+            "ext": "v0"
+          },
+          4095
+        ]
+      ]
+    ]
+  },
+  "events": [
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_call"
+              },
+              {
+                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+              },
+              {
+                "symbol": "submit_score"
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "vec": []
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "symbol": "PI"
+                },
+                {
+                  "u32": 50
+                },
+                {
+                  "bool": false
+                },
+                {
+                  "bool": false
+                },
+                {
+                  "u64": 19
+                },
+                {
+                  "u32": 90
+                },
+                {
+                  "u32": 1
+                },
+                "void"
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "score"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              },
+              {
+                "symbol": "PI"
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u64": 19
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_return"
+              },
+              {
+                "symbol": "initialize"
               }
             ],
             "data": "void"
@@ -13449,7 +13583,10 @@
             "data": {
               "vec": [
                 {
-                  "symbol": "PI"
+                  "vec": []
+                },
+                {
+                  "symbol": "P0"
                 },
                 {
                   "u32": 4294967295
@@ -13473,7 +13610,7 @@
                 "symbol": "pw_upd"
               },
               {
-                "symbol": "PI"
+                "symbol": "P0"
               }
             ],
             "data": {
@@ -13532,7 +13669,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "symbol": "PI"
+                  "symbol": "P0"
                 },
                 {
                   "u32": 50
@@ -13544,202 +13681,7 @@
                   "bool": false
                 },
                 {
-                  "u64": 18
-                },
-                {
-                  "u32": 90
-                },
-                {
-                  "u32": 1
-                },
-                "void"
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "score"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-              },
-              {
-                "symbol": "PI"
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "u32": 50
-                },
-                {
-                  "bool": false
-                },
-                {
-                  "bool": false
-                },
-                {
-                  "u32": 90
-                },
-                {
-                  "u64": 18
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_return"
-              },
-              {
-                "symbol": "submit_score"
-              }
-            ],
-            "data": "void"
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": null,
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_call"
-              },
-              {
-                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
-              },
-              {
-                "symbol": "set_pair_weight"
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "symbol": "PJ"
-                },
-                {
-                  "u32": 4294967295
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "pw_upd"
-              },
-              {
-                "symbol": "PJ"
-              }
-            ],
-            "data": {
-              "u32": 4294967295
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_return"
-              },
-              {
-                "symbol": "set_pair_weight"
-              }
-            ],
-            "data": "void"
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": null,
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_call"
-              },
-              {
-                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
-              },
-              {
-                "symbol": "submit_score"
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "vec": []
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "symbol": "PJ"
-                },
-                {
-                  "u32": 50
-                },
-                {
-                  "bool": false
-                },
-                {
-                  "bool": false
-                },
-                {
-                  "u64": 19
+                  "u64": 20
                 },
                 {
                   "u32": 90
@@ -13788,7 +13730,7 @@
                   "u32": 90
                 },
                 {
-                  "u64": 19
+                  "u64": 20
                 }
               ]
             }
@@ -13810,58 +13752,11 @@
               },
               {
                 "symbol": "submit_score"
-              }
-            ],
-            "data": "void"
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": null,
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_call"
-              },
-              {
-                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
-              },
-              {
-                "symbol": "get_aggregate_score"
-              }
-            ],
-            "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_return"
-              },
-              {
-                "symbol": "get_aggregate_score"
               }
             ],
             "data": {
               "error": {
-                "contract": 11
+                "contract": 25
               }
             }
           }
@@ -13882,7 +13777,7 @@
               },
               {
                 "error": {
-                  "contract": 11
+                  "contract": 25
                 }
               }
             ],
@@ -13907,26 +13802,76 @@
               },
               {
                 "error": {
-                  "contract": 11
+                  "contract": 25
                 }
               }
             ],
             "data": {
               "vec": [
                 {
-                  "string": "contract try_call failed"
+                  "string": "contract call failed"
                 },
                 {
-                  "symbol": "get_aggregate_score"
+                  "symbol": "submit_score"
                 },
                 {
                   "vec": [
                     {
+                      "vec": []
+                    },
+                    {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                    }
+                    },
+                    {
+                      "symbol": "P0"
+                    },
+                    {
+                      "u32": 50
+                    },
+                    {
+                      "bool": false
+                    },
+                    {
+                      "bool": false
+                    },
+                    {
+                      "u64": 0
+                    },
+                    {
+                      "u32": 90
+                    },
+                    {
+                      "u32": 1
+                    },
+                    "void"
                   ]
                 }
               ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "error"
+              },
+              {
+                "error": {
+                  "contract": 25
+                }
+              }
+            ],
+            "data": {
+              "string": "escalating error to panic"
             }
           }
         }

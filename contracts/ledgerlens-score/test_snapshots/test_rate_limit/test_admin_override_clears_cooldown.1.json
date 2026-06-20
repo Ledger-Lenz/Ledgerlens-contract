@@ -59,6 +59,9 @@
               "function_name": "override_rate_limit",
               "args": [
                 {
+                  "vec": []
+                },
+                {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
@@ -1009,6 +1012,9 @@
             ],
             "data": {
               "vec": [
+                {
+                  "vec": []
+                },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },

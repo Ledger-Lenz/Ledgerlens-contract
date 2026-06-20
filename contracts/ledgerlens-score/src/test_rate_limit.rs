@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 //! Tests for the per-wallet/pair submission rate limiting (cooldown) mechanism.
 //!
 //! Time is simulated with `env.ledger().with_mut(|l| l.timestamp = ...)`; the
@@ -314,7 +312,7 @@ fn test_admin_override_clears_cooldown() {
         &None,
     );
 
-    client.override_rate_limit(&wallet, &pair);
+    client.override_rate_limit(&Vec::new(&env), &wallet, &pair);
     assert_eq!(client.get_last_submit_time(&wallet, &pair), 0);
 
     // Still at START_TS, but immediately accepted since the cooldown was cleared.
@@ -342,7 +340,7 @@ fn test_override_rate_limit_before_init_fails() {
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
-    let result = client.try_override_rate_limit(&wallet, &pair);
+    let result = client.try_override_rate_limit(&Vec::new(&env), &wallet, &pair);
     assert_eq!(result, Err(Ok(Error::NotInitialized)));
 }
 
@@ -350,22 +348,22 @@ fn test_override_rate_limit_before_init_fails() {
 
 #[test]
 fn test_set_cooldown_below_min_rejected() {
-    let (_env, client, _admin) = setup();
-    let result = client.try_set_cooldown(&(MIN_COOLDOWN_SECS - 1));
+    let (env, client, _admin) = setup();
+    let result = client.try_set_cooldown(&Vec::new(&env), &(MIN_COOLDOWN_SECS - 1));
     assert_eq!(result, Err(Ok(Error::InvalidCooldown)));
 }
 
 #[test]
 fn test_set_cooldown_above_max_rejected() {
-    let (_env, client, _admin) = setup();
-    let result = client.try_set_cooldown(&(MAX_COOLDOWN_SECS + 1));
+    let (env, client, _admin) = setup();
+    let result = client.try_set_cooldown(&Vec::new(&env), &(MAX_COOLDOWN_SECS + 1));
     assert_eq!(result, Err(Ok(Error::InvalidCooldown)));
 }
 
 #[test]
 fn test_set_cooldown_within_bounds_applied() {
     let (env, client, _admin) = setup();
-    client.set_cooldown(&MIN_COOLDOWN_SECS);
+    client.set_cooldown(&Vec::new(&env), &MIN_COOLDOWN_SECS);
     assert_eq!(client.get_cooldown(), MIN_COOLDOWN_SECS);
 
     let wallet = Address::generate(&env);
@@ -401,12 +399,12 @@ fn test_set_cooldown_within_bounds_applied() {
 
 #[test]
 fn test_set_cooldown_boundary_values_accepted() {
-    let (_env, client, _admin) = setup();
+    let (env, client, _admin) = setup();
 
-    client.set_cooldown(&MIN_COOLDOWN_SECS);
+    client.set_cooldown(&Vec::new(&env), &MIN_COOLDOWN_SECS);
     assert_eq!(client.get_cooldown(), MIN_COOLDOWN_SECS);
 
-    client.set_cooldown(&MAX_COOLDOWN_SECS);
+    client.set_cooldown(&Vec::new(&env), &MAX_COOLDOWN_SECS);
     assert_eq!(client.get_cooldown(), MAX_COOLDOWN_SECS);
 }
 

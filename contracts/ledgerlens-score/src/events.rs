@@ -34,6 +34,15 @@ pub fn contract_unpaused(env: &Env, by: &Address) {
     env.events().publish((symbol_short!("unpaused"),), by.clone());
 }
 
+// ── Per-asset-pair circuit breaker ──────────────────────────────────────────
+
+/// Emitted by `set_pair_paused` for both the pause and unpause direction —
+/// a single event type distinguished by the `paused` field, rather than two
+/// separate event names, so off-chain indexers can subscribe once.
+pub fn pair_paused(env: &Env, asset_pair: &Symbol, paused: bool) {
+    env.events().publish((symbol_short!("pr_pause"), asset_pair.clone()), paused);
+}
+
 // ── Two-step admin transfer ──────────────────────────────────────────────────
 
 pub fn admin_transfer_initiated(env: &Env, from: &Address, to: &Address) {
@@ -149,42 +158,28 @@ pub fn history_depth_updated(env: &Env, depth: u32) {
     env.events().publish((symbol_short!("hd_upd"),), depth);
 }
 
-// ── Hysteresis / risk band ────────────────────────────────────────────────────
+// ── Fee withdrawal ────────────────────────────────────────────────────────────
 
-/// Emitted exactly once when a wallet transitions from not-in-band to
-/// in-band (first submission where `score >= risk_threshold`). Never emitted
-/// again while the wallet remains in the high-risk band.
-pub fn risk_band_entered(
-    env: &Env,
-    wallet: &Address,
-    asset_pair: &Symbol,
-    score: u32,
-    threshold: u32,
-) {
-    env.events().publish(
-        (symbol_short!("band_in"), wallet.clone()),
-        (asset_pair.clone(), score, threshold),
-    );
+/// Emitted when the admin configures or rotates the fee token via
+/// `set_fee_token`.
+pub fn fee_token_set(env: &Env, token: &Address) {
+    env.events().publish((symbol_short!("ft_set"),), token.clone());
 }
 
-/// Emitted when a wallet exits the high-risk band because its score dropped
-/// below `(risk_threshold - hysteresis_margin)`. `exit_threshold` is the
-/// effective boundary that was crossed (i.e. `risk_threshold - margin`).
-pub fn risk_band_cleared(
+/// Emitted on successful completion of `withdraw_fees`.
+pub fn fee_withdrawn(
     env: &Env,
-    wallet: &Address,
-    asset_pair: &Symbol,
-    score: u32,
-    exit_threshold: u32,
+    admin: &Address,
+    recipient: &Address,
+    fee_token: &Address,
+    amount: i128,
 ) {
-    env.events().publish(
-        (symbol_short!("band_out"), wallet.clone()),
-        (asset_pair.clone(), score, exit_threshold),
-    );
+    env.events()
+        .publish((symbol_short!("fee_out"),), (admin.clone(), recipient.clone(), fee_token.clone(), amount));
 }
 
-/// Emitted when the admin updates the hysteresis margin via
-/// `set_hysteresis_margin`.
-pub fn hysteresis_margin_updated(env: &Env, old_margin: u32, new_margin: u32) {
-    env.events().publish((symbol_short!("hys_upd"),), (old_margin, new_margin));
+/// Emitted when `withdraw_fees` is rejected because the concurrency lock is
+/// already held by an in-flight call.
+pub fn withdrawal_locked(env: &Env, admin: &Address) {
+    env.events().publish((symbol_short!("wdl_lck"),), admin.clone());
 }

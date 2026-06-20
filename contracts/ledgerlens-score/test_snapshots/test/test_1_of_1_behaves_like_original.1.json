@@ -15,6 +15,9 @@
               "function_name": "add_service_signer",
               "args": [
                 {
+                  "vec": []
+                },
+                {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 }
               ]
@@ -33,6 +36,9 @@
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "function_name": "set_service_threshold",
               "args": [
+                {
+                  "vec": []
+                },
                 {
                   "u32": 1
                 }
@@ -841,7 +847,14 @@
               }
             ],
             "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              "vec": [
+                {
+                  "vec": []
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                }
+              ]
             }
           }
         }
@@ -908,7 +921,14 @@
               }
             ],
             "data": {
-              "u32": 1
+              "vec": [
+                {
+                  "vec": []
+                },
+                {
+                  "u32": 1
+                }
+              ]
             }
           }
         }

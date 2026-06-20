@@ -65,6 +65,90 @@ pub fn set_paused(env: &Env, paused: bool) {
     env.storage().instance().set(&DataKey::Paused, &paused);
 }
 
+// ── Per-asset-pair circuit breaker ───────────────────────────────────────────
+
+/// Returns `true` only if `asset_pair` has been explicitly paused and not
+/// since unpaused. This is the hot path consulted on every `submit_score` /
+/// `submit_scores_batch` entry, so it is a direct key lookup — it never
+/// touches `PausedPairIndex`.
+pub fn is_pair_paused(env: &Env, asset_pair: &Symbol) -> bool {
+    let key = DataKey::PairPaused(asset_pair.clone());
+    let result: Option<bool> = env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    result.unwrap_or(false)
+}
+
+/// Raw flag setter, mirroring `set_watchlist`'s pattern: stores `true` (and
+/// bumps TTL) when paused, removes the key entirely when unpaused so an
+/// unpaused pair costs nothing in storage. Does **not** touch
+/// `PausedPairIndex` — callers (`set_pair_paused`) are responsible for
+/// keeping the index consistent via `add_to_paused_index` /
+/// `remove_from_paused_index`.
+pub fn set_pair_paused_flag(env: &Env, asset_pair: &Symbol, paused: bool) {
+    let key = DataKey::PairPaused(asset_pair.clone());
+    if paused {
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    } else {
+        env.storage().persistent().remove(&key);
+    }
+}
+
+/// Returns every currently paused asset pair. O(1) storage read — the index
+/// is maintained incrementally by `add_to_paused_index` /
+/// `remove_from_paused_index` rather than rebuilt by scanning.
+pub fn get_paused_pairs(env: &Env) -> Vec<Symbol> {
+    let pairs: Vec<Symbol> =
+        env.storage().persistent().get(&DataKey::PausedPairIndex).unwrap_or_else(|| Vec::new(env));
+    if !pairs.is_empty() {
+        env.storage().persistent().extend_ttl(
+            &DataKey::PausedPairIndex,
+            SCORE_TTL_THRESHOLD,
+            SCORE_TTL_EXTEND_TO,
+        );
+    }
+    pairs
+}
+
+/// Adds `asset_pair` to `PausedPairIndex` if it isn't already present.
+/// Returns `false` (without modifying the index) if the pair is new *and*
+/// the index is already at `MAX_PAUSED_PAIRS` — the caller turns that into
+/// `Error::PausedPairIndexFull`. Re-adding a pair already in the index is a
+/// no-op that returns `true`, so this is safe to call unconditionally.
+///
+/// O(N) in the number of currently paused pairs, but only on this
+/// infrequent admin-only path — the per-submission hot path
+/// (`is_pair_paused`) never iterates the index.
+pub fn add_to_paused_index(env: &Env, asset_pair: &Symbol) -> bool {
+    let mut pairs = get_paused_pairs(env);
+    if pairs.contains(asset_pair) {
+        return true;
+    }
+    if pairs.len() >= crate::constants::MAX_PAUSED_PAIRS {
+        return false;
+    }
+    pairs.push_back(asset_pair.clone());
+    env.storage().persistent().set(&DataKey::PausedPairIndex, &pairs);
+    env.storage().persistent().extend_ttl(
+        &DataKey::PausedPairIndex,
+        SCORE_TTL_THRESHOLD,
+        SCORE_TTL_EXTEND_TO,
+    );
+    true
+}
+
+/// Removes `asset_pair` from `PausedPairIndex`. No-op if it isn't present.
+/// Same O(N) admin-only-path tradeoff as `add_to_paused_index`.
+pub fn remove_from_paused_index(env: &Env, asset_pair: &Symbol) {
+    let mut pairs = get_paused_pairs(env);
+    if let Some(idx) = pairs.first_index_of(asset_pair) {
+        pairs.remove(idx);
+        env.storage().persistent().set(&DataKey::PausedPairIndex, &pairs);
+    }
+}
+
 // ── Two-step admin transfer ──────────────────────────────────────────────────
 
 pub fn has_pending_admin(env: &Env) -> bool {
@@ -245,6 +329,24 @@ pub fn set_upgrade_delay(env: &Env, delay_secs: u64) {
     env.storage().instance().set(&DataKey::UpgradeDelay, &delay_secs);
 }
 
+// ── Multi-sig admin set ──────────────────────────────────────────────────────
+
+pub fn get_admin_set(env: &Env) -> Vec<Address> {
+    env.storage().instance().get(&DataKey::AdminSet).unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn set_admin_set(env: &Env, set: &Vec<Address>) {
+    env.storage().instance().set(&DataKey::AdminSet, set);
+}
+
+pub fn get_admin_threshold(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::AdminThreshold).unwrap_or(0)
+}
+
+pub fn set_admin_threshold(env: &Env, threshold: u32) {
+    env.storage().instance().set(&DataKey::AdminThreshold, &threshold);
+}
+
 // ── Multi-sig service set ─────────────────────────────────────────────────────
 
 pub fn get_service_set(env: &Env) -> Vec<Address> {
@@ -366,58 +468,24 @@ pub fn set_service_pubkey(env: &Env, pubkey: &Bytes) {
     env.storage().instance().set(&DataKey::ServicePubKey, pubkey);
 }
 
-// ── Hysteresis margin ─────────────────────────────────────────────────────────
+// ── Fee withdrawal ────────────────────────────────────────────────────────────
 
-/// Returns the admin-configured hysteresis margin, defaulting to 0 (no
-/// hysteresis — entry and exit thresholds are identical).
-pub fn get_hysteresis_margin(env: &Env) -> u32 {
-    let result: Option<u32> = env.storage().instance().get(&DataKey::HysteresisMargin);
-    result.unwrap_or(0)
+pub fn get_fee_token(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::FeeToken)
 }
 
-pub fn set_hysteresis_margin(env: &Env, margin: u32) {
-    env.storage().instance().set(&DataKey::HysteresisMargin, &margin);
+pub fn set_fee_token(env: &Env, token: &Address) {
+    env.storage().instance().set(&DataKey::FeeToken, token);
 }
 
-// ── Per-(wallet, asset_pair) risk band state ──────────────────────────────────
-
-/// Returns `true` when `wallet` is currently inside the high-risk band for
-/// `asset_pair`. Defaults to `false` when no state exists (first evaluation
-/// or after TTL expiry). Extends the TTL on each read so active wallets keep
-/// their state alive.
-pub fn get_risk_band_state(env: &Env, wallet: &Address, asset_pair: &Symbol) -> bool {
-    let key = DataKey::RiskBandState(wallet.clone(), asset_pair.clone());
-    let result: Option<bool> = env.storage().temporary().get(&key);
-    if result.is_some() {
-        env.storage()
-            .temporary()
-            .extend_ttl(&key, BAND_STATE_TTL_THRESHOLD, BAND_STATE_TTL_EXTEND_TO);
-    }
-    result.unwrap_or(false)
+pub fn is_withdrawal_locked(env: &Env) -> bool {
+    env.storage().instance().get::<_, bool>(&DataKey::WithdrawalLock).unwrap_or(false)
 }
 
-/// Strictly read-only band state lookup that, unlike [`get_risk_band_state`],
-/// does **not** extend the entry's TTL. Used by the infallible cross-contract
-/// gate (`query_risk_gate`) so that calling it from another contract's guard
-/// clause has no observable side effect on this contract's storage.
-pub fn peek_risk_band_state(env: &Env, wallet: &Address, asset_pair: &Symbol) -> bool {
-    let key = DataKey::RiskBandState(wallet.clone(), asset_pair.clone());
-    let result: Option<bool> = env.storage().temporary().get(&key);
-    result.unwrap_or(false)
+pub fn set_withdrawal_lock(env: &Env) {
+    env.storage().instance().set(&DataKey::WithdrawalLock, &true);
 }
 
-/// Sets the risk band state for `(wallet, asset_pair)`. Passing `true`
-/// records that the wallet has entered the high-risk band; passing `false`
-/// removes the entry (equivalent to `false`, the default) so storage is not
-/// wasted on cleared state.
-pub fn set_risk_band_state(env: &Env, wallet: &Address, asset_pair: &Symbol, in_band: bool) {
-    let key = DataKey::RiskBandState(wallet.clone(), asset_pair.clone());
-    if in_band {
-        env.storage().temporary().set(&key, &true);
-        env.storage()
-            .temporary()
-            .extend_ttl(&key, BAND_STATE_TTL_THRESHOLD, BAND_STATE_TTL_EXTEND_TO);
-    } else {
-        env.storage().temporary().remove(&key);
-    }
+pub fn clear_withdrawal_lock(env: &Env) {
+    env.storage().instance().remove(&DataKey::WithdrawalLock);
 }

@@ -15,6 +15,9 @@
               "function_name": "propose_upgrade",
               "args": [
                 {
+                  "vec": []
+                },
+                {
                   "bytes": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
                 }
               ]
@@ -32,7 +35,11 @@
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "function_name": "execute_upgrade",
-              "args": []
+              "args": [
+                {
+                  "vec": []
+                }
+              ]
             }
           },
           "sub_invocations": []
@@ -270,7 +277,14 @@
               }
             ],
             "data": {
-              "bytes": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+              "vec": [
+                {
+                  "vec": []
+                },
+                {
+                  "bytes": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                }
+              ]
             }
           }
         }
@@ -343,7 +357,9 @@
                 "symbol": "execute_upgrade"
               }
             ],
-            "data": "void"
+            "data": {
+              "vec": []
+            }
           }
         }
       },

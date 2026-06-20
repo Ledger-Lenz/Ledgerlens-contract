@@ -59,6 +59,9 @@
               "function_name": "set_staleness_window",
               "args": [
                 {
+                  "vec": []
+                },
+                {
                   "u64": 10
                 }
               ]
@@ -887,7 +890,14 @@
               }
             ],
             "data": {
-              "u64": 10
+              "vec": [
+                {
+                  "vec": []
+                },
+                {
+                  "u64": 10
+                }
+              ]
             }
           }
         }

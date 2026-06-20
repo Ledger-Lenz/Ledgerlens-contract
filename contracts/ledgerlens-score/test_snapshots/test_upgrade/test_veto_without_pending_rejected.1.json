@@ -170,7 +170,9 @@
                 "symbol": "veto_upgrade"
               }
             ],
-            "data": "void"
+            "data": {
+              "vec": []
+            }
           }
         }
       },
@@ -252,7 +254,11 @@
                   "symbol": "veto_upgrade"
                 },
                 {
-                  "vec": []
+                  "vec": [
+                    {
+                      "vec": []
+                    }
+                  ]
                 }
               ]
             }

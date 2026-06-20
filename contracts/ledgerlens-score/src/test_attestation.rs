@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 //! Tests for the score-attestation feature: `set_service_pubkey` /
 //! `get_service_pubkey`, and the `attestation` parameter on `submit_score`.
 //!
@@ -109,7 +107,7 @@ fn test_get_service_pubkey_before_set_fails() {
 fn test_set_service_pubkey_before_init_fails() {
     let (env, client, _admin, _service) = setup();
     let pubkey = Bytes::from_array(&env, &[0u8; 33]);
-    let result = client.try_set_service_pubkey(&pubkey);
+    let result = client.try_set_service_pubkey(&Vec::new(&env), &pubkey);
     assert_eq!(result, Err(Ok(Error::NotInitialized)));
 }
 
@@ -117,7 +115,7 @@ fn test_set_service_pubkey_before_init_fails() {
 fn test_set_service_pubkey_rejects_invalid_length() {
     let (env, client, _admin, _service) = initialized();
     let pubkey = Bytes::from_array(&env, &[0u8; 32]);
-    let result = client.try_set_service_pubkey(&pubkey);
+    let result = client.try_set_service_pubkey(&Vec::new(&env), &pubkey);
     assert_eq!(result, Err(Ok(Error::InvalidPubkeyLength)));
 }
 
@@ -128,7 +126,7 @@ fn test_set_and_get_service_pubkey_compressed() {
     let pubkey = pubkey_bytes(&env, &key, true);
     assert_eq!(pubkey.len(), 33);
 
-    client.set_service_pubkey(&pubkey);
+    client.set_service_pubkey(&Vec::new(&env), &pubkey);
     assert_eq!(client.get_service_pubkey(), pubkey);
 }
 
@@ -139,7 +137,7 @@ fn test_set_and_get_service_pubkey_uncompressed() {
     let pubkey = pubkey_bytes(&env, &key, false);
     assert_eq!(pubkey.len(), 65);
 
-    client.set_service_pubkey(&pubkey);
+    client.set_service_pubkey(&Vec::new(&env), &pubkey);
     assert_eq!(client.get_service_pubkey(), pubkey);
 }
 
@@ -149,8 +147,8 @@ fn test_set_service_pubkey_rotates() {
     let pubkey_a = pubkey_bytes(&env, &signing_key(1), true);
     let pubkey_b = pubkey_bytes(&env, &signing_key(2), true);
 
-    client.set_service_pubkey(&pubkey_a);
-    client.set_service_pubkey(&pubkey_b);
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_a);
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_b);
     assert_eq!(client.get_service_pubkey(), pubkey_b);
 }
 
@@ -180,7 +178,7 @@ fn test_submit_score_without_pubkey_configured_allows_missing_attestation() {
 #[test]
 fn test_submit_score_with_pubkey_configured_requires_attestation() {
     let (env, client, _admin, _service) = initialized();
-    client.set_service_pubkey(&pubkey_bytes(&env, &signing_key(1), true));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &signing_key(1), true));
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
@@ -204,7 +202,7 @@ fn test_submit_score_with_pubkey_configured_requires_attestation() {
 fn test_submit_score_with_valid_attestation_compressed_pubkey_succeeds() {
     let (env, client, _admin, _service) = initialized();
     let key = signing_key(1);
-    client.set_service_pubkey(&pubkey_bytes(&env, &key, true));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &key, true));
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
@@ -231,7 +229,7 @@ fn test_submit_score_with_valid_attestation_compressed_pubkey_succeeds() {
 fn test_submit_score_with_valid_attestation_uncompressed_pubkey_succeeds() {
     let (env, client, _admin, _service) = initialized();
     let key = signing_key(1);
-    client.set_service_pubkey(&pubkey_bytes(&env, &key, false));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &key, false));
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
@@ -257,7 +255,7 @@ fn test_submit_score_with_valid_attestation_uncompressed_pubkey_succeeds() {
 fn test_submit_score_with_attestation_for_different_payload_rejected() {
     let (env, client, _admin, _service) = initialized();
     let key = signing_key(1);
-    client.set_service_pubkey(&pubkey_bytes(&env, &key, true));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &key, true));
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
@@ -284,7 +282,7 @@ fn test_submit_score_with_attestation_for_different_payload_rejected() {
 fn test_submit_score_with_tampered_commitment_field_rejected() {
     let (env, client, _admin, _service) = initialized();
     let key = signing_key(1);
-    client.set_service_pubkey(&pubkey_bytes(&env, &key, true));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &key, true));
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
@@ -316,7 +314,7 @@ fn test_submit_score_with_tampered_commitment_field_rejected() {
 #[test]
 fn test_submit_score_signed_by_wrong_key_rejected() {
     let (env, client, _admin, _service) = initialized();
-    client.set_service_pubkey(&pubkey_bytes(&env, &signing_key(1), true));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &signing_key(1), true));
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
@@ -343,7 +341,7 @@ fn test_submit_score_signed_by_wrong_key_rejected() {
 fn test_submit_score_with_out_of_range_recovery_id_rejected() {
     let (env, client, _admin, _service) = initialized();
     let key = signing_key(1);
-    client.set_service_pubkey(&pubkey_bytes(&env, &key, true));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &key, true));
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
@@ -378,7 +376,7 @@ fn test_submit_score_attestation_required_even_when_pubkey_set_after_first_submi
     client.submit_score(&Vec::new(&env), &wallet, &pair, &10, &false, &false, &1, &50, &1, &None);
 
     // Admin opts in; subsequent calls without an attestation are rejected.
-    client.set_service_pubkey(&pubkey_bytes(&env, &signing_key(1), true));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &signing_key(1), true));
     let result = client.try_submit_score(
         &Vec::new(&env),
         &wallet,

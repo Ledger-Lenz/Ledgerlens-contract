@@ -15,6 +15,9 @@
               "function_name": "set_history_max_depth",
               "args": [
                 {
+                  "vec": []
+                },
+                {
                   "u32": 50
                 }
               ]
@@ -235,7 +238,14 @@
               }
             ],
             "data": {
-              "u32": 50
+              "vec": [
+                {
+                  "vec": []
+                },
+                {
+                  "u32": 50
+                }
+              ]
             }
           }
         }

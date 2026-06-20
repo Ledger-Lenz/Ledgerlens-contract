@@ -13,7 +13,11 @@
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "function_name": "pause",
-              "args": []
+              "args": [
+                {
+                  "vec": []
+                }
+              ]
             }
           },
           "sub_invocations": []
@@ -28,7 +32,11 @@
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "function_name": "unpause",
-              "args": []
+              "args": [
+                {
+                  "vec": []
+                }
+              ]
             }
           },
           "sub_invocations": []
@@ -812,7 +820,9 @@
                 "symbol": "pause"
               }
             ],
-            "data": "void"
+            "data": {
+              "vec": []
+            }
           }
         }
       },
@@ -877,7 +887,9 @@
                 "symbol": "unpause"
               }
             ],
-            "data": "void"
+            "data": {
+              "vec": []
+            }
           }
         }
       },

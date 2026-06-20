@@ -15,6 +15,9 @@
               "function_name": "set_risk_threshold",
               "args": [
                 {
+                  "vec": []
+                },
+                {
                   "u32": 0
                 }
               ]
@@ -34,6 +37,9 @@
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "function_name": "set_risk_threshold",
               "args": [
+                {
+                  "vec": []
+                },
                 {
                   "u32": 100
                 }
@@ -288,7 +294,14 @@
               }
             ],
             "data": {
-              "u32": 0
+              "vec": [
+                {
+                  "vec": []
+                },
+                {
+                  "u32": 0
+                }
+              ]
             }
           }
         }
@@ -409,7 +422,14 @@
               }
             ],
             "data": {
-              "u32": 100
+              "vec": [
+                {
+                  "vec": []
+                },
+                {
+                  "u32": 100
+                }
+              ]
             }
           }
         }

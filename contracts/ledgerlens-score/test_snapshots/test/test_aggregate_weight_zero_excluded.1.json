@@ -15,6 +15,9 @@
               "function_name": "set_pair_weight",
               "args": [
                 {
+                  "vec": []
+                },
+                {
                   "symbol": "XLM_BTC"
                 },
                 {
@@ -1192,6 +1195,9 @@
             ],
             "data": {
               "vec": [
+                {
+                  "vec": []
+                },
                 {
                   "symbol": "XLM_BTC"
                 },

@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Ledger as _},
@@ -215,7 +213,7 @@ fn test_set_service_rotates_authorised_account() {
         &10,
         &false,
         &false,
-        &0,
+        &1,
         &10,
         &1,
         &None,
@@ -226,12 +224,12 @@ fn test_set_service_rotates_authorised_account() {
 
 #[test]
 fn test_pause_and_unpause() {
-    let (_env, client, _admin, _service) = initialized();
+    let (env, client, _admin, _service) = initialized();
 
     assert!(!client.is_paused());
-    client.pause();
+    client.pause(&Vec::new(&env));
     assert!(client.is_paused());
-    client.unpause();
+    client.unpause(&Vec::new(&env));
     assert!(!client.is_paused());
 }
 
@@ -239,7 +237,7 @@ fn test_pause_and_unpause() {
 fn test_submit_score_blocked_when_paused() {
     let (env, client, _admin, _service) = initialized();
 
-    client.pause();
+    client.pause(&Vec::new(&env));
 
     let wallet = Address::generate(&env);
     let asset_pair = symbol_short!("XLM_USDC");
@@ -262,7 +260,7 @@ fn test_submit_score_blocked_when_paused() {
 fn test_batch_blocked_when_paused() {
     let (env, client, _admin, _service) = initialized();
 
-    client.pause();
+    client.pause(&Vec::new(&env));
 
     let wallet = Address::generate(&env);
     let asset_pair = symbol_short!("XLM_USDC");
@@ -285,8 +283,8 @@ fn test_batch_blocked_when_paused() {
 fn test_submit_succeeds_after_unpause() {
     let (env, client, _admin, _service) = initialized();
 
-    client.pause();
-    client.unpause();
+    client.pause(&Vec::new(&env));
+    client.unpause(&Vec::new(&env));
 
     let wallet = Address::generate(&env);
     let asset_pair = symbol_short!("XLM_USDC");
@@ -312,7 +310,7 @@ fn test_transfer_and_accept_admin() {
     let (env, client, admin, _service) = initialized();
 
     let new_admin = Address::generate(&env);
-    client.transfer_admin(&new_admin);
+    client.transfer_admin(&Vec::new(&env), &new_admin);
 
     // Old admin still in place until the new one accepts.
     assert_eq!(client.get_admin(), admin);
@@ -326,8 +324,8 @@ fn test_cancel_admin_transfer() {
     let (env, client, admin, _service) = initialized();
 
     let new_admin = Address::generate(&env);
-    client.transfer_admin(&new_admin);
-    client.cancel_admin_transfer();
+    client.transfer_admin(&Vec::new(&env), &new_admin);
+    client.cancel_admin_transfer(&Vec::new(&env));
 
     // Old admin is still in place after cancellation.
     assert_eq!(client.get_admin(), admin);
@@ -335,8 +333,8 @@ fn test_cancel_admin_transfer() {
 
 #[test]
 fn test_cancel_without_pending_fails() {
-    let (_env, client, _admin, _service) = initialized();
-    let result = client.try_cancel_admin_transfer();
+    let (env, client, _admin, _service) = initialized();
+    let result = client.try_cancel_admin_transfer(&Vec::new(&env));
     assert_eq!(result, Err(Ok(Error::NoPendingAdminTransfer)));
 }
 
@@ -352,7 +350,7 @@ fn test_new_admin_can_manage_service_after_transfer() {
     let (env, client, _admin, _service) = initialized();
 
     let new_admin = Address::generate(&env);
-    client.transfer_admin(&new_admin);
+    client.transfer_admin(&Vec::new(&env), &new_admin);
     client.accept_admin();
 
     let new_service = Address::generate(&env);
@@ -373,7 +371,7 @@ fn test_get_pending_admin_returns_nominee() {
     let (env, client, admin, _service) = initialized();
 
     let new_admin = Address::generate(&env);
-    client.transfer_admin(&new_admin);
+    client.transfer_admin(&Vec::new(&env), &new_admin);
 
     // Old admin still in place until the new one accepts.
     assert_eq!(client.get_admin(), admin);
@@ -389,7 +387,7 @@ fn test_get_pending_admin_cleared_after_accept() {
     let (env, client, admin, _service) = initialized();
 
     let new_admin = Address::generate(&env);
-    client.transfer_admin(&new_admin);
+    client.transfer_admin(&Vec::new(&env), &new_admin);
 
     // Old admin still in place until the new one accepts.
     assert_eq!(client.get_admin(), admin);
@@ -406,12 +404,12 @@ fn test_get_pending_admin_cleared_after_cancel() {
     let (env, client, admin, _service) = initialized();
 
     let new_admin = Address::generate(&env);
-    client.transfer_admin(&new_admin);
+    client.transfer_admin(&Vec::new(&env), &new_admin);
 
     // Old admin still in place until the new one accepts.
     assert_eq!(client.get_admin(), admin);
 
-    client.cancel_admin_transfer();
+    client.cancel_admin_transfer(&Vec::new(&env));
 
     let _ = client.get_pending_admin();
 }
@@ -430,7 +428,7 @@ fn test_has_pending_admin_transfer_true_during() {
     let (env, client, admin, _service) = initialized();
 
     let new_admin = Address::generate(&env);
-    client.transfer_admin(&new_admin);
+    client.transfer_admin(&Vec::new(&env), &new_admin);
 
     // Old admin still in place until the new one accepts.
     assert_eq!(client.get_admin(), admin);
@@ -456,7 +454,7 @@ fn test_watchlist_add_and_query() {
     let wallet = Address::generate(&env);
     assert!(!client.is_watchlisted(&wallet));
 
-    client.set_watchlist(&wallet, &true);
+    client.set_watchlist(&Vec::new(&env), &wallet, &true);
     assert!(client.is_watchlisted(&wallet));
 }
 
@@ -465,10 +463,10 @@ fn test_watchlist_remove() {
     let (env, client, _admin, _service) = initialized();
 
     let wallet = Address::generate(&env);
-    client.set_watchlist(&wallet, &true);
+    client.set_watchlist(&Vec::new(&env), &wallet, &true);
     assert!(client.is_watchlisted(&wallet));
 
-    client.set_watchlist(&wallet, &false);
+    client.set_watchlist(&Vec::new(&env), &wallet, &false);
     assert!(!client.is_watchlisted(&wallet));
 }
 
@@ -479,7 +477,7 @@ fn test_watchlist_is_per_wallet() {
     let wallet_a = Address::generate(&env);
     let wallet_b = Address::generate(&env);
 
-    client.set_watchlist(&wallet_a, &true);
+    client.set_watchlist(&Vec::new(&env), &wallet_a, &true);
     assert!(client.is_watchlisted(&wallet_a));
     assert!(!client.is_watchlisted(&wallet_b));
 }
@@ -494,26 +492,26 @@ fn test_default_risk_threshold_is_75() {
 
 #[test]
 fn test_set_risk_threshold() {
-    let (_env, client, _admin, _service) = initialized();
-    client.set_risk_threshold(&80);
+    let (env, client, _admin, _service) = initialized();
+    client.set_risk_threshold(&Vec::new(&env), &80);
     assert_eq!(client.get_risk_threshold(), 80);
 }
 
 #[test]
 fn test_risk_threshold_boundary_values() {
-    let (_env, client, _admin, _service) = initialized();
+    let (env, client, _admin, _service) = initialized();
 
-    client.set_risk_threshold(&0);
+    client.set_risk_threshold(&Vec::new(&env), &0);
     assert_eq!(client.get_risk_threshold(), 0);
 
-    client.set_risk_threshold(&100);
+    client.set_risk_threshold(&Vec::new(&env), &100);
     assert_eq!(client.get_risk_threshold(), 100);
 }
 
 #[test]
 fn test_risk_threshold_above_100_rejected() {
-    let (_env, client, _admin, _service) = initialized();
-    let result = client.try_set_risk_threshold(&101);
+    let (env, client, _admin, _service) = initialized();
+    let result = client.try_set_risk_threshold(&Vec::new(&env), &101);
     assert_eq!(result, Err(Ok(Error::InvalidScore)));
 }
 
@@ -599,7 +597,7 @@ fn test_score_history_max_depth_enforced() {
             &(i * 8),
             &false,
             &false,
-            &(i as u64),
+            &(i as u64 + 1),
             &50,
             &1,
             &None,
@@ -647,7 +645,7 @@ fn test_set_history_max_depth_increases_ring() {
     let wallet = Address::generate(&env);
     let asset_pair = symbol_short!("XLM_USDC");
 
-    client.set_history_max_depth(&20);
+    client.set_history_max_depth(&Vec::new(&env), &20);
 
     for i in 0u32..15 {
         env.ledger().with_mut(|l| l.timestamp += 3_601);
@@ -700,7 +698,7 @@ fn test_set_history_max_depth_decreases_ring_on_next_write() {
     assert_eq!(client.get_score_history(&wallet, &asset_pair).len(), 5);
 
     // Reduce depth to 3.
-    client.set_history_max_depth(&3);
+    client.set_history_max_depth(&Vec::new(&env), &3);
 
     // One more submission triggers the eviction pass.
     env.ledger().with_mut(|l| l.timestamp += 3_601);
@@ -725,24 +723,24 @@ fn test_set_history_max_depth_decreases_ring_on_next_write() {
 
 #[test]
 fn test_history_depth_zero_rejected() {
-    let (_env, client, _admin, _service) = initialized();
-    let result = client.try_set_history_max_depth(&0);
+    let (env, client, _admin, _service) = initialized();
+    let result = client.try_set_history_max_depth(&Vec::new(&env), &0);
     assert_eq!(result, Err(Ok(Error::InvalidHistoryDepth)));
 }
 
 #[test]
 fn test_history_depth_above_ceiling_rejected() {
-    let (_env, client, _admin, _service) = initialized();
+    let (env, client, _admin, _service) = initialized();
     // MAX_HISTORY_DEPTH is 50; 51 must be rejected.
-    let result = client.try_set_history_max_depth(&51);
+    let result = client.try_set_history_max_depth(&Vec::new(&env), &51);
     assert_eq!(result, Err(Ok(Error::InvalidHistoryDepth)));
 }
 
 #[test]
 fn test_history_depth_at_ceiling_accepted() {
-    let (_env, client, _admin, _service) = initialized();
+    let (env, client, _admin, _service) = initialized();
     // Exactly 50 is the ceiling — must succeed.
-    client.set_history_max_depth(&50);
+    client.set_history_max_depth(&Vec::new(&env), &50);
     assert_eq!(client.get_history_max_depth(), 50);
 }
 
@@ -1183,7 +1181,7 @@ fn test_batch_result_vec_length_matches_input() {
 #[test]
 fn test_get_version_returns_two() {
     let (_env, client, _admin, _service) = initialized();
-    assert_eq!(client.get_version(), 2);
+    assert_eq!(client.get_version(), 3);
 }
 
 // ── Not-initialized guards ────────────────────────────────────────────────────
@@ -1217,8 +1215,8 @@ fn test_submit_score_before_init_fails() {
 
 #[test]
 fn test_pause_before_init_fails() {
-    let (_env, client, _, _) = setup();
-    let result = client.try_pause();
+    let (env, client, _, _) = setup();
+    let result = client.try_pause(&Vec::new(&env));
     assert_eq!(result, Err(Ok(Error::NotInitialized)));
 }
 
@@ -1263,9 +1261,9 @@ fn test_aggregate_weighted() {
     let pair_b = symbol_short!("XLM_BTC");
     let pair_c = symbol_short!("XLM_ETH");
 
-    client.set_pair_weight(&pair_a, &1);
-    client.set_pair_weight(&pair_b, &2);
-    client.set_pair_weight(&pair_c, &1);
+    client.set_pair_weight(&Vec::new(&env), &pair_a, &1);
+    client.set_pair_weight(&Vec::new(&env), &pair_b, &2);
+    client.set_pair_weight(&Vec::new(&env), &pair_c, &1);
 
     client.submit_score(&Vec::new(&env), &wallet, &pair_a, &20, &false, &false, &1, &90, &1, &None);
     client.submit_score(&Vec::new(&env), &wallet, &pair_b, &80, &false, &false, &2, &90, &1, &None);
@@ -1352,7 +1350,7 @@ fn test_aggregate_pair_deduplication() {
             &(50 + i as u32),
             &false,
             &false,
-            &i,
+            &(i + 1),
             &90,
             &1,
             &None,
@@ -1372,7 +1370,7 @@ fn test_aggregate_weight_zero_excluded() {
     let pair_a = symbol_short!("XLM_USDC");
     let pair_b = symbol_short!("XLM_BTC");
 
-    client.set_pair_weight(&pair_b, &0);
+    client.set_pair_weight(&Vec::new(&env), &pair_b, &0);
 
     client.submit_score(&Vec::new(&env), &wallet, &pair_a, &70, &false, &false, &1, &90, &1, &None);
     client.submit_score(&Vec::new(&env), &wallet, &pair_b, &10, &false, &false, &2, &90, &1, &None);
@@ -1397,7 +1395,7 @@ fn test_aggregate_overflow_protection() {
 
     for (i, name) in pair_names.iter().enumerate() {
         let pair = Symbol::new(&env, name);
-        client.set_pair_weight(&pair, &u32::MAX);
+        client.set_pair_weight(&Vec::new(&env), &pair, &u32::MAX);
         client.submit_score(
             &Vec::new(&env),
             &wallet,
@@ -1405,7 +1403,7 @@ fn test_aggregate_overflow_protection() {
             &50,
             &false,
             &false,
-            &(i as u64),
+            &(i as u64 + 1),
             &90,
             &1,
             &None,
@@ -1418,10 +1416,10 @@ fn test_aggregate_overflow_protection() {
 
 #[test]
 fn test_set_pair_weight() {
-    let (_env, client, _admin, _service) = initialized();
+    let (env, client, _admin, _service) = initialized();
     let pair = symbol_short!("XLM_USDC");
 
-    client.set_pair_weight(&pair, &3);
+    client.set_pair_weight(&Vec::new(&env), &pair, &3);
     assert_eq!(client.get_pair_weight(&pair), 3);
 }
 
@@ -1444,10 +1442,10 @@ fn setup_multisig<'a>(
     let mut signers: Vec<Address> = Vec::new(env);
     for _ in 0..n {
         let s = Address::generate(env);
-        client.add_service_signer(&s);
+        client.add_service_signer(&Vec::new(env), &s);
         signers.push_back(s);
     }
-    client.set_service_threshold(&m);
+    client.set_service_threshold(&Vec::new(env), &m);
     signers
 }
 
@@ -1529,11 +1527,11 @@ fn test_add_signer_beyond_max_rejected() {
     client.initialize(&admin, &service);
 
     for _ in 0..10 {
-        client.add_service_signer(&Address::generate(&env));
+        client.add_service_signer(&Vec::new(&env), &Address::generate(&env));
     }
 
     let eleventh = Address::generate(&env);
-    let result = client.try_add_service_signer(&eleventh);
+    let result = client.try_add_service_signer(&Vec::new(&env), &eleventh);
     assert_eq!(result, Err(Ok(Error::ServiceSetFull)));
 }
 
@@ -1544,9 +1542,9 @@ fn test_duplicate_signer_rejected() {
     client.initialize(&admin, &service);
 
     let signer = Address::generate(&env);
-    client.add_service_signer(&signer);
+    client.add_service_signer(&Vec::new(&env), &signer);
 
-    let result = client.try_add_service_signer(&signer);
+    let result = client.try_add_service_signer(&Vec::new(&env), &signer);
     assert_eq!(result, Err(Ok(Error::SignerAlreadyInSet)));
 }
 
@@ -1557,7 +1555,7 @@ fn test_remove_nonexistent_signer() {
     client.initialize(&admin, &service);
 
     let outsider = Address::generate(&env);
-    let result = client.try_remove_service_signer(&outsider);
+    let result = client.try_remove_service_signer(&Vec::new(&env), &outsider);
     assert_eq!(result, Err(Ok(Error::SignerNotInSet)));
 }
 
@@ -1566,9 +1564,9 @@ fn test_threshold_zero_rejected() {
     // Setting threshold to 0 → InvalidThreshold.
     let (env, client, admin, service) = setup();
     client.initialize(&admin, &service);
-    client.add_service_signer(&Address::generate(&env));
+    client.add_service_signer(&Vec::new(&env), &Address::generate(&env));
 
-    let result = client.try_set_service_threshold(&0);
+    let result = client.try_set_service_threshold(&Vec::new(&env), &0);
     assert_eq!(result, Err(Ok(Error::InvalidThreshold)));
 }
 
@@ -1577,10 +1575,10 @@ fn test_threshold_above_set_size_rejected() {
     // N=2, threshold=3 → InvalidThreshold.
     let (env, client, admin, service) = setup();
     client.initialize(&admin, &service);
-    client.add_service_signer(&Address::generate(&env));
-    client.add_service_signer(&Address::generate(&env));
+    client.add_service_signer(&Vec::new(&env), &Address::generate(&env));
+    client.add_service_signer(&Vec::new(&env), &Address::generate(&env));
 
-    let result = client.try_set_service_threshold(&3);
+    let result = client.try_set_service_threshold(&Vec::new(&env), &3);
     assert_eq!(result, Err(Ok(Error::InvalidThreshold)));
 }
 
@@ -1606,12 +1604,12 @@ fn test_remove_signer_reduces_set() {
 
     let s1 = Address::generate(&env);
     let s2 = Address::generate(&env);
-    client.add_service_signer(&s1);
-    client.add_service_signer(&s2);
-    client.set_service_threshold(&2);
+    client.add_service_signer(&Vec::new(&env), &s1);
+    client.add_service_signer(&Vec::new(&env), &s2);
+    client.set_service_threshold(&Vec::new(&env), &2);
 
     // Remove one signer — threshold must auto-adjust from 2 to 1.
-    client.remove_service_signer(&s2);
+    client.remove_service_signer(&Vec::new(&env), &s2);
 
     let remaining = client.get_service_signers();
     assert_eq!(remaining.len(), 1);
@@ -1686,8 +1684,8 @@ fn test_is_score_stale_exactly_at_window() {
 
 #[test]
 fn test_set_staleness_window_zero_rejected() {
-    let (_env, client, _admin, _service) = initialized();
-    let result = client.try_set_staleness_window(&0);
+    let (env, client, _admin, _service) = initialized();
+    let result = client.try_set_staleness_window(&Vec::new(&env), &0);
     assert_eq!(result, Err(Ok(Error::InvalidStalenessWindow)));
 }
 
@@ -1761,7 +1759,7 @@ fn test_score_count_exceeds_history_depth() {
             &(i * 5),
             &false,
             &false,
-            &(i as u64),
+            &(i as u64 + 1),
             &50,
             &1,
             &None,
@@ -1839,7 +1837,7 @@ fn test_set_staleness_window_updates_stale_check() {
     client.submit_score(&Vec::new(&env), &wallet, &pair, &50, &false, &false, &ts, &80, &1, &None);
 
     // Set a very narrow window (10 seconds).
-    client.set_staleness_window(&10);
+    client.set_staleness_window(&Vec::new(&env), &10);
 
     // Advance by 11 seconds — should be stale now.
     env.ledger().with_mut(|l| l.timestamp = ts + 11);
@@ -1859,7 +1857,7 @@ fn test_clear_score_history_removes_all_entries() {
     client.submit_score(&Vec::new(&env), &wallet, &pair, &20, &false, &false, &2, &60, &1, &None);
 
     assert_eq!(client.get_score_history(&wallet, &pair).len(), 2);
-    client.clear_score_history(&wallet, &pair);
+    client.clear_score_history(&Vec::new(&env), &wallet, &pair);
     assert_eq!(client.get_score_history(&wallet, &pair).len(), 0);
 }
 
@@ -1870,7 +1868,7 @@ fn test_clear_score_history_on_empty_is_noop() {
     let pair = symbol_short!("XLM_USDC");
 
     // Should not panic when no history exists.
-    client.clear_score_history(&wallet, &pair);
+    client.clear_score_history(&Vec::new(&env), &wallet, &pair);
     assert_eq!(client.get_score_history(&wallet, &pair).len(), 0);
 }
 
@@ -1881,7 +1879,7 @@ fn test_clear_score_removes_latest_score() {
     let pair = symbol_short!("XLM_USDC");
 
     client.submit_score(&Vec::new(&env), &wallet, &pair, &42, &false, &false, &1, &80, &1, &None);
-    client.clear_score(&wallet, &pair);
+    client.clear_score(&Vec::new(&env), &wallet, &pair);
 
     let result = client.try_get_score(&wallet, &pair);
     assert_eq!(result, Err(Ok(Error::ScoreNotFound)));
@@ -1894,7 +1892,7 @@ fn test_clear_score_on_nonexistent_is_noop() {
     let pair = symbol_short!("XLM_USDC");
 
     // Should not panic when no score exists.
-    client.clear_score(&wallet, &pair);
+    client.clear_score(&Vec::new(&env), &wallet, &pair);
     let result = client.try_get_score(&wallet, &pair);
     assert_eq!(result, Err(Ok(Error::ScoreNotFound)));
 }
@@ -1909,7 +1907,7 @@ fn test_clear_score_does_not_affect_other_pairs() {
     client.submit_score(&Vec::new(&env), &wallet, &pair_a, &10, &false, &false, &1, &50, &1, &None);
     client.submit_score(&Vec::new(&env), &wallet, &pair_b, &20, &false, &false, &1, &60, &1, &None);
 
-    client.clear_score(&wallet, &pair_a);
+    client.clear_score(&Vec::new(&env), &wallet, &pair_a);
 
     assert_eq!(client.try_get_score(&wallet, &pair_a), Err(Ok(Error::ScoreNotFound)));
     assert_eq!(client.get_score(&wallet, &pair_b).score, 20);
@@ -1922,7 +1920,7 @@ fn test_clear_history_does_not_affect_latest_score() {
     let pair = symbol_short!("XLM_USDC");
 
     client.submit_score(&Vec::new(&env), &wallet, &pair, &55, &false, &false, &1, &70, &1, &None);
-    client.clear_score_history(&wallet, &pair);
+    client.clear_score_history(&Vec::new(&env), &wallet, &pair);
 
     // Latest score must still be retrievable.
     assert_eq!(client.get_score(&wallet, &pair).score, 55);
@@ -1937,9 +1935,122 @@ fn test_clear_score_does_not_affect_history() {
     let pair = symbol_short!("XLM_USDC");
 
     client.submit_score(&Vec::new(&env), &wallet, &pair, &33, &false, &false, &1, &80, &1, &None);
-    client.clear_score(&wallet, &pair);
+    client.clear_score(&Vec::new(&env), &wallet, &pair);
 
     // History ring must still contain the entry.
     assert_eq!(client.get_score_history(&wallet, &pair).len(), 1);
     assert_eq!(client.get_score_history(&wallet, &pair).get(0).unwrap().score, 33);
+}
+
+// ── Wallet Score Delegation ───────────────────────────────────────────────────
+
+#[test]
+fn test_delegate_inherits_custodian_score() {
+    let (env, client, _admin, _service) = initialized();
+    let custodian = Address::generate(&env);
+    let sub_wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    // 1. Set delegate
+    client.set_score_delegate(&sub_wallet, &custodian);
+
+    // 2. Submit score to custodian
+    client.submit_score(&Vec::new(&env), &custodian, &pair, &40, &false, &false, &1, &80, &1, &None);
+
+    // 3. Sub-wallet inherits score
+    let score = client.get_score(&sub_wallet, &pair);
+    assert_eq!(score.score, 40);
+
+    // 4. Sub-wallet inherits gate check
+    let is_safe = client.query_risk_gate(&sub_wallet, &pair, &50);
+    assert!(is_safe);
+
+    // 5. Sub-wallet inherits aggregate score
+    let aggregate = client.get_aggregate_score(&sub_wallet);
+    assert_eq!(aggregate.aggregate_score, 40);
+}
+
+#[test]
+fn test_delegate_direct_score_overrides_delegation() {
+    let (env, client, _admin, _service) = initialized();
+    let custodian = Address::generate(&env);
+    let sub_wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    client.set_score_delegate(&sub_wallet, &custodian);
+    client.submit_score(&Vec::new(&env), &custodian, &pair, &80, &false, &false, &1, &80, &1, &None);
+
+    // Sub-wallet overrides with its own score
+    client.submit_score(&Vec::new(&env), &sub_wallet, &pair, &10, &false, &false, &1, &80, &1, &None);
+
+    let score = client.get_score(&sub_wallet, &pair);
+    assert_eq!(score.score, 10); // Not 80
+}
+
+#[test]
+fn test_cyclic_delegation_rejected() {
+    let (env, client, _admin, _service) = initialized();
+    let wallet_a = Address::generate(&env);
+    let wallet_b = Address::generate(&env);
+
+    // A -> A is rejected
+    assert_eq!(client.try_set_score_delegate(&wallet_a, &wallet_a), Err(Ok(Error::CyclicDelegation)));
+
+    // A -> B -> A is rejected
+    client.set_score_delegate(&wallet_a, &wallet_b);
+    assert_eq!(client.try_set_score_delegate(&wallet_b, &wallet_a), Err(Ok(Error::CyclicDelegation)));
+}
+
+#[test]
+fn test_remove_delegate_clears_fallback() {
+    let (env, client, _admin, _service) = initialized();
+    let custodian = Address::generate(&env);
+    let sub_wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    client.set_score_delegate(&sub_wallet, &custodian);
+    client.submit_score(&Vec::new(&env), &custodian, &pair, &40, &false, &false, &1, &80, &1, &None);
+
+    // Works with delegate
+    assert_eq!(client.get_score(&sub_wallet, &pair).score, 40);
+
+    client.remove_score_delegate(&sub_wallet);
+
+    // Fallback is gone
+    assert_eq!(client.try_get_score(&sub_wallet, &pair), Err(Ok(Error::ScoreNotFound)));
+}
+
+#[test]
+fn test_delegate_propagates_embargo() {
+    let (env, client, _admin, _service) = initialized();
+    let custodian = Address::generate(&env);
+    let sub_wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    client.set_score_delegate(&sub_wallet, &custodian);
+    // Submit embargo score (e.g. 90) which is >= gate_threshold of 75
+    client.submit_score(&Vec::new(&env), &custodian, &pair, &90, &false, &false, &1, &80, &1, &None);
+
+    let is_safe = client.query_risk_gate(&sub_wallet, &pair, &75);
+    assert!(!is_safe); // Embargo propagates
+}
+
+#[test]
+fn test_delegate_snapshot() {
+    let (env, client, _admin, _service) = initialized();
+    let custodian = Address::generate(&env);
+    let sub_wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    client.set_score_delegate(&sub_wallet, &custodian);
+    client.submit_score(&Vec::new(&env), &custodian, &pair, &20, &false, &false, &1, &80, &1, &None);
+
+    assert_eq!(client.get_score(&sub_wallet, &pair).score, 20);
+
+    // Update custodian's score
+    env.ledger().with_mut(|l| l.timestamp += 3_601);
+    client.submit_score(&Vec::new(&env), &custodian, &pair, &50, &false, &false, &2, &80, &1, &None);
+
+    // Sub-wallet immediately sees the new score without any update to itself
+    assert_eq!(client.get_score(&sub_wallet, &pair).score, 50);
 }

@@ -175,6 +175,7 @@ below are stable** — integrators may match on the numeric code:
 | 9 | `EmptyBatch` | `submit_scores_batch` called with no entries |
 | 10 | `BatchTooLarge` | batch exceeds `MAX_BATCH_SIZE` |
 | 11 | `ArithmeticOverflow` | aggregate computation overflowed |
+| 30 | `PairPaused` | submission attempted while this `asset_pair` is individually paused via `set_pair_paused` — superseded by `ContractPaused` when the global circuit breaker is also active |
 
 **Guarantees:**
 

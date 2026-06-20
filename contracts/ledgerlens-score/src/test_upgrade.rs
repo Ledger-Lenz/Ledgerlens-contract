@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 //! Tests for the time-locked upgrade governance mechanism.
 //!
 //! Time is simulated with `env.ledger().with_mut(|l| l.timestamp = ...)`; the
@@ -14,7 +12,7 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
-    Address, Bytes, BytesN, Env,
+    Address, Bytes, BytesN, Env, Vec,
 };
 
 use crate::{
@@ -68,7 +66,7 @@ fn test_propose_upgrade_stores_proposal() {
     let (env, client, admin) = setup();
     let hash = dummy_hash(&env);
 
-    client.propose_upgrade(&hash);
+    client.propose_upgrade(&Vec::new(&env), &hash);
 
     let proposal = client.get_pending_upgrade();
     assert_eq!(proposal.new_wasm_hash, hash);
@@ -82,8 +80,8 @@ fn test_double_propose_rejected() {
     let (env, client, _admin) = setup();
     let hash = dummy_hash(&env);
 
-    client.propose_upgrade(&hash);
-    let result = client.try_propose_upgrade(&hash);
+    client.propose_upgrade(&Vec::new(&env), &hash);
+    let result = client.try_propose_upgrade(&Vec::new(&env), &hash);
     assert_eq!(result, Err(Ok(Error::UpgradeAlreadyPending)));
 }
 
@@ -94,15 +92,15 @@ fn test_execute_before_delay_rejected() {
     let (env, client, _admin) = setup();
     let hash = dummy_hash(&env);
 
-    client.propose_upgrade(&hash);
+    client.propose_upgrade(&Vec::new(&env), &hash);
 
     // Still at START_TS, well before executable_after.
-    let result = client.try_execute_upgrade();
+    let result = client.try_execute_upgrade(&Vec::new(&env));
     assert_eq!(result, Err(Ok(Error::UpgradeNotReady)));
 
     // One second short of the deadline is still not ready.
     advance_to(&env, START_TS + DEFAULT_UPGRADE_DELAY_SECS - 1);
-    let result = client.try_execute_upgrade();
+    let result = client.try_execute_upgrade(&Vec::new(&env));
     assert_eq!(result, Err(Ok(Error::UpgradeNotReady)));
 }
 
@@ -111,10 +109,10 @@ fn test_execute_after_delay_succeeds() {
     let (env, client, _admin) = setup();
 
     let wasm_hash = upload_uploadable_wasm(&env);
-    client.propose_upgrade(&wasm_hash);
+    client.propose_upgrade(&Vec::new(&env), &wasm_hash);
 
     advance_to(&env, START_TS + DEFAULT_UPGRADE_DELAY_SECS);
-    client.execute_upgrade(); // must not panic / error
+    client.execute_upgrade(&Vec::new(&env)); // must not panic / error
 }
 
 #[test]
@@ -122,10 +120,10 @@ fn test_execute_upgrade_clears_proposal() {
     let (env, client, _admin) = setup();
 
     let wasm_hash = upload_uploadable_wasm(&env);
-    client.propose_upgrade(&wasm_hash);
+    client.propose_upgrade(&Vec::new(&env), &wasm_hash);
 
     advance_to(&env, START_TS + DEFAULT_UPGRADE_DELAY_SECS);
-    client.execute_upgrade();
+    client.execute_upgrade(&Vec::new(&env));
 
     // The contract's executable is now the (empty) upgrade target, so we read
     // storage directly inside the contract context rather than re-invoking the
@@ -136,8 +134,8 @@ fn test_execute_upgrade_clears_proposal() {
 
 #[test]
 fn test_execute_without_pending_rejected() {
-    let (_env, client, _admin) = setup();
-    let result = client.try_execute_upgrade();
+    let (env, client, _admin) = setup();
+    let result = client.try_execute_upgrade(&Vec::new(&env));
     assert_eq!(result, Err(Ok(Error::NoPendingUpgrade)));
 }
 
@@ -148,8 +146,8 @@ fn test_veto_clears_pending_upgrade() {
     let (env, client, _admin) = setup();
     let hash = dummy_hash(&env);
 
-    client.propose_upgrade(&hash);
-    client.veto_upgrade();
+    client.propose_upgrade(&Vec::new(&env), &hash);
+    client.veto_upgrade(&Vec::new(&env));
 
     let result = client.try_get_pending_upgrade();
     assert_eq!(result, Err(Ok(Error::NoPendingUpgrade)));
@@ -157,8 +155,8 @@ fn test_veto_clears_pending_upgrade() {
 
 #[test]
 fn test_veto_without_pending_rejected() {
-    let (_env, client, _admin) = setup();
-    let result = client.try_veto_upgrade();
+    let (env, client, _admin) = setup();
+    let result = client.try_veto_upgrade(&Vec::new(&env));
     assert_eq!(result, Err(Ok(Error::NoPendingUpgrade)));
 }
 
@@ -167,10 +165,10 @@ fn test_can_repropose_after_veto() {
     let (env, client, _admin) = setup();
     let hash = dummy_hash(&env);
 
-    client.propose_upgrade(&hash);
-    client.veto_upgrade();
+    client.propose_upgrade(&Vec::new(&env), &hash);
+    client.veto_upgrade(&Vec::new(&env));
     // Vetoing frees the slot, so a fresh proposal is accepted.
-    client.propose_upgrade(&hash);
+    client.propose_upgrade(&Vec::new(&env), &hash);
     assert_eq!(client.get_pending_upgrade().new_wasm_hash, hash);
 }
 
@@ -194,35 +192,38 @@ fn test_default_upgrade_delay_is_min() {
 
 #[test]
 fn test_set_upgrade_delay_within_bounds() {
-    let (_env, client, _admin) = setup();
+    let (env, client, _admin) = setup();
 
     // Min, max, and an interior value are all accepted.
-    client.set_upgrade_delay(&MIN_UPGRADE_DELAY_SECS);
+    client.set_upgrade_delay(&Vec::new(&env), &MIN_UPGRADE_DELAY_SECS);
     assert_eq!(client.get_upgrade_delay(), MIN_UPGRADE_DELAY_SECS);
 
-    client.set_upgrade_delay(&MAX_UPGRADE_DELAY_SECS);
+    client.set_upgrade_delay(&Vec::new(&env), &MAX_UPGRADE_DELAY_SECS);
     assert_eq!(client.get_upgrade_delay(), MAX_UPGRADE_DELAY_SECS);
 
     let mid = (MIN_UPGRADE_DELAY_SECS + MAX_UPGRADE_DELAY_SECS) / 2;
-    client.set_upgrade_delay(&mid);
+    client.set_upgrade_delay(&Vec::new(&env), &mid);
     assert_eq!(client.get_upgrade_delay(), mid);
 }
 
 #[test]
 fn test_upgrade_delay_below_min_rejected() {
-    let (_env, client, _admin) = setup();
-    assert_eq!(client.try_set_upgrade_delay(&0), Err(Ok(Error::InvalidUpgradeDelay)));
+    let (env, client, _admin) = setup();
     assert_eq!(
-        client.try_set_upgrade_delay(&(MIN_UPGRADE_DELAY_SECS - 1)),
+        client.try_set_upgrade_delay(&Vec::new(&env), &0),
+        Err(Ok(Error::InvalidUpgradeDelay))
+    );
+    assert_eq!(
+        client.try_set_upgrade_delay(&Vec::new(&env), &(MIN_UPGRADE_DELAY_SECS - 1)),
         Err(Ok(Error::InvalidUpgradeDelay))
     );
 }
 
 #[test]
 fn test_upgrade_delay_above_max_rejected() {
-    let (_env, client, _admin) = setup();
+    let (env, client, _admin) = setup();
     assert_eq!(
-        client.try_set_upgrade_delay(&(MAX_UPGRADE_DELAY_SECS + 1)),
+        client.try_set_upgrade_delay(&Vec::new(&env), &(MAX_UPGRADE_DELAY_SECS + 1)),
         Err(Ok(Error::InvalidUpgradeDelay))
     );
 }
@@ -233,8 +234,8 @@ fn test_configured_delay_applied_to_proposal() {
     let hash = dummy_hash(&env);
 
     // Raise the delay, then confirm a new proposal uses the new value.
-    client.set_upgrade_delay(&MAX_UPGRADE_DELAY_SECS);
-    client.propose_upgrade(&hash);
+    client.set_upgrade_delay(&Vec::new(&env), &MAX_UPGRADE_DELAY_SECS);
+    client.propose_upgrade(&Vec::new(&env), &hash);
 
     let proposal = client.get_pending_upgrade();
     assert_eq!(proposal.executable_after, START_TS + MAX_UPGRADE_DELAY_SECS);

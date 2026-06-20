@@ -82,7 +82,14 @@ pub enum Error {
     /// Returned when `set_history_max_depth` is called with `0` or a value
     /// above `MAX_HISTORY_DEPTH`.
     InvalidHistoryDepth = 29,
-    /// Returned when `set_hysteresis_margin` is called with a value above
-    /// `MAX_HYSTERESIS_MARGIN` (50).
-    InvalidHysteresisMargin = 30,
+
+    // ── Fee withdrawal ─────────────────────────────────────────────────────
+    /// Returned by `get_fee_token` and `withdraw_fees` when `set_fee_token`
+    /// has not been called.
+    FeeTokenNotSet = 30,
+    /// Returned by `withdraw_fees` when `amount` is zero.
+    InvalidWithdrawalAmount = 31,
+    /// Returned by `withdraw_fees` when another withdrawal call is already
+    /// in-flight (concurrency lock held).
+    WithdrawalInProgress = 32,
 }

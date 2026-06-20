@@ -170,7 +170,9 @@
                 "symbol": "execute_upgrade"
               }
             ],
-            "data": "void"
+            "data": {
+              "vec": []
+            }
           }
         }
       },
@@ -252,7 +254,11 @@
                   "symbol": "execute_upgrade"
                 },
                 {
-                  "vec": []
+                  "vec": [
+                    {
+                      "vec": []
+                    }
+                  ]
                 }
               ]
             }

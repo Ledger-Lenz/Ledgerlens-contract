@@ -15,6 +15,9 @@
               "function_name": "set_service_pubkey",
               "args": [
                 {
+                  "vec": []
+                },
+                {
                   "bytes": "02e4dbb4350d84eabec1d67e40a398a78a8e6d719d86914393fca83b88dbe927af"
                 }
               ]
@@ -235,7 +238,14 @@
               }
             ],
             "data": {
-              "bytes": "02e4dbb4350d84eabec1d67e40a398a78a8e6d719d86914393fca83b88dbe927af"
+              "vec": [
+                {
+                  "vec": []
+                },
+                {
+                  "bytes": "02e4dbb4350d84eabec1d67e40a398a78a8e6d719d86914393fca83b88dbe927af"
+                }
+              ]
             }
           }
         }

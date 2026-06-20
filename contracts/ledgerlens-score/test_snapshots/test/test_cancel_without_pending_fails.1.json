@@ -170,7 +170,9 @@
                 "symbol": "cancel_admin_transfer"
               }
             ],
-            "data": "void"
+            "data": {
+              "vec": []
+            }
           }
         }
       },
@@ -252,7 +254,11 @@
                   "symbol": "cancel_admin_transfer"
                 },
                 {
-                  "vec": []
+                  "vec": [
+                    {
+                      "vec": []
+                    }
+                  ]
                 }
               ]
             }

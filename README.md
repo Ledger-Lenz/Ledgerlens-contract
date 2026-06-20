@@ -139,6 +139,15 @@ Admin only. Permanently erases the latest score entry for `wallet` / `asset_pair
 ### `set_service_pubkey(pubkey: Bytes)` / `get_service_pubkey() -> Bytes`
 Admin sets (or rotates) the off-chain detection pipeline's secp256k1 public key — 33 bytes compressed or 65 bytes uncompressed, rejected otherwise with `InvalidPubkeyLength` — used to verify `ScoreAttestation`s. Once set it cannot be unset, only rotated. `get_service_pubkey` returns `ServicePubkeyNotSet` before one has been configured. See [Score Attestation](#score-attestation).
 
+### `set_pair_paused(asset_pair: Symbol, paused: bool)`
+Admin only. Freezes or unfreezes score submissions for a single `asset_pair`, without touching any other pair or the global circuit breaker. Pausing a new pair is rejected with `PausedPairIndexFull` once `MAX_PAUSED_PAIRS` (50) pairs are paused simultaneously. Emits `pr_pause` with the pair and the new `paused` state. See [Pause Circuit Breaker](#pause-circuit-breaker).
+
+### `is_pair_paused(asset_pair: Symbol) -> bool`
+Read-only. Returns `true` only while `asset_pair` is individually paused. `false` for any pair that has never been paused.
+
+### `get_paused_pairs() -> Vec<Symbol>`
+Read-only. Returns every asset pair currently paused, in no particular order. O(1) — backed by the incrementally-maintained `PausedPairIndex`, not a scan.
+
 ### `RiskScore` Structure
 
 ```rust
@@ -257,6 +266,34 @@ A wallet scoring 60-70 on three pairs individually might not breach the per-pair
 | 23 | `RateLimitExceeded` | Submission before the per-pair cooldown has elapsed |
 | 24 | `InvalidCooldown` | `set_cooldown` value outside `[MIN_COOLDOWN_SECS, MAX_COOLDOWN_SECS]` |
 | 25 | `InvalidTimestamp` | `submit_score` called with `timestamp = 0` |
+| 30 | `PairPaused` | Submission attempted while this `asset_pair` is individually paused — see [Pause Circuit Breaker](#pause-circuit-breaker) |
+| 31 | `PausedPairIndexFull` | `set_pair_paused` would pause a new pair beyond `MAX_PAUSED_PAIRS` (50) |
+
+## Pause Circuit Breaker
+
+The admin has two levels of emergency stop over score submissions:
+
+- **Global**: `pause()` / `unpause()` / `is_paused()` block *every* `submit_score` and `submit_scores_batch` call across *every* wallet and asset pair. This is the blunt, contract-wide escape hatch — necessary when something is broadly wrong (e.g. a compromised service key), but it silences fraud detection for every pair while active, not just the one under investigation.
+- **Per-pair**: see below.
+
+Submissions are checked against the global breaker first; see [Per-Pair Circuit Breaker](#per-pair-circuit-breaker) for the per-pair check and how the two interact.
+
+### Per-Pair Circuit Breaker
+
+A compromised or malfunctioning detection signal for a *single* asset pair (e.g. a bad `XLM_USDC` model run feeding bogus scores) doesn't need the entire registry silenced while it's investigated. `set_pair_paused(asset_pair, paused)` gives the admin surgical control: freeze writes for one pair while every other pair keeps accepting submissions normally.
+
+```rust
+client.set_pair_paused(&symbol_short!("XLM_USDC"), &true);   // freeze just this pair
+client.submit_score(...);                                     // XLM_BTC, XLM_EURC, etc. — unaffected
+client.submit_score(/* asset_pair: XLM_USDC, ... */);         // -> Error::PairPaused
+client.set_pair_paused(&symbol_short!("XLM_USDC"), &false);   // resume
+```
+
+**Reads are never affected.** `get_score`, `get_score_history`, `query_risk_gate`, and `get_aggregate_score` all keep returning existing data for a paused pair — only `submit_score` and `submit_scores_batch` consult the per-pair flag. In a batch call, an entry targeting a paused pair is rejected with `rejection_code = PairPaused` in its `BatchEntryResult` rather than failing the whole batch — every other entry is still processed normally, exactly like `RateLimitExceeded`.
+
+**Interaction with the global pause.** The global breaker is checked first: if `pause()` is active, every submission returns `ContractPaused` regardless of any pair's individual state — pausing a pair on top of a global pause has no additional effect until the global pause is lifted, at which point the per-pair pause still applies. A pair can be paused or unpaused independently of the global breaker's state at any time.
+
+**`MAX_PAUSED_PAIRS` limit.** `get_paused_pairs()` returns every currently paused pair via an incrementally-maintained index, bounded at 50 entries. Pausing a pair *not already paused* once the index is full returns `PausedPairIndexFull` — re-pausing an already-paused pair, or unpausing any pair, never hits this limit. The cap keeps the index's (and the rare admin pause/unpause operation's) storage and compute cost bounded; the hot path consulted on every submission, `is_pair_paused`, is a direct O(1) key lookup that never touches the index at all.
 
 ## Upgrade Governance
 
