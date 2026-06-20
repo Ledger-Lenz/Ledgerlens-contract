@@ -1,8 +1,8 @@
 use soroban_sdk::{Address, Bytes, Env, Symbol, Vec};
 
 use crate::constants::{
-    DEFAULT_COOLDOWN_SECS, DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS, SCORE_TTL_EXTEND_TO,
-    SCORE_TTL_THRESHOLD,
+    DEFAULT_CONSENSUS_EPSILON, DEFAULT_CONSENSUS_THRESHOLD_K, DEFAULT_COOLDOWN_SECS,
+    DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS, SCORE_TTL_EXTEND_TO, SCORE_TTL_THRESHOLD,
 };
 use crate::types::{AggregateRiskScore, DataKey, RiskScore, UpgradeProposal};
 
@@ -364,4 +364,28 @@ pub fn get_service_pubkey(env: &Env) -> Option<Bytes> {
 
 pub fn set_service_pubkey(env: &Env, pubkey: &Bytes) {
     env.storage().instance().set(&DataKey::ServicePubKey, pubkey);
+}
+
+// ── Consensus configuration ─────────────────────────────────────────────────
+
+pub fn get_consensus_threshold_k(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::ConsensusThresholdK)
+        .unwrap_or(DEFAULT_CONSENSUS_THRESHOLD_K)
+}
+
+pub fn set_consensus_threshold_k(env: &Env, k: u32) {
+    env.storage().instance().set(&DataKey::ConsensusThresholdK, &k);
+}
+
+pub fn get_consensus_epsilon(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::ConsensusEpsilon)
+        .unwrap_or(DEFAULT_CONSENSUS_EPSILON)
+}
+
+pub fn set_consensus_epsilon(env: &Env, epsilon: u32) {
+    env.storage().instance().set(&DataKey::ConsensusEpsilon, &epsilon);
 }

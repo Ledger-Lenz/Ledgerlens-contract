@@ -82,4 +82,11 @@ pub enum Error {
     /// Returned when `set_history_max_depth` is called with `0` or a value
     /// above `MAX_HISTORY_DEPTH`.
     InvalidHistoryDepth = 29,
+    /// Fewer than the configured consensus threshold of models agreed on a
+    /// score within the configured epsilon window.
+    InsufficientConsensus = 30,
+    /// `submit_consensus_score` was called with zero model submissions.
+    ConsensusInputEmpty = 31,
+    /// `set_consensus_config` was called with `k == 0` or `epsilon > 100`.
+    InvalidConsensusConfig = 32,
 }

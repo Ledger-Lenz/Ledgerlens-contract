@@ -22,6 +22,9 @@ mod test_rate_limit;
 #[cfg(test)]
 mod test_attestation;
 
+#[cfg(test)]
+mod test_consensus;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, Address, Bytes, BytesN, Env, Symbol,
     SymbolStr, TryFromVal, Vec,
@@ -29,8 +32,8 @@ use soroban_sdk::{
 
 pub use errors::Error;
 pub use types::{
-    AggregateRiskScore, BatchEntryResult, BatchResult, RiskScore, ScoreAttestation,
-    ScoreSubmission, UpgradeProposal,
+    AggregateRiskScore, BatchEntryResult, BatchResult, ModelSubmission, RiskScore,
+    ScoreAttestation, ScoreSubmission, UpgradeProposal,
 };
 
 /// On-chain truth layer for LedgerLens risk scores.
@@ -91,7 +94,7 @@ impl LedgerLensScoreContract {
     /// let admin = Address::generate(&env);
     /// let service = Address::generate(&env);
     /// client.initialize(&admin, &service);
-    /// assert_eq!(client.get_version(), 2);
+    /// assert_eq!(client.get_version(), 3);
     /// ```
     pub fn get_version(env: Env) -> u32 {
         storage::get_contract_version(&env)
@@ -159,33 +162,8 @@ impl LedgerLensScoreContract {
         model_version: u32,
         attestation: Option<ScoreAttestation>,
     ) -> Result<(), Error> {
-        if !storage::has_admin(&env) {
-            return Err(Error::NotInitialized);
-        }
-        if storage::is_paused(&env) {
-            return Err(Error::ContractPaused);
-        }
-
-        let service_set = storage::get_service_set(&env);
-        let threshold = storage::get_service_threshold(&env);
-
-        if !service_set.is_empty() && threshold > 0 {
-            // Multi-sig path: verify count, membership, then require_auth each.
-            if signers.len() < threshold {
-                return Err(Error::InsufficientSigners);
-            }
-            for i in 0..signers.len() {
-                let signer = signers.get(i).unwrap();
-                if !service_set.contains(&signer) {
-                    return Err(Error::UnauthorizedSigner);
-                }
-                signer.require_auth();
-            }
-        } else {
-            // Legacy single-service path.
-            let service = storage::get_service(&env);
-            service.require_auth();
-        }
+        Self::ensure_active(&env)?;
+        Self::authorize_submission(&env, &signers)?;
 
         // Cryptographic payload attestation — opt-in. Once the admin has
         // configured a service pubkey, every submission must carry a valid
@@ -206,41 +184,119 @@ impl LedgerLensScoreContract {
             )?;
         }
 
-        if score > 100 {
-            return Err(Error::InvalidScore);
-        }
-        if confidence > 100 {
-            return Err(Error::InvalidConfidence);
+        let risk_score =
+            RiskScore { score, benford_flag, ml_flag, timestamp, confidence, model_version };
+        Self::write_score_with_rate_limit(&env, &wallet, &asset_pair, &risk_score)?;
+        Ok(())
+    }
+
+    /// Register a consensus-backed score for `wallet` / `asset_pair` from
+    /// multiple independently attested model outputs.
+    ///
+    /// The contract verifies each model submission independently, computes a
+    /// provisional median across the valid submissions, forms the consensus set
+    /// of scores within `±epsilon` of that median, and accepts the update only
+    /// if at least `k` models agree. The stored score is the integer median of
+    /// the consensus set, with `model_version = 0` marking it as an on-chain
+    /// consensus aggregate rather than a direct single-model output.
+    #[allow(clippy::too_many_arguments)]
+    pub fn submit_consensus_score(
+        env: Env,
+        signers: Vec<Address>,
+        wallet: Address,
+        asset_pair: Symbol,
+        submissions: Vec<ModelSubmission>,
+        timestamp: u64,
+    ) -> Result<(), Error> {
+        Self::ensure_active(&env)?;
+        Self::authorize_submission(&env, &signers)?;
+
+        if submissions.is_empty() {
+            return Err(Error::ConsensusInputEmpty);
         }
         if timestamp == 0 {
             return Err(Error::InvalidTimestamp);
         }
 
-        let last_submit = storage::get_last_submit_time(&env, &wallet, &asset_pair);
-        let cooldown = storage::get_cooldown_secs(&env);
-        let now = env.ledger().timestamp();
-        // `last_submit == 0` means "never accepted" (see get_last_submit_time) —
-        // not a real submission at the epoch — so the cooldown doesn't apply yet.
-        if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
-            return Err(Error::RateLimitExceeded);
+        let mut valid_indices: Vec<u32> = Vec::new(&env);
+        for i in 0..submissions.len() {
+            let sub = submissions.get(i).unwrap();
+            if sub.score > 100 || sub.confidence > 100 {
+                continue;
+            }
+
+            let should_verify = storage::get_service_pubkey(&env).is_some();
+            let verified = if should_verify {
+                Self::verify_attestation(
+                    &env,
+                    &wallet,
+                    &asset_pair,
+                    sub.score,
+                    sub.benford_flag,
+                    sub.ml_flag,
+                    timestamp,
+                    sub.confidence,
+                    sub.model_version,
+                    Some(sub.attestation.clone()),
+                )
+                .is_ok()
+            } else {
+                true
+            };
+
+            if verified {
+                valid_indices.push_back(i);
+            }
         }
-        storage::set_last_submit_time(&env, &wallet, &asset_pair, now);
 
-        let risk_score =
-            RiskScore { score, benford_flag, ml_flag, timestamp, confidence, model_version };
-
-        storage::set_score(&env, &wallet, &asset_pair, &risk_score);
-        storage::push_score_history(&env, &wallet, &asset_pair, &risk_score);
-        storage::register_pair_for_wallet(&env, &wallet, &asset_pair);
-        storage::increment_score_count(&env, &wallet, &asset_pair);
-        Self::refresh_aggregate_cache(&env, &wallet);
-
-        let score_threshold = storage::get_risk_threshold(&env);
-        if score >= score_threshold {
-            events::threshold_breached(&env, &wallet, &asset_pair, score, score_threshold);
+        if valid_indices.is_empty() {
+            return Err(Error::InsufficientConsensus);
         }
 
-        events::score_submitted(&env, &wallet, &asset_pair, &risk_score);
+        let provisional_median =
+            Self::median_score_for_indices(&submissions, &valid_indices).ok_or(Error::InsufficientConsensus)?;
+        let epsilon = storage::get_consensus_epsilon(&env);
+        let lower_bound = provisional_median.saturating_sub(epsilon);
+        let upper_bound = provisional_median.saturating_add(epsilon).min(100);
+
+        let mut consensus_indices: Vec<u32> = Vec::new(&env);
+        for i in 0..valid_indices.len() {
+            let idx = valid_indices.get(i).unwrap();
+            let sub = submissions.get(idx).unwrap();
+            if sub.score >= lower_bound && sub.score <= upper_bound {
+                consensus_indices.push_back(idx);
+            }
+        }
+
+        let threshold_k = storage::get_consensus_threshold_k(&env);
+        if consensus_indices.len() < threshold_k {
+            return Err(Error::InsufficientConsensus);
+        }
+
+        let median_score = Self::median_score_for_indices(&submissions, &consensus_indices)
+            .ok_or(Error::InsufficientConsensus)?;
+        let median_confidence =
+            Self::median_confidence_for_indices(&submissions, &consensus_indices).unwrap_or(0);
+        let benford_flag = Self::any_benford_flag(&submissions, &consensus_indices);
+        let ml_flag = Self::any_ml_flag(&submissions, &consensus_indices);
+        let risk_score = RiskScore {
+            score: median_score,
+            benford_flag,
+            ml_flag,
+            timestamp,
+            confidence: median_confidence,
+            model_version: 0,
+        };
+
+        Self::write_score_with_rate_limit(&env, &wallet, &asset_pair, &risk_score)?;
+        events::consensus_score_submitted(
+            &env,
+            &wallet,
+            &asset_pair,
+            median_score,
+            consensus_indices.len(),
+            epsilon,
+        );
         Ok(())
     }
 
@@ -287,12 +343,7 @@ impl LedgerLensScoreContract {
         env: Env,
         submissions: Vec<ScoreSubmission>,
     ) -> Result<BatchResult, Error> {
-        if !storage::has_admin(&env) {
-            return Err(Error::NotInitialized);
-        }
-        if storage::is_paused(&env) {
-            return Err(Error::ContractPaused);
-        }
+        Self::ensure_active(&env)?;
 
         let service = storage::get_service(&env);
         service.require_auth();
@@ -304,9 +355,6 @@ impl LedgerLensScoreContract {
             return Err(Error::BatchTooLarge);
         }
 
-        let threshold = storage::get_risk_threshold(&env);
-        let cooldown = storage::get_cooldown_secs(&env);
-        let now = env.ledger().timestamp();
         let mut accepted_count: u32 = 0;
         let mut results: Vec<BatchEntryResult> = Vec::new(&env);
 
@@ -315,48 +363,21 @@ impl LedgerLensScoreContract {
             let mut accepted = false;
             let mut rejection_code: u32 = 0;
 
-            if sub.score > 100 {
-                rejection_code = Error::InvalidScore as u32;
-            } else if sub.confidence > 100 {
-                rejection_code = Error::InvalidConfidence as u32;
-            } else if sub.timestamp == 0 {
-                rejection_code = Error::InvalidTimestamp as u32;
-            } else {
-                let last_submit = storage::get_last_submit_time(&env, &sub.wallet, &sub.asset_pair);
-                if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
-                    rejection_code = Error::RateLimitExceeded as u32;
-                } else {
-                    storage::set_last_submit_time(&env, &sub.wallet, &sub.asset_pair, now);
+            let risk_score = RiskScore {
+                score: sub.score,
+                benford_flag: sub.benford_flag,
+                ml_flag: sub.ml_flag,
+                timestamp: sub.timestamp,
+                confidence: sub.confidence,
+                model_version: sub.model_version,
+            };
 
-                    let risk_score = RiskScore {
-                        score: sub.score,
-                        benford_flag: sub.benford_flag,
-                        ml_flag: sub.ml_flag,
-                        timestamp: sub.timestamp,
-                        confidence: sub.confidence,
-                        model_version: sub.model_version,
-                    };
-
-                    storage::set_score(&env, &sub.wallet, &sub.asset_pair, &risk_score);
-                    storage::push_score_history(&env, &sub.wallet, &sub.asset_pair, &risk_score);
-                    storage::register_pair_for_wallet(&env, &sub.wallet, &sub.asset_pair);
-                    storage::increment_score_count(&env, &sub.wallet, &sub.asset_pair);
-                    Self::refresh_aggregate_cache(&env, &sub.wallet);
-
-                    if sub.score >= threshold {
-                        events::threshold_breached(
-                            &env,
-                            &sub.wallet,
-                            &sub.asset_pair,
-                            sub.score,
-                            threshold,
-                        );
-                    }
-
-                    events::score_submitted(&env, &sub.wallet, &sub.asset_pair, &risk_score);
+            match Self::write_score_with_rate_limit(&env, &sub.wallet, &sub.asset_pair, &risk_score) {
+                Ok(()) => {
                     accepted = true;
                     accepted_count += 1;
                 }
+                Err(err) => rejection_code = err as u32,
             }
 
             results.push_back(BatchEntryResult { index: i, accepted, rejection_code });
@@ -838,6 +859,29 @@ impl LedgerLensScoreContract {
     ///   been called.
     pub fn get_service_pubkey(env: Env) -> Result<Bytes, Error> {
         storage::get_service_pubkey(&env).ok_or(Error::ServicePubkeyNotSet)
+    }
+
+    // ── Consensus configuration ─────────────────────────────────────────────
+
+    /// Sets the minimum agreeing model count (`k`) and maximum score
+    /// deviation (`epsilon`) used by `submit_consensus_score`. Admin only.
+    pub fn set_consensus_config(env: Env, k: u32, epsilon: u32) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if k == 0 || epsilon > 100 {
+            return Err(Error::InvalidConsensusConfig);
+        }
+        storage::get_admin(&env).require_auth();
+        storage::set_consensus_threshold_k(&env, k);
+        storage::set_consensus_epsilon(&env, epsilon);
+        events::consensus_config_updated(&env, k, epsilon);
+        Ok(())
+    }
+
+    /// Returns the current `(k, epsilon)` consensus configuration.
+    pub fn get_consensus_config(env: Env) -> (u32, u32) {
+        (storage::get_consensus_threshold_k(&env), storage::get_consensus_epsilon(&env))
     }
 
     // ── Admin management ─────────────────────────────────────────────────────
@@ -1584,6 +1628,172 @@ impl LedgerLensScoreContract {
         if let Ok(aggregate) = Self::compute_aggregate_score(env, wallet) {
             storage::set_aggregate_score(env, wallet, &aggregate);
         }
+    }
+
+    fn ensure_active(env: &Env) -> Result<(), Error> {
+        if !storage::has_admin(env) {
+            return Err(Error::NotInitialized);
+        }
+        if storage::is_paused(env) {
+            return Err(Error::ContractPaused);
+        }
+        Ok(())
+    }
+
+    fn authorize_submission(env: &Env, signers: &Vec<Address>) -> Result<(), Error> {
+        let service_set = storage::get_service_set(env);
+        let threshold = storage::get_service_threshold(env);
+
+        if !service_set.is_empty() && threshold > 0 {
+            if signers.len() < threshold {
+                return Err(Error::InsufficientSigners);
+            }
+            for i in 0..signers.len() {
+                let signer = signers.get(i).unwrap();
+                if !service_set.contains(&signer) {
+                    return Err(Error::UnauthorizedSigner);
+                }
+                signer.require_auth();
+            }
+        } else {
+            storage::get_service(env).require_auth();
+        }
+        Ok(())
+    }
+
+    fn validate_risk_score(score: &RiskScore) -> Result<(), Error> {
+        if score.score > 100 {
+            return Err(Error::InvalidScore);
+        }
+        if score.confidence > 100 {
+            return Err(Error::InvalidConfidence);
+        }
+        if score.timestamp == 0 {
+            return Err(Error::InvalidTimestamp);
+        }
+        Ok(())
+    }
+
+    fn write_score_with_rate_limit(
+        env: &Env,
+        wallet: &Address,
+        asset_pair: &Symbol,
+        risk_score: &RiskScore,
+    ) -> Result<(), Error> {
+        Self::validate_risk_score(risk_score)?;
+
+        let last_submit = storage::get_last_submit_time(env, wallet, asset_pair);
+        let cooldown = storage::get_cooldown_secs(env);
+        let now = env.ledger().timestamp();
+        if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
+            return Err(Error::RateLimitExceeded);
+        }
+        storage::set_last_submit_time(env, wallet, asset_pair, now);
+
+        storage::set_score(env, wallet, asset_pair, risk_score);
+        storage::push_score_history(env, wallet, asset_pair, risk_score);
+        storage::register_pair_for_wallet(env, wallet, asset_pair);
+        storage::increment_score_count(env, wallet, asset_pair);
+        Self::refresh_aggregate_cache(env, wallet);
+
+        let score_threshold = storage::get_risk_threshold(env);
+        if risk_score.score >= score_threshold {
+            events::threshold_breached(env, wallet, asset_pair, risk_score.score, score_threshold);
+        }
+
+        events::score_submitted(env, wallet, asset_pair, risk_score);
+        Ok(())
+    }
+
+    fn kth_score_for_indices(
+        submissions: &Vec<ModelSubmission>,
+        indices: &Vec<u32>,
+        kth: u32,
+    ) -> Option<u32> {
+        for i in 0..indices.len() {
+            let candidate = submissions.get(indices.get(i).unwrap()).unwrap().score;
+            let mut less: u32 = 0;
+            let mut less_or_equal: u32 = 0;
+
+            for j in 0..indices.len() {
+                let value = submissions.get(indices.get(j).unwrap()).unwrap().score;
+                if value < candidate {
+                    less += 1;
+                }
+                if value <= candidate {
+                    less_or_equal += 1;
+                }
+            }
+
+            if less <= kth && kth < less_or_equal {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn kth_confidence_for_indices(
+        submissions: &Vec<ModelSubmission>,
+        indices: &Vec<u32>,
+        kth: u32,
+    ) -> Option<u32> {
+        for i in 0..indices.len() {
+            let candidate = submissions.get(indices.get(i).unwrap()).unwrap().confidence;
+            let mut less: u32 = 0;
+            let mut less_or_equal: u32 = 0;
+
+            for j in 0..indices.len() {
+                let value = submissions.get(indices.get(j).unwrap()).unwrap().confidence;
+                if value < candidate {
+                    less += 1;
+                }
+                if value <= candidate {
+                    less_or_equal += 1;
+                }
+            }
+
+            if less <= kth && kth < less_or_equal {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn median_score_for_indices(submissions: &Vec<ModelSubmission>, indices: &Vec<u32>) -> Option<u32> {
+        if indices.is_empty() {
+            return None;
+        }
+        let kth = (indices.len() - 1) / 2;
+        Self::kth_score_for_indices(submissions, indices, kth)
+    }
+
+    fn median_confidence_for_indices(
+        submissions: &Vec<ModelSubmission>,
+        indices: &Vec<u32>,
+    ) -> Option<u32> {
+        if indices.is_empty() {
+            return None;
+        }
+        let kth = (indices.len() - 1) / 2;
+        Self::kth_confidence_for_indices(submissions, indices, kth)
+    }
+
+    fn any_benford_flag(submissions: &Vec<ModelSubmission>, indices: &Vec<u32>) -> bool {
+        for i in 0..indices.len() {
+            if submissions.get(indices.get(i).unwrap()).unwrap().benford_flag {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn any_ml_flag(submissions: &Vec<ModelSubmission>, indices: &Vec<u32>) -> bool {
+        for i in 0..indices.len() {
+            if submissions.get(indices.get(i).unwrap()).unwrap().ml_flag {
+                return true;
+            }
+        }
+        false
     }
 
     // ── Score attestation internals ──────────────────────────────────────────

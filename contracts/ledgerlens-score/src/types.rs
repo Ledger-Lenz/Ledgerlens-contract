@@ -81,6 +81,18 @@ pub struct ScoreAttestation {
     pub signature: BytesN<65>,
 }
 
+/// A single model's contribution to an ensemble consensus submission.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelSubmission {
+    pub model_version: u32,
+    pub score: u32,
+    pub confidence: u32,
+    pub benford_flag: bool,
+    pub ml_flag: bool,
+    pub attestation: ScoreAttestation,
+}
+
 /// Result for a single entry in a batch score submission.
 /// Returned as part of `BatchResult` from `submit_scores_batch` so the
 /// caller knows exactly which entries succeeded and why any failed,
@@ -198,4 +210,10 @@ pub enum DataKey {
     /// `DEFAULT_HISTORY_MAX_DEPTH` when unset; bounded above by
     /// `MAX_HISTORY_DEPTH`.
     HistoryMaxDepth,
+    /// Minimum number of model submissions that must agree for a consensus
+    /// score to be accepted.
+    ConsensusThresholdK,
+    /// Maximum allowed score deviation from the provisional median when
+    /// building the consensus set.
+    ConsensusEpsilon,
 }

@@ -243,4 +243,7 @@ fn test_error_codes_stable() {
     assert_eq!(Error::EmptyBatch as u32, 9);
     assert_eq!(Error::BatchTooLarge as u32, 10);
     assert_eq!(Error::ArithmeticOverflow as u32, 11);
+    assert_eq!(Error::InsufficientConsensus as u32, 30);
+    assert_eq!(Error::ConsensusInputEmpty as u32, 31);
+    assert_eq!(Error::InvalidConsensusConfig as u32, 32);
 }

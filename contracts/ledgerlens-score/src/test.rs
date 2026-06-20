@@ -215,7 +215,7 @@ fn test_set_service_rotates_authorised_account() {
         &10,
         &false,
         &false,
-        &0,
+        &1,
         &10,
         &1,
         &None,
@@ -599,7 +599,7 @@ fn test_score_history_max_depth_enforced() {
             &(i * 8),
             &false,
             &false,
-            &(i as u64),
+            &((i as u64) + 1),
             &50,
             &1,
             &None,
@@ -1181,9 +1181,9 @@ fn test_batch_result_vec_length_matches_input() {
 // ── Contract version ──────────────────────────────────────────────────────────
 
 #[test]
-fn test_get_version_returns_two() {
+fn test_get_version_returns_three() {
     let (_env, client, _admin, _service) = initialized();
-    assert_eq!(client.get_version(), 2);
+    assert_eq!(client.get_version(), 3);
 }
 
 // ── Not-initialized guards ────────────────────────────────────────────────────
@@ -1352,7 +1352,7 @@ fn test_aggregate_pair_deduplication() {
             &(50 + i as u32),
             &false,
             &false,
-            &i,
+            &(i + 1),
             &90,
             &1,
             &None,
@@ -1405,7 +1405,7 @@ fn test_aggregate_overflow_protection() {
             &50,
             &false,
             &false,
-            &(i as u64),
+            &((i as u64) + 1),
             &90,
             &1,
             &None,
@@ -1754,6 +1754,7 @@ fn test_score_count_exceeds_history_depth() {
 
     // Submit 15 scores — the ring buffer caps at 10, but count should be 15.
     for i in 0u32..15 {
+        env.ledger().with_mut(|l| l.timestamp += 3_601); // past the default cooldown
         client.submit_score(
             &Vec::new(&env),
             &wallet,
@@ -1761,7 +1762,7 @@ fn test_score_count_exceeds_history_depth() {
             &(i * 5),
             &false,
             &false,
-            &(i as u64),
+            &((i as u64) + 1),
             &50,
             &1,
             &None,
