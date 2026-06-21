@@ -28,6 +28,9 @@ mod test_decay;
 #[cfg(test)]
 mod test_embargo;
 
+#[cfg(test)]
+mod test_score_delta;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN, Env, Symbol,
     SymbolStr, TryFromVal, Vec,
@@ -36,7 +39,7 @@ use soroban_sdk::{
 pub use errors::Error;
 pub use types::{
     AggregateRiskScore, BatchEntryResult, BatchResult, RiskScore, ScoreAttestation,
-    ScoreSubmission, UpgradeProposal,
+    ScoreSubmission, ScoreTrend, UpgradeProposal,
 };
 
 /// On-chain truth layer for LedgerLens risk scores.
@@ -241,6 +244,8 @@ impl LedgerLensScoreContract {
         }
         storage::set_last_submit_time(&env, &wallet, &asset_pair, now);
 
+        let previous_score = storage::peek_score(&env, &wallet, &asset_pair).map(|s| s.score);
+
         let risk_score =
             RiskScore { score, benford_flag, ml_flag, timestamp, confidence, model_version };
 
@@ -255,6 +260,7 @@ impl LedgerLensScoreContract {
             events::threshold_breached(&env, &wallet, &asset_pair, score, score_threshold);
         }
 
+        Self::emit_score_delta(&env, &wallet, &asset_pair, previous_score, score);
         events::score_submitted(&env, &wallet, &asset_pair, &risk_score);
         Ok(())
     }
@@ -347,6 +353,9 @@ impl LedgerLensScoreContract {
                 if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
                     rejection_code = Error::RateLimitExceeded as u32;
                 } else {
+                    let previous_score =
+                        storage::peek_score(&env, &sub.wallet, &sub.asset_pair).map(|s| s.score);
+
                     storage::set_last_submit_time(&env, &sub.wallet, &sub.asset_pair, now);
 
                     let risk_score = RiskScore {
@@ -374,6 +383,13 @@ impl LedgerLensScoreContract {
                         );
                     }
 
+                    Self::emit_score_delta(
+                        &env,
+                        &sub.wallet,
+                        &sub.asset_pair,
+                        previous_score,
+                        sub.score,
+                    );
                     events::score_submitted(&env, &sub.wallet, &sub.asset_pair, &risk_score);
                     accepted = true;
                     accepted_count += 1;
@@ -1750,11 +1766,7 @@ impl LedgerLensScoreContract {
         let num = numerator as u64;
         let den = denominator as u64;
 
-        if num
-            .checked_mul(max_den)
-            .map(|v| v > max_num.checked_mul(den).unwrap_or(u64::MAX))
-            .unwrap_or(true)
-        {
+        if num.checked_mul(max_den).map(|v| v > max_num.saturating_mul(den)).unwrap_or(true) {
             return Err(Error::InvalidDecayRate);
         }
 
@@ -1929,6 +1941,39 @@ impl LedgerLensScoreContract {
     /// was cleared by `override_rate_limit`).
     pub fn get_last_submit_time(env: Env, wallet: Address, asset_pair: Symbol) -> u64 {
         storage::get_last_submit_time(&env, &wallet, &asset_pair)
+    }
+
+    // ── Score trend ───────────────────────────────────────────────────────────
+
+    /// Returns the current trend direction and consecutive-count for
+    /// `(wallet, asset_pair)`.  Read-only, callable by any account.
+    ///
+    /// `ScoreTrend.trend` is `+1` (rising), `0` (flat / no history), or `-1`
+    /// (falling). `ScoreTrend.consecutive` is the number of consecutive
+    /// submissions in that direction; `0` before any submission or after a flat
+    /// one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// let trend = client.get_score_trend(&wallet, &pair);
+    /// assert_eq!(trend.trend, 0);
+    /// assert_eq!(trend.consecutive, 0);
+    /// ```
+    pub fn get_score_trend(env: Env, wallet: Address, asset_pair: Symbol) -> ScoreTrend {
+        storage::get_trend_state(&env, &wallet, &asset_pair)
     }
 
     // ── Fee withdrawal ────────────────────────────────────────────────────────
@@ -2221,24 +2266,19 @@ impl LedgerLensScoreContract {
         result -= x;
 
         // Term 2: +x²/2
-        let x2 = i128::try_from(x.checked_mul(x).ok_or(()).unwrap_or(0)).unwrap_or(0);
+        let x2 = x.checked_mul(x).unwrap_or(0);
         result += x2 / (2 * s);
 
         // Term 3: -x³/6
-        let x3 =
-            i128::try_from(x.checked_mul(x).and_then(|v| v.checked_mul(x)).ok_or(()).unwrap_or(0))
-                .unwrap_or(0);
+        let x3 = x.checked_mul(x).and_then(|v| v.checked_mul(x)).unwrap_or(0);
         result -= x3 / (6 * s * s);
 
         // Term 4: +x⁴/24
-        let x4 = i128::try_from(
-            x.checked_mul(x)
-                .and_then(|v| v.checked_mul(x))
-                .and_then(|v| v.checked_mul(x))
-                .ok_or(())
-                .unwrap_or(0),
-        )
-        .unwrap_or(0);
+        let x4 = x
+            .checked_mul(x)
+            .and_then(|v| v.checked_mul(x))
+            .and_then(|v| v.checked_mul(x))
+            .unwrap_or(0);
         result += x4 / (24 * s * s * s);
 
         // Clamp to [0, SCALE] and convert back to u64
@@ -2249,6 +2289,49 @@ impl LedgerLensScoreContract {
         } else {
             result as u64
         }
+    }
+
+    /// Update the per-pair trend state and emit a `score_delta` event.
+    ///
+    /// `previous_score` is `None` on the very first submission (no score was
+    /// stored yet). On first submission `trend` and `consecutive` are both 0.
+    fn emit_score_delta(
+        env: &Env,
+        wallet: &Address,
+        asset_pair: &Symbol,
+        previous_score: Option<u32>,
+        new_score: u32,
+    ) {
+        let (trend, consecutive, prev_for_event, delta_abs) = match previous_score {
+            None => (0i32, 0u32, 0u32, 0u32),
+            Some(prev) => {
+                let delta_abs = new_score.abs_diff(prev);
+                if delta_abs == 0 {
+                    (0i32, 0u32, prev, 0u32)
+                } else {
+                    let new_trend: i32 = if new_score > prev { 1 } else { -1 };
+                    let prev_state = storage::get_trend_state(env, wallet, asset_pair);
+                    let new_consecutive = if prev_state.trend == new_trend {
+                        prev_state.consecutive.saturating_add(1)
+                    } else {
+                        1
+                    };
+                    (new_trend, new_consecutive, prev, delta_abs)
+                }
+            }
+        };
+
+        storage::set_trend_state(env, wallet, asset_pair, &ScoreTrend { trend, consecutive });
+        events::score_delta(
+            env,
+            wallet,
+            asset_pair,
+            prev_for_event,
+            new_score,
+            delta_abs,
+            trend,
+            consecutive,
+        );
     }
 
     /// Shared implementation behind `get_aggregate_score`. Iterates the

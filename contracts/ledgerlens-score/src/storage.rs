@@ -4,7 +4,7 @@ use crate::constants::{
     DEFAULT_COOLDOWN_SECS, DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS, SCORE_TTL_EXTEND_TO,
     SCORE_TTL_THRESHOLD,
 };
-use crate::types::{AggregateRiskScore, DataKey, RiskScore, UpgradeProposal};
+use crate::types::{AggregateRiskScore, DataKey, RiskScore, ScoreTrend, UpgradeProposal};
 
 // ── Admin / Service ─────────────────────────────────────────────────────────
 
@@ -456,34 +456,6 @@ pub fn get_score_count(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 
     env.storage().persistent().get(&key).unwrap_or(0)
 }
 
-// ── Wallet score delegation ───────────────────────────────────────────────────
-
-pub fn get_score_delegate(env: &Env, wallet: &Address) -> Option<Address> {
-    let key = DataKey::ScoreDelegate(wallet.clone());
-    let result: Option<Address> = env.storage().persistent().get(&key);
-    if result.is_some() {
-        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
-    }
-    result
-}
-
-pub fn set_score_delegate(env: &Env, wallet: &Address, custodian: &Address) {
-    let key = DataKey::ScoreDelegate(wallet.clone());
-    env.storage().persistent().set(&key, custodian);
-    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
-}
-
-pub fn remove_score_delegate(env: &Env, wallet: &Address) {
-    let key = DataKey::ScoreDelegate(wallet.clone());
-    env.storage().persistent().remove(&key);
-}
-
-/// Read-only delegate lookup that does not extend TTL. Used by the infallible
-/// `query_risk_gate` path so it has no observable side effects.
-pub fn peek_score_delegate(env: &Env, wallet: &Address) -> Option<Address> {
-    env.storage().persistent().get(&DataKey::ScoreDelegate(wallet.clone()))
-}
-
 // ── Score embargo (regulatory hold) ──────────────────────────────────────────
 
 pub fn set_score_embargo(env: &Env, wallet: &Address, expiry: &Option<u64>) {
@@ -514,6 +486,23 @@ pub fn is_embargoed(env: &Env, wallet: &Address) -> bool {
         Some(None) => true, // indefinite embargo
         Some(Some(expiry)) => env.ledger().timestamp() < expiry,
     }
+}
+
+// ── Score trend state ─────────────────────────────────────────────────────────
+
+pub fn get_trend_state(env: &Env, wallet: &Address, asset_pair: &Symbol) -> ScoreTrend {
+    let key = DataKey::TrendState(wallet.clone(), asset_pair.clone());
+    let result: Option<ScoreTrend> = env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    result.unwrap_or(ScoreTrend { trend: 0, consecutive: 0 })
+}
+
+pub fn set_trend_state(env: &Env, wallet: &Address, asset_pair: &Symbol, state: &ScoreTrend) {
+    let key = DataKey::TrendState(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, state);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
 }
 
 // ── Score attestation ─────────────────────────────────────────────────────

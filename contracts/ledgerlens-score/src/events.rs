@@ -158,6 +158,31 @@ pub fn history_depth_updated(env: &Env, depth: u32) {
     env.events().publish((symbol_short!("hd_upd"),), depth);
 }
 
+// ── Score delta / trend ───────────────────────────────────────────────────────
+
+/// Emitted after every successful score write.
+///
+/// `previous_score` is `0` on the first submission. `trend` is `+1` (rising),
+/// `0` (flat / first submission), or `-1` (falling). `consecutive_trend` counts
+/// how many consecutive submissions have had this trend direction; it is `0` on
+/// the first submission and on flat submissions.
+#[allow(clippy::too_many_arguments)]
+pub fn score_delta(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    previous_score: u32,
+    new_score: u32,
+    delta_abs: u32,
+    trend: i32,
+    consecutive_trend: u32,
+) {
+    env.events().publish(
+        (symbol_short!("scr_dlt"), wallet.clone(), asset_pair.clone()),
+        (previous_score, new_score, delta_abs, trend, consecutive_trend),
+    );
+}
+
 // ── Time-weighted exponential decay ────────────────────────────────────────
 
 /// Emitted when the admin sets the exponential decay rate via `set_decay_rate`.
@@ -191,6 +216,16 @@ pub fn fee_withdrawn(
 /// already held by an in-flight call.
 pub fn withdrawal_locked(env: &Env, admin: &Address) {
     env.events().publish((symbol_short!("wdl_lck"),), admin.clone());
+}
+
+// ── Score embargo (regulatory hold) ──────────────────────────────────────────
+
+pub fn embargo_set(env: &Env, wallet: &Address, expiry: &Option<u64>) {
+    env.events().publish((symbol_short!("emb_set"),), (wallet.clone(), *expiry));
+}
+
+pub fn embargo_lifted(env: &Env, wallet: &Address, lifted_by: &Address) {
+    env.events().publish((symbol_short!("emb_lift"),), (wallet.clone(), lifted_by.clone()));
 }
 
 // ── Wallet-score delegation ───────────────────────────────────────────────────

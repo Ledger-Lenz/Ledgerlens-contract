@@ -126,4 +126,9 @@ pub enum Error {
     /// `set_decay_rate` called with a denominator of 0, or with a
     /// numerator/denominator ratio exceeding `MAX_DECAY_LAMBDA`.
     InvalidDecayRate = 41,
+
+    // ── Score embargo ──────────────────────────────────────────────────────
+    /// Returned by read-path functions (`get_score`, `get_aggregate_score`)
+    /// when the requested wallet is under an active regulatory embargo.
+    ScoreEmbargoed = 42,
 }

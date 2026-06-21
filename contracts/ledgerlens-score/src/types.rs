@@ -135,6 +135,23 @@ pub struct UpgradeProposal {
     pub proposed_by: Address,
 }
 
+/// Per-(wallet, asset_pair) trend state persisted between submissions.
+///
+/// `trend` encodes direction as a signed integer: `+1` = rising, `0` = flat,
+/// `-1` = falling. `consecutive` counts how many consecutive submissions have
+/// had the same non-zero direction; it is `0` on the first submission and
+/// resets to `1` on every direction change. Flat submissions (`delta == 0`)
+/// set both fields to `0`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScoreTrend {
+    /// +1 = rising, 0 = flat / no history, -1 = falling.
+    pub trend: i32,
+    /// Number of consecutive submissions in the current trend direction.
+    /// 0 on first submission or after a flat submission.
+    pub consecutive: u32,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
@@ -227,4 +244,12 @@ pub enum DataKey {
     AdminThreshold,
     /// Score delegation: maps a sub-wallet to its custodian wallet.
     ScoreDelegate(Address),
+    /// Per-wallet regulatory hold. Stores `Option<u64>` (expiry timestamp);
+    /// `None` means indefinite. While active, read-path functions return
+    /// `ScoreEmbargoed` / conservative denials; writes are unaffected.
+    ScoreEmbargo(Address),
+    /// Per-(wallet, asset_pair) trend state: current trend direction (+1/0/-1)
+    /// and consecutive submission count in that direction. Updated by every
+    /// successful `submit_score` / `submit_scores_batch` write.
+    TrendState(Address, Symbol),
 }
