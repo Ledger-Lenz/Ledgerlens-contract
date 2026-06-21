@@ -2137,3 +2137,353 @@ fn test_delegate_snapshot() {
     // Sub-wallet immediately sees the new score without any update to itself
     assert_eq!(client.get_score(&sub_wallet, &pair).score, 50);
 }
+
+// ─── Wallet Relationship Graph Tests ────────────────────────────────────────
+
+#[test]
+fn test_add_link_is_bidirectional() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet_a = Address::generate(&env);
+    let wallet_b = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    client.add_counterparty_link(&wallet_a, &wallet_b, &asset_pair);
+
+    let links_a = client.get_counterparties(&wallet_a, &asset_pair);
+    let links_b = client.get_counterparties(&wallet_b, &asset_pair);
+
+    assert_eq!(links_a.len(), 1);
+    assert_eq!(links_b.len(), 1);
+    assert_eq!(links_a.get(0).unwrap(), wallet_b);
+    assert_eq!(links_b.get(0).unwrap(), wallet_a);
+}
+
+#[test]
+fn test_self_link_rejected() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    let result = client.try_add_counterparty_link(&wallet, &wallet, &asset_pair);
+    assert_eq!(result, Err(Ok(Error::SelfLink)));
+}
+
+#[test]
+fn test_contagion_boosts_linked_wallets() {
+    let (env, client, _admin, _service) = initialized();
+
+    let anchor = Address::generate(&env);
+    let counterparty = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    // Submit a score for the counterparty (score: 40)
+    client.submit_score(
+        &Vec::new(&env),
+        &counterparty,
+        &asset_pair,
+        &40,
+        &false,
+        &false,
+        &1,
+        &80,
+        &1,
+        &None,
+    );
+
+    // Add counterparty link
+    client.add_counterparty_link(&anchor, &counterparty, &asset_pair);
+
+    // Propagate contagion with boost of 30
+    let affected = client.propagate_contagion(&anchor, &asset_pair, &30);
+
+    assert_eq!(affected, 1);
+
+    // Counterparty score should be boosted to 70 (40 + 30)
+    let score = client.get_score(&counterparty, &asset_pair);
+    assert_eq!(score.score, 70);
+}
+
+#[test]
+fn test_contagion_boost_capped_at_100() {
+    let (env, client, _admin, _service) = initialized();
+
+    let anchor = Address::generate(&env);
+    let counterparty = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    // Submit a score for the counterparty (score: 90)
+    client.submit_score(
+        &Vec::new(&env),
+        &counterparty,
+        &asset_pair,
+        &90,
+        &false,
+        &false,
+        &1,
+        &80,
+        &1,
+        &None,
+    );
+
+    // Add counterparty link
+    client.add_counterparty_link(&anchor, &counterparty, &asset_pair);
+
+    // Propagate contagion with boost of 30 (should cap at 100)
+    let affected = client.propagate_contagion(&anchor, &asset_pair, &30);
+
+    assert_eq!(affected, 1);
+
+    // Counterparty score should be capped at 100
+    let score = client.get_score(&counterparty, &asset_pair);
+    assert_eq!(score.score, 100);
+}
+
+#[test]
+fn test_contagion_missing_score_treated_as_zero() {
+    let (env, client, _admin, _service) = initialized();
+
+    let anchor = Address::generate(&env);
+    let counterparty = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    // No score submitted for counterparty
+
+    // Add counterparty link
+    client.add_counterparty_link(&anchor, &counterparty, &asset_pair);
+
+    // Propagate contagion with boost of 50
+    let affected = client.propagate_contagion(&anchor, &asset_pair, &50);
+
+    assert_eq!(affected, 1);
+
+    // Counterparty score should be 50 (0 + 50)
+    let score = client.get_score(&counterparty, &asset_pair);
+    assert_eq!(score.score, 50);
+}
+
+#[test]
+fn test_counterparty_link_cap_enforced() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet_a = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    // Add 50 counterparties (MAX_COUNTERPARTY_LINKS_PER_WALLET = 50)
+    for i in 0..50 {
+        let counterparty = Address::generate(&env);
+        client.add_counterparty_link(&wallet_a, &counterparty, &asset_pair);
+    }
+
+    let links = client.get_counterparties(&wallet_a, &asset_pair);
+    assert_eq!(links.len(), 50);
+
+    // The 51st should fail
+    let extra = Address::generate(&env);
+    let result = client.try_add_counterparty_link(&wallet_a, &extra, &asset_pair);
+    assert_eq!(result, Err(Ok(Error::CounterpartyLinkFull)));
+}
+
+#[test]
+fn test_contagion_events_per_affected_wallet() {
+    let (env, client, _admin, _service) = initialized();
+
+    let anchor = Address::generate(&env);
+    let counterparty1 = Address::generate(&env);
+    let counterparty2 = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    client.add_counterparty_link(&anchor, &counterparty1, &asset_pair);
+    client.add_counterparty_link(&anchor, &counterparty2, &asset_pair);
+
+    // Submit scores for both counterparties
+    client.submit_score(
+        &Vec::new(&env),
+        &counterparty1,
+        &asset_pair,
+        &20,
+        &false,
+        &false,
+        &1,
+        &80,
+        &1,
+        &None,
+    );
+    client.submit_score(
+        &Vec::new(&env),
+        &counterparty2,
+        &asset_pair,
+        &30,
+        &false,
+        &false,
+        &1,
+        &80,
+        &1,
+        &None,
+    );
+
+    let affected = client.propagate_contagion(&anchor, &asset_pair, &40);
+
+    assert_eq!(affected, 2);
+
+    // Both scores should be boosted
+    let score1 = client.get_score(&counterparty1, &asset_pair);
+    let score2 = client.get_score(&counterparty2, &asset_pair);
+    assert_eq!(score1.score, 60); // 20 + 40
+    assert_eq!(score2.score, 70); // 30 + 40
+}
+
+#[test]
+fn test_contagion_does_not_affect_unlinked_wallets() {
+    let (env, client, _admin, _service) = initialized();
+
+    let anchor = Address::generate(&env);
+    let linked = Address::generate(&env);
+    let unlinked = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    client.add_counterparty_link(&anchor, &linked, &asset_pair);
+
+    // Submit scores for both wallets
+    client.submit_score(
+        &Vec::new(&env),
+        &linked,
+        &asset_pair,
+        &20,
+        &false,
+        &false,
+        &1,
+        &80,
+        &1,
+        &None,
+    );
+    client.submit_score(
+        &Vec::new(&env),
+        &unlinked,
+        &asset_pair,
+        &20,
+        &false,
+        &false,
+        &1,
+        &80,
+        &1,
+        &None,
+    );
+
+    let affected = client.propagate_contagion(&anchor, &asset_pair, &50);
+
+    assert_eq!(affected, 1);
+
+    // Linked wallet boosted, unlinked unchanged
+    let linked_score = client.get_score(&linked, &asset_pair);
+    let unlinked_score = client.get_score(&unlinked, &asset_pair);
+    assert_eq!(linked_score.score, 70); // 20 + 50
+    assert_eq!(unlinked_score.score, 20); // Unchanged
+}
+
+#[test]
+fn test_contagion_bypasses_rate_limits() {
+    let (env, client, _admin, _service) = initialized();
+
+    let anchor = Address::generate(&env);
+    let counterparty = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    // Add link and submit score
+    client.add_counterparty_link(&anchor, &counterparty, &asset_pair);
+    client.submit_score(
+        &Vec::new(&env),
+        &counterparty,
+        &asset_pair,
+        &30,
+        &false,
+        &false,
+        &1,
+        &80,
+        &1,
+        &None,
+    );
+
+    // Try to submit another score immediately (should be rate-limited)
+    let result = client.try_submit_score(
+        &Vec::new(&env),
+        &counterparty,
+        &asset_pair,
+        &50,
+        &false,
+        &false,
+        &2,
+        &80,
+        &1,
+        &None,
+    );
+    assert_eq!(result, Err(Ok(Error::RateLimitExceeded)));
+
+    // But contagion propagation works regardless of cooldown
+    let affected = client.propagate_contagion(&anchor, &asset_pair, &40);
+    assert_eq!(affected, 1);
+
+    let score = client.get_score(&counterparty, &asset_pair);
+    assert_eq!(score.score, 70); // 30 + 40, despite cooldown not having elapsed
+}
+
+#[test]
+fn test_contagion_depth_returns_graph_degree() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    // Initially 0
+    assert_eq!(client.get_contagion_depth(&wallet, &asset_pair), 0);
+
+    // Add 3 counterparties
+    let c1 = Address::generate(&env);
+    let c2 = Address::generate(&env);
+    let c3 = Address::generate(&env);
+
+    client.add_counterparty_link(&wallet, &c1, &asset_pair);
+    assert_eq!(client.get_contagion_depth(&wallet, &asset_pair), 1);
+
+    client.add_counterparty_link(&wallet, &c2, &asset_pair);
+    assert_eq!(client.get_contagion_depth(&wallet, &asset_pair), 2);
+
+    client.add_counterparty_link(&wallet, &c3, &asset_pair);
+    assert_eq!(client.get_contagion_depth(&wallet, &asset_pair), 3);
+}
+
+#[test]
+fn test_remove_counterparty_link() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet_a = Address::generate(&env);
+    let wallet_b = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    client.add_counterparty_link(&wallet_a, &wallet_b, &asset_pair);
+
+    // Verify link exists
+    let links_a = client.get_counterparties(&wallet_a, &asset_pair);
+    assert_eq!(links_a.len(), 1);
+
+    // Remove the link
+    client.remove_counterparty_link(&wallet_a, &wallet_b, &asset_pair);
+
+    let links_a = client.get_counterparties(&wallet_a, &asset_pair);
+    let links_b = client.get_counterparties(&wallet_b, &asset_pair);
+    assert_eq!(links_a.len(), 0);
+    assert_eq!(links_b.len(), 0);
+}
+
+#[test]
+fn test_remove_nonexistent_link_fails() {
+    let (env, client, _admin, _service) = initialized();
+
+    let wallet_a = Address::generate(&env);
+    let wallet_b = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    let result = client.try_remove_counterparty_link(&wallet_a, &wallet_b, &asset_pair);
+    assert_eq!(result, Err(Ok(Error::CounterpartyNotFound)));
+}
