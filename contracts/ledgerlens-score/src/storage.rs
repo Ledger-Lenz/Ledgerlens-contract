@@ -593,3 +593,104 @@ pub fn remove_score_delegate(env: &Env, sub_wallet: &Address) {
     let key = DataKey::ScoreDelegate(sub_wallet.clone());
     env.storage().persistent().remove(&key);
 }
+
+// ── Wallet Relationship Graph ───────────────────────────────────────────────
+
+/// Returns the list of counterparties for a wallet on a specific asset pair.
+/// Returns an empty Vec if no links exist.
+pub fn get_counterparties(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Vec<Address> {
+    let key = DataKey::Counterparties(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env))
+}
+
+/// Adds a bidirectional counterparty link between wallet_a and wallet_b.
+///
+/// # Errors
+/// - Returns `Error::SelfLink` if wallet_a == wallet_b
+/// - Returns `Error::CounterpartyLinkFull` if wallet_a or wallet_b would exceed MAX_COUNTERPARTY_LINKS_PER_WALLET
+pub fn add_counterparty_link(
+    env: &Env,
+    wallet_a: &Address,
+    wallet_b: &Address,
+    asset_pair: &Symbol,
+) -> Result<(), Error> {
+    if wallet_a == wallet_b {
+        return Err(Error::SelfLink);
+    }
+
+    // Check and update wallet_a's counterparties
+    let mut links_a = get_counterparties(env, wallet_a, asset_pair);
+    if !links_a.contains(wallet_b) {
+        if links_a.len() >= crate::constants::MAX_COUNTERPARTY_LINKS_PER_WALLET {
+            return Err(Error::CounterpartyLinkFull);
+        }
+        links_a.push_back(wallet_b.clone());
+        let key_a = DataKey::Counterparties(wallet_a.clone(), asset_pair.clone());
+        env.storage().persistent().set(&key_a, &links_a);
+        env.storage().persistent().extend_ttl(&key_a, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+
+    // Check and update wallet_b's counterparties
+    let mut links_b = get_counterparties(env, wallet_b, asset_pair);
+    if !links_b.contains(wallet_a) {
+        if links_b.len() >= crate::constants::MAX_COUNTERPARTY_LINKS_PER_WALLET {
+            return Err(Error::CounterpartyLinkFull);
+        }
+        links_b.push_back(wallet_a.clone());
+        let key_b = DataKey::Counterparties(wallet_b.clone(), asset_pair.clone());
+        env.storage().persistent().set(&key_b, &links_b);
+        env.storage().persistent().extend_ttl(&key_b, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+
+    Ok(())
+}
+
+/// Removes a bidirectional counterparty link between wallet_a and wallet_b.
+///
+/// # Errors
+/// - Returns `Error::CounterpartyNotFound` if the link does not exist in either direction
+pub fn remove_counterparty_link(
+    env: &Env,
+    wallet_a: &Address,
+    wallet_b: &Address,
+    asset_pair: &Symbol,
+) -> Result<(), Error> {
+    let mut links_a = get_counterparties(env, wallet_a, asset_pair);
+    let pos_a = links_a.first_index_of(wallet_b);
+    if let Some(idx) = pos_a {
+        links_a.remove(idx);
+        let key_a = DataKey::Counterparties(wallet_a.clone(), asset_pair.clone());
+        if links_a.is_empty() {
+            env.storage().persistent().remove(&key_a);
+        } else {
+            env.storage().persistent().set(&key_a, &links_a);
+            env.storage().persistent().extend_ttl(&key_a, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+        }
+    }
+
+    let mut links_b = get_counterparties(env, wallet_b, asset_pair);
+    let pos_b = links_b.first_index_of(wallet_a);
+    if let Some(idx) = pos_b {
+        links_b.remove(idx);
+        let key_b = DataKey::Counterparties(wallet_b.clone(), asset_pair.clone());
+        if links_b.is_empty() {
+            env.storage().persistent().remove(&key_b);
+        } else {
+            env.storage().persistent().set(&key_b, &links_b);
+            env.storage().persistent().extend_ttl(&key_b, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+        }
+    }
+
+    if pos_a.is_none() && pos_b.is_none() {
+        return Err(Error::CounterpartyNotFound);
+    }
+
+    Ok(())
+}
+
+/// Returns the number of registered counterparties (graph degree) for a wallet/pair.
+pub fn get_contagion_depth(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 {
+    let key = DataKey::Counterparties(wallet.clone(), asset_pair.clone());
+    let links: Vec<Address> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+    links.len() as u32
+}
