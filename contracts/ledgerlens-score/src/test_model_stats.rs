@@ -129,7 +129,7 @@ fn test_batch_submissions_update_stats() {
 fn test_unknown_version_returns_error() {
     let (_, client, _, _) = setup();
     let result = client.try_get_model_version_stats(&999);
-    assert_eq!(result, Err(Ok(Error::NotFound)));
+    assert_eq!(result, Err(Ok(Error::ScoreNotFound)));
 }
 
 #[test]

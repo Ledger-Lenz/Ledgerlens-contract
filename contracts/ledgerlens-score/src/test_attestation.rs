@@ -84,7 +84,7 @@ fn commitment(
 }
 
 fn attest(env: &Env, key: &SigningKey, digest: [u8; 32]) -> ScoreAttestation {
-    let (sig, recid) = key.sign_prehash_recoverable(&digest).unwrap();
+    let Ok((sig, recid)) = key.sign_prehash_recoverable(&digest) else { panic!("sign failed") };
     let mut sig_bytes = [0u8; 65];
     sig_bytes[..64].copy_from_slice(&sig.to_bytes());
     sig_bytes[64] = recid.to_byte();

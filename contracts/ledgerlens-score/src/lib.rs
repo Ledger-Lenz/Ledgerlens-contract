@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(deprecated)] // Required: contractimpl macro calls spec_xdr_* for all fns including deprecated ones
+#![allow(dead_code)]
 
 mod constants;
 mod errors;
@@ -46,16 +47,23 @@ mod test_embargo;
 #[cfg(test)]
 mod test_consensus;
 
+#[cfg(test)]
+mod test_confidence_gate;
+
+#[cfg(test)]
+mod test_histogram;
+
 use soroban_sdk::{
-    contract, contractimpl, crypto::Hash, symbol_short, token, xdr::ToXdr, Address, Bytes, BytesN,
+    contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN,
     Env, Symbol, SymbolStr, TryFromVal, Vec,
 };
 
 pub use errors::Error;
 pub use types::{
-    AggregateRiskScore, BatchAttestation, BatchEntryResult, BatchResult, EmbargoExpiry,
-    ModelSubmission, RiskScore, ScoreAttestation, ScoreFloorPolicy, ScoreSubmission,
-    ScoreSubmissionWithProof, ScoreTrend, UpgradeProposal,
+    AggregateRiskScore, BatchAttestation, BatchEntryResult, BatchResult, EffectiveRiskScore,
+    EmbargoExpiry, ModelSubmission, ModelVersionStats, RiskScore, ScoreAttestation,
+    ScoreFloorPolicy, ScoreHistogram, ScoreSubmission, ScoreSubmissionWithProof, ScoreTrend,
+    UpgradeProposal,
 };
 
 /// On-chain truth layer for LedgerLens risk scores.
@@ -469,15 +477,6 @@ impl LedgerLensScoreContract {
                         sub.score,
                     );
                     Self::refresh_aggregate_cache(&env, &sub.wallet);
-                    Self::update_merkle_accumulator(
-                        &env,
-                        &sub.wallet,
-                        &sub.asset_pair,
-                        sub.score,
-                        sub.timestamp,
-                        sub.confidence,
-                        sub.model_version,
-                    );
 
                     if sub.score >= threshold {
                         events::threshold_breached(
@@ -694,7 +693,7 @@ impl LedgerLensScoreContract {
         // Reject the whole batch on failure: a bad root signature means
         // no entry can be trusted to have come from the off-chain
         // pipeline.
-        let root_buf = Bytes::from_array(env, &attestation.merkle_root.to_array());
+        let root_buf = Bytes::from_array(&env, &attestation.merkle_root.to_array());
         let root_digest = env.crypto().sha256(&root_buf);
         Self::verify_signature(&env, &root_digest, &attestation.signature)?;
 
@@ -773,6 +772,7 @@ impl LedgerLensScoreContract {
                     );
                     storage::register_pair_for_wallet(&env, &sub.wallet, &sub.asset_pair);
                     storage::increment_score_count(&env, &sub.wallet, &sub.asset_pair);
+                    storage::increment_histogram(&env, sub.score);
                     Self::refresh_aggregate_cache(&env, &sub.wallet);
 
                     if sub.score >= risk_threshold {
@@ -1031,7 +1031,7 @@ impl LedgerLensScoreContract {
     /// # Errors
     /// - [`Error::NotFound`] if no scores have ever been submitted for this version.
     pub fn get_model_version_stats(env: Env, model_version: u32) -> Result<ModelVersionStats, Error> {
-        storage::get_model_stats(&env, model_version).ok_or(Error::NotFound)
+        storage::get_model_stats(&env, model_version).ok_or(Error::ScoreNotFound)
     }
 
     /// Returns a sorted list of every model version the contract has seen.
@@ -1394,35 +1394,144 @@ impl LedgerLensScoreContract {
         asset_pair: Symbol,
         gate_threshold: u32,
     ) -> bool {
-        // Embargoed wallets: conservative false — treat as "no signal available".
-        // Uses peek (no TTL extension) to remain side-effect free.
+        Self::query_risk_gate_with_confidence(env, wallet, asset_pair, gate_threshold, 0)
+    }
+
+    /// Confidence-aware variant of [`query_risk_gate`].
+    ///
+    /// In addition to the score-vs-threshold check, this function enforces
+    /// a minimum confidence floor: the wallet's risk score must have a
+    /// `confidence >= effective_floor` where `effective_floor` is computed
+    /// as `max(min_confidence, global_min_confidence)` so the admin's
+    /// system-wide floor always applies.
+    ///
+    /// Returns `false` (fail closed) when no score exists, the wallet is
+    /// embargoed, inside the hysteresis risk band, or the confidence floor
+    /// is not met.
+    ///
+    /// This function is infallible (returns `bool`, never `Result`) and
+    /// side-effect free — it performs pure reads that do not extend TTL.
+    pub fn query_risk_gate_with_confidence(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+        gate_threshold: u32,
+        min_confidence: u32,
+    ) -> bool {
+        if gate_threshold > 100 {
+            return false;
+        }
         if storage::peek_is_embargoed(&env, &wallet) {
             return false;
         }
-        // A wallet currently in the high-risk band fails the gate even if its
-        // raw score has dipped below gate_threshold — the hysteresis state is
-        // sticky until the score crosses the full exit boundary.
-        // Uses peek (no TTL extension) to remain side-effect free per the
-        // ILedgerLensScore interface contract.
         if storage::peek_risk_band_state(&env, &wallet, &asset_pair) {
             return false;
         }
+        let effective_floor = core::cmp::max(min_confidence, storage::get_global_min_confidence(&env));
         match storage::peek_score(&env, &wallet, &asset_pair) {
-feat/confidence-gated-risk-gate
             Some(risk) => risk.score < gate_threshold && risk.confidence >= effective_floor,
-            None => false,
-
-            Some(risk) => risk.score < gate_threshold,
             None => {
                 if let Some(custodian) = storage::peek_score_delegate(&env, &wallet) {
                     if let Some(risk) = storage::peek_score(&env, &custodian, &asset_pair) {
-                        return risk.score < gate_threshold;
+                        return risk.score < gate_threshold
+                            && risk.confidence >= effective_floor;
                     }
                 }
                 false
             }
- main
         }
+    }
+
+    /// Returns the on-chain score distribution as 10 fixed-width buckets:
+    /// bucket 0 = [0,9], bucket 1 = [10,19], ..., bucket 9 = [90,100].
+    pub fn get_score_histogram(env: Env) -> types::ScoreHistogram {
+        let data = storage::load_full_histogram(&env);
+        types::ScoreHistogram { buckets: data.buckets, total: data.total }
+    }
+
+    /// Returns the percentile rank of `score` in the current histogram, as an
+    /// integer 0..=100.  The percentile is the fraction of all stored scores
+    /// that are **strictly below** `score`.  Returns 0 when the histogram is
+    /// empty.
+    ///
+    /// Because this queries on-chain storage, the value is a snapshot:
+    /// concurrent submissions may alter it before the calling transaction
+    /// confirms.
+    pub fn get_score_percentile(env: Env, score: u32) -> u32 {
+        let data = storage::load_full_histogram(&env);
+        if data.total == 0 {
+            return 0;
+        }
+        let score_bucket = core::cmp::min(score / 10, 9);
+        let mut below: u32 = 0;
+        for i in 0..score_bucket {
+            below += data.buckets.get(i).unwrap_or(0);
+        }
+        below * 100 / data.total
+    }
+
+    /// Infallible gate check that returns `false` (fail closed) when:
+    ///
+    /// - No score exists for `(wallet, asset_pair)`.
+    /// - The wallet is embargoed.
+    /// - The wallet is inside its hysteresis risk band.
+    /// - The wallet's score is **at or above** the score at the given
+    ///   `percentile_rank` of the on-chain distribution.
+    ///
+    /// This is the **relative** variant of `query_risk_gate`: instead of an
+    /// absolute threshold, it compares against the current distribution of
+    /// scores across all wallets in this contract.
+    pub fn query_risk_gate_relative(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+        percentile_rank: u32,
+    ) -> bool {
+        if percentile_rank > 100 {
+            return false;
+        }
+        if storage::peek_is_embargoed(&env, &wallet) {
+            return false;
+        }
+        if storage::peek_risk_band_state(&env, &wallet, &asset_pair) {
+            return false;
+        }
+        let threshold_score = match Self::score_at_percentile(&env, percentile_rank) {
+            Some(s) => s,
+            None => return false,
+        };
+        match storage::peek_score(&env, &wallet, &asset_pair) {
+            Some(risk) => risk.score < threshold_score,
+            None => {
+                if let Some(custodian) = storage::peek_score_delegate(&env, &wallet) {
+                    if let Some(risk) = storage::peek_score(&env, &custodian, &asset_pair) {
+                        return risk.score < threshold_score;
+                    }
+                }
+                false
+            }
+        }
+    }
+
+    /// Internal helper: given a percentile rank (0..=100), walk the histogram
+    /// buckets to find the highest score whose rank is < `rank`.
+    /// Returns `None` when the histogram is empty or the rank is 0.
+    fn score_at_percentile(env: &Env, rank: u32) -> Option<u32> {
+        let data = storage::load_full_histogram(env);
+        if data.total == 0 || rank == 0 {
+            return None;
+        }
+        let target = (rank as u64) * (data.total as u64) / 100;
+        let mut cumulative: u64 = 0;
+        for bucket in 0..10 {
+            cumulative += data.buckets.get(bucket).unwrap_or(0) as u64;
+            if cumulative > target {
+                let lower = bucket * 10;
+                let upper = if bucket == 9 { 100 } else { bucket * 10 + 9 };
+                return Some((lower + upper) / 2);
+            }
+        }
+        Some(100)
     }
 
     /// Capability-detection registry for the composability interface.
@@ -1443,6 +1552,10 @@ feat/confidence-gated-risk-gate
     /// | `aggr`           | `get_aggregate_score` (cross-asset aggregate risk) |
     /// | `count`          | `get_score_count`                                  |
     /// | `batch_attested` | `submit_scores_batch_attested` (Merkle-root sig)    |
+    /// | `cgate`          | `query_risk_gate_with_confidence` / global confidence floor |
+    /// | `histogram`      | `get_score_histogram` (score distribution snapshot)       |
+    /// | `pctile`         | `get_score_percentile`                                    |
+    /// | `gate_rel`       | `query_risk_gate_relative` (percentile-based gate)         |
     ///
     /// Any unrecognised `capability` returns `false`.
     ///
@@ -1460,6 +1573,10 @@ feat/confidence-gated-risk-gate
             || capability == symbol_short!("aggr")
             || capability == symbol_short!("count")
             || capability == Symbol::new(&env, "batch_attested")
+            || capability == symbol_short!("cgate")
+            || capability == Symbol::new(&env, "histogram")
+            || capability == Symbol::new(&env, "pctile")
+            || capability == symbol_short!("gate_rel")
     }
 
     // ── Service management ───────────────────────────────────────────────────
@@ -2208,7 +2325,7 @@ feat/confidence-gated-risk-gate
             return Err(Error::NotInitialized);
         }
         if n < constants::MIN_ESCALATION_THRESHOLD || n > constants::MAX_ESCALATION_THRESHOLD {
-            return Err(Error::InvalidEscalationThreshold);
+            return Err(Error::InvalidThreshold);
         }
         Self::require_admin_auth(&env, &admin_signers)?;
         let old = storage::get_escalation_threshold(&env);
@@ -2403,7 +2520,7 @@ feat/confidence-gated-risk-gate
             return Err(Error::NotInitialized);
         }
         if threshold == 0 || threshold > 99 {
-            return Err(Error::InvalidJumpThreshold);
+            return Err(Error::InvalidThreshold);
         }
         Self::require_admin_auth(&env, &admin_signers)?;
         storage::set_jump_threshold(&env, threshold);
@@ -2791,6 +2908,9 @@ feat/confidence-gated-risk-gate
             return Err(Error::NotInitialized);
         }
         Self::require_admin_auth(&env, &admin_signers)?;
+        if let Some(existing) = storage::peek_score(&env, &wallet, &asset_pair) {
+            storage::decrement_histogram(&env, existing.score);
+        }
         storage::clear_score(&env, &wallet, &asset_pair);
         events::score_cleared(&env, &wallet, &asset_pair);
         Ok(())
@@ -3629,16 +3749,29 @@ feat/confidence-gated-risk-gate
         }
         storage::set_last_submit_time(env, wallet, asset_pair, now);
 
+        let previous_score = storage::peek_score(env, wallet, asset_pair).map(|s| s.score);
+
+        if Self::score_floor_blocks(env, wallet, asset_pair, risk_score.score) {
+            return Err(Error::BelowScoreFloor);
+        }
+
         storage::set_score(env, wallet, asset_pair, risk_score);
         storage::push_score_history(env, wallet, asset_pair, risk_score);
         storage::register_pair_for_wallet(env, wallet, asset_pair);
         storage::increment_score_count(env, wallet, asset_pair);
+        storage::update_model_stats(env, risk_score.model_version, risk_score.score);
+        storage::update_historical_max_score(env, wallet, asset_pair, risk_score.score);
+        storage::increment_histogram(env, risk_score.score);
         Self::refresh_aggregate_cache(env, wallet);
 
         let score_threshold = storage::get_risk_threshold(env);
         if risk_score.score >= score_threshold {
             events::threshold_breached(env, wallet, asset_pair, risk_score.score, score_threshold);
         }
+        Self::update_breach_counter(env, wallet, asset_pair, risk_score.score, score_threshold);
+        Self::evaluate_risk_band(env, wallet, asset_pair, risk_score.score, score_threshold);
+        Self::emit_score_delta(env, wallet, asset_pair, previous_score, risk_score.score);
+        Self::emit_score_jump_anomaly(env, wallet, asset_pair, previous_score, risk_score.score, risk_score.model_version);
 
         events::score_submitted(env, wallet, asset_pair, risk_score);
         Ok(())
@@ -4006,6 +4139,89 @@ feat/confidence-gated-risk-gate
     /// Walk a Merkle inclusion proof and verify that `leaf` is included in
     /// the tree with the supplied `root`. The loop runs exactly
     /// `proof.len()` iterations regardless of whether any intermediate
+    // ── Wallet Relationship Graph ─────────────────────────────────────────────
+
+    /// Add a bidirectional counterparty link between `wallet_a` and `wallet_b`
+    /// for `asset_pair`. Each wallet tracks up to
+    /// `MAX_COUNTERPARTY_LINKS_PER_WALLET` links. Self-links and duplicates are
+    /// rejected.
+    ///
+    /// # Errors
+    /// - [`Error::CounterpartyLinkFull`] if either wallet's link set is already
+    ///   full or if trying to self-link.
+    pub fn add_counterparty_link(
+        env: Env,
+        wallet_a: Address,
+        wallet_b: Address,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        storage::add_counterparty_link(&env, &wallet_a, &wallet_b, &asset_pair)?;
+        events::counterparty_link_added(&env, &wallet_a, &wallet_b, &asset_pair);
+        Ok(())
+    }
+
+    /// Remove a bidirectional counterparty link between `wallet_a` and
+    /// `wallet_b` for `asset_pair`.
+    ///
+    /// # Errors
+    /// - [`Error::CounterpartyLinkFull`] if no link existed between the wallets.
+    pub fn remove_counterparty_link(
+        env: Env,
+        wallet_a: Address,
+        wallet_b: Address,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        storage::remove_counterparty_link(&env, &wallet_a, &wallet_b, &asset_pair)?;
+        events::counterparty_link_removed(&env, &wallet_a, &wallet_b, &asset_pair);
+        Ok(())
+    }
+
+    /// Returns the list of counterparty addresses linked to `wallet` for
+    /// `asset_pair`.
+    pub fn get_counterparties(env: Env, wallet: Address, asset_pair: Symbol) -> Vec<Address> {
+        storage::get_counterparties(&env, &wallet, &asset_pair)
+    }
+
+    /// Returns the number of counterparty links `wallet` has for `asset_pair`.
+    pub fn get_contagion_depth(env: Env, wallet: Address, asset_pair: Symbol) -> u32 {
+        storage::get_contagion_depth(&env, &wallet, &asset_pair)
+    }
+
+    /// Propagate an additive score boost of `boost` points to every
+    /// counterparty of `anchor` for `asset_pair`.  Affected scores are
+    /// capped at 100.  Returns the number of wallets that were boosted.
+    pub fn propagate_contagion(
+        env: Env,
+        anchor: Address,
+        asset_pair: Symbol,
+        boost: u32,
+    ) -> u32 {
+        let counterparties = storage::get_counterparties(&env, &anchor, &asset_pair);
+        let mut affected = 0u32;
+        for i in 0..counterparties.len() {
+            let cw = counterparties.get(i).unwrap();
+            let old = storage::get_score(&env, &cw, &asset_pair)
+                .unwrap_or(RiskScore {
+                    score: 0,
+                    benford_flag: false,
+                    ml_flag: false,
+                    timestamp: env.ledger().timestamp(),
+                    confidence: 0,
+                    model_version: 0,
+                });
+            let new_score = core::cmp::min(old.score.saturating_add(boost), 100);
+            if new_score != old.score {
+                let updated = RiskScore { score: new_score, ..old };
+                storage::set_score(&env, &cw, &asset_pair, &updated);
+                events::contagion_propagated(
+                    &env, &anchor, &asset_pair, &cw, old.score, new_score,
+                );
+                affected += 1;
+            }
+        }
+        affected
+    }
+
     /// hash diverges, so the gas cost is always bounded — there is no
     /// early-exit branch that an attacker could exploit as a timing oracle.
     ///
@@ -4054,17 +4270,5 @@ feat/confidence-gated-risk-gate
 }
 
 // Structural block implementations for query gate allowlist controls
-mod storage_gate {
-    use soroban_sdk::{Env, Address, Symbol, Vec};
-    use crate::storage;
-    use crate::types::MAX_GATE_CALLERS;
-
-    pub fn verify_caller_protection(env: &Env) -> bool {
-        if !storage::get_gate_open(env) {
-            let caller = env.as_contract().module().invoking_contract_id();
-            let callers = storage::get_gate_callers(env);
-            return callers.contains(&caller);
-        }
-        true
-    }
-}
+// TODO: Re-enable when upgrading to a Soroban SDK that supports env.caller()
+// mod storage_gate { ... }
