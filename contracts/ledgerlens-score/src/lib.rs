@@ -1408,11 +1408,7 @@ impl LedgerLensScoreContract {
             return false;
         }
         match storage::peek_score(&env, &wallet, &asset_pair) {
-feat/confidence-gated-risk-gate
             Some(risk) => risk.score < gate_threshold && risk.confidence >= effective_floor,
-            None => false,
-
-            Some(risk) => risk.score < gate_threshold,
             None => {
                 if let Some(custodian) = storage::peek_score_delegate(&env, &wallet) {
                     if let Some(risk) = storage::peek_score(&env, &custodian, &asset_pair) {
@@ -1421,7 +1417,6 @@ feat/confidence-gated-risk-gate
                 }
                 false
             }
- main
         }
     }
 
