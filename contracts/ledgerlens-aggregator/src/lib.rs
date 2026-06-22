@@ -158,6 +158,29 @@ impl LedgerLensAggregator {
         }
         out
     }
+
+    /// Queries the contagion depth across all shards, returning the maximum depth found.
+    ///
+    /// Returns the highest counterparty count for the wallet/pair across all registered shards.
+    pub fn get_contagion_depth_across_shards(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> u32 {
+        let shards: Vec<Address> = env.storage().instance().get(&DataKey::Shards).unwrap_or_else(|| Vec::new(&env));
+        let mut max_depth: u32 = 0;
+        for i in 0..shards.len() {
+            let shard = shards.get(i).unwrap();
+            let client = ledgerlens_score::LedgerLensScoreContractClient::new(&env, &shard);
+            let res: Result<u32, _> = client.try_get_contagion_depth(&wallet, &asset_pair);
+            if let Ok(depth) = res {
+                if depth > max_depth {
+                    max_depth = depth;
+                }
+            }
+        }
+        max_depth
+    }
 }
 
 #[contracttype]
