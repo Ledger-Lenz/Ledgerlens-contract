@@ -338,7 +338,7 @@ fn test_pair_paused_event_emitted() {
     client.set_pair_paused(&pair, &true);
 
     let events = env.events().all();
-    let (_contract_id, topics, data) = events.get(events.len() - 1).unwrap();
+    let (_contract_id, topics, data) = events.get(events.len() - 1);
     assert_eq!(
         topics,
         Vec::from_array(
@@ -350,7 +350,7 @@ fn test_pair_paused_event_emitted() {
 
     client.set_pair_paused(&pair, &false);
     let events = env.events().all();
-    let (_contract_id, topics, data) = events.get(events.len() - 1).unwrap();
+    let (_contract_id, topics, data) = events.get(events.len() - 1);
     assert_eq!(
         topics,
         Vec::from_array(

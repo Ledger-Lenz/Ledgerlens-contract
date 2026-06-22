@@ -113,36 +113,22 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "ScoreFloorEnabled"
+                              "symbol": "ScoreFloorConfig"
                             }
                           ]
                         },
                         "val": {
-                          "bool": true
-                        }
-                      },
-                      {
-                        "key": {
                           "vec": [
                             {
-                              "symbol": "ScoreFloorHighWaterMark"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u32": 100
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
+                              "bool": true
+                            },
                             {
-                              "symbol": "ScoreFloorMinValue"
+                              "u32": 100
+                            },
+                            {
+                              "u32": 0
                             }
                           ]
-                        },
-                        "val": {
-                          "u32": 0
                         }
                       },
                       {
