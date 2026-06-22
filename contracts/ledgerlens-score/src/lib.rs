@@ -5,6 +5,7 @@ mod constants;
 mod errors;
 mod events;
 mod storage;
+mod gdpr_accumulator;
 mod types;
 
 #[cfg(test)]
