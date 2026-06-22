@@ -427,3 +427,4 @@ pub enum DataKey {
 pub struct TierBounds {
     pub min_score: u32,
     pub max_score: u32,
+}
