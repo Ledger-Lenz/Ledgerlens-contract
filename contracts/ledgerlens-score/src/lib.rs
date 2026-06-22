@@ -1460,6 +1460,8 @@ feat/confidence-gated-risk-gate
             || capability == symbol_short!("aggr")
             || capability == symbol_short!("count")
             || capability == Symbol::new(&env, "batch_attested")
+            || capability == symbol_short!("emb")
+            || capability == symbol_short!("cons")
     }
 
     // ── Service management ───────────────────────────────────────────────────
@@ -2801,6 +2803,127 @@ feat/confidence-gated-risk-gate
     /// was cleared by `override_rate_limit`).
     pub fn get_last_submit_time(env: Env, wallet: Address, asset_pair: Symbol) -> u64 {
         storage::get_last_submit_time(&env, &wallet, &asset_pair)
+    }
+
+    /// Returns `true` when a score exists for `(wallet, asset_pair)`.
+    ///
+    /// Unlike [`get_score`] (which returns `ScoreNotFound` on absence), this is
+    /// an infallible presence check — callers that only need to distinguish
+    /// "has a score" from "does not" can avoid the `Result` handling.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLMUSDC");
+    /// assert!(!client.get_score_exists(&wallet, &pair));
+    /// ```
+    pub fn get_score_exists(env: Env, wallet: Address, asset_pair: Symbol) -> bool {
+        storage::get_score(&env, &wallet, &asset_pair).is_some()
+    }
+
+    /// Returns `true` when `asset_pair` has been explicitly paused.
+    ///
+    /// This is the public read counterpart of [`is_pair_paused`]; operators and
+    /// integrating contracts can check whether a specific asset pair is
+    /// currently paused without attempting a submission.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let pair = symbol_short!("XLMUSDC");
+    /// assert!(!client.is_pair_paused(&pair));
+    /// ```
+    pub fn is_pair_paused(env: Env, asset_pair: Symbol) -> bool {
+        storage::is_pair_paused(&env, &asset_pair)
+    }
+
+    /// Returns the number of signers in the admin M-of-N set.
+    ///
+    /// Monitoring tools can use this to verify quorum size without pulling the
+    /// full signer list via [`get_admin_signers`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_admin_signer_count(), 1);
+    /// ```
+    pub fn get_admin_signer_count(env: Env) -> u32 {
+        storage::get_admin_set(&env).len()
+    }
+
+    /// Returns the number of seconds elapsed since the last score submission
+    /// for `(wallet, asset_pair)`.
+    ///
+    /// Returns `u64::MAX` if no submission has ever been recorded (sentinel
+    /// value indicating "never submitted").
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLMUSDC");
+    /// assert_eq!(client.get_score_age(&wallet, &pair), u64::MAX);
+    /// ```
+    pub fn get_score_age(env: Env, wallet: Address, asset_pair: Symbol) -> u64 {
+        let last = storage::get_last_submit_time(&env, &wallet, &asset_pair);
+        if last == 0 {
+            u64::MAX
+        } else {
+            env.ledger().timestamp().saturating_sub(last)
+        }
+    }
+
+    /// Returns the embargo expiry timestamp for `wallet`, if one exists.
+    ///
+    /// Returns `None` when no embargo is active. When an embargo exists,
+    /// returns `Some(expiry_timestamp)`. For indefinite embargoes, the
+    /// returned timestamp is `u64::MAX`.
+    pub fn get_embargo_expiry(env: Env, wallet: Address) -> Option<u64> {
+        storage::get_embargo_expiry(&env, &wallet)
     }
 
     // ── Score submission floor ────────────────────────────────────────────────

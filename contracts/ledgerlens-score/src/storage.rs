@@ -870,6 +870,21 @@ pub fn peek_is_embargoed(env: &Env, wallet: &Address) -> bool {
     }
 }
 
+/// Returns the embargo expiry timestamp for `wallet`, if one exists.
+///
+/// Returns `None` when no embargo is active. When an indefinite embargo exists,
+/// returns `Some(u64::MAX)`. When a timed embargo exists, returns
+/// `Some(expiry_timestamp)`.
+pub fn get_embargo_expiry(env: &Env, wallet: &Address) -> Option<u64> {
+    let key = DataKey::ScoreEmbargo(wallet.clone());
+    let expiry: Option<EmbargoExpiry> = env.storage().temporary().get(&key);
+    match expiry {
+        None => None,
+        Some(EmbargoExpiry::Indefinite) => Some(u64::MAX),
+        Some(EmbargoExpiry::Until(ts)) => Some(ts),
+    }
+}
+
 /// Sets the risk band state for `(wallet, asset_pair)`. Passing `true`
 /// records that the wallet has entered the high-risk band; passing `false`
 /// removes the entry (equivalent to `false`, the default) so storage is not
