@@ -181,7 +181,7 @@ fn test_supports_interface_score() {
 #[test]
 fn test_supports_interface_all_registered() {
     let (env, client, _admin, _service) = setup();
-    for cap in ["score", "history", "batch", "gate", "aggr"] {
+    for cap in ["score", "history", "hpag", "batch", "gate", "aggr"] {
         let sym = Symbol::new(&env, cap);
         assert!(client.supports_interface(&sym), "capability `{cap}` should be supported");
     }

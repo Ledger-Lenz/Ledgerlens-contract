@@ -46,6 +46,9 @@ mod test_embargo;
 #[cfg(test)]
 mod test_consensus;
 
+#[cfg(test)]
+mod test_history_paginated;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, xdr::ToXdr, Address, Bytes, BytesN,
     Env, Symbol, SymbolStr, TryFromVal, Vec,
@@ -962,6 +965,63 @@ impl LedgerLensScoreContract {
         storage::get_score_history(&env, &wallet, &asset_pair)
     }
 
+    /// Returns a windowed slice of the score history for `wallet` / `asset_pair`
+    /// without fetching the entire ring buffer.
+    ///
+    /// Use this instead of [`get_score_history`](Self::get_score_history) when a
+    /// caller only needs a recent slice (e.g. "the last 3 scores"): it returns
+    /// at most `limit` entries so the response payload stays small.
+    ///
+    /// - `offset` is **0-indexed from the most recent entry** — `offset = 0`
+    ///   starts at the newest score, `offset = 1` skips it, and so on.
+    /// - `limit` caps the number of entries returned and is clamped to
+    ///   [`MAX_HISTORY_DEPTH`](crate::constants::MAX_HISTORY_DEPTH).
+    /// - Entries are returned **most-recent first**, the reverse of
+    ///   `get_score_history`'s oldest-first ordering, so that `result[i]`
+    ///   corresponds to the `(offset + i)`-th most recent score.
+    /// - An `offset` at or beyond the current history length returns an empty
+    ///   `Vec` rather than erroring.
+    ///
+    /// This call is read-only: it never mutates the ring buffer. As with
+    /// `get_score_history`, an embargoed wallet always reads as empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::{Address as _, Ledger as _}, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &10, &false, &false, &1, &50, &1, &None).unwrap();
+    /// env.ledger().with_mut(|l| l.timestamp += 3_601);
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &20, &false, &false, &2, &60, &1, &None).unwrap();
+    /// // Most recent score only.
+    /// let recent = client.get_score_history_paginated(&wallet, &asset_pair, &0, &1);
+    /// assert_eq!(recent.len(), 1);
+    /// assert_eq!(recent.get(0).unwrap().score, 20);
+    /// ```
+    pub fn get_score_history_paginated(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+        offset: u32,
+        limit: u32,
+    ) -> Vec<RiskScore> {
+        if storage::is_embargoed(&env, &wallet) {
+            return Vec::new(&env);
+        }
+        storage::get_score_history_paginated(&env, &wallet, &asset_pair, offset, limit)
+    }
+
     /// Returns the total number of score submissions ever recorded for
     /// `wallet` / `asset_pair`.
     ///
@@ -1438,6 +1498,7 @@ feat/confidence-gated-risk-gate
     /// |------------------|----------------------------------------------------|
     /// | `score`          | `get_score` / `submit_score`                       |
     /// | `history`        | `get_score_history`                                |
+    /// | `hpag`           | `get_score_history_paginated`                      |
     /// | `batch`          | `submit_scores_batch`                              |
     /// | `gate`           | `query_risk_gate`                                  |
     /// | `aggr`           | `get_aggregate_score` (cross-asset aggregate risk) |
@@ -1455,6 +1516,7 @@ feat/confidence-gated-risk-gate
     pub fn supports_interface(env: Env, capability: Symbol) -> bool {
         capability == symbol_short!("score")
             || capability == symbol_short!("history")
+            || capability == symbol_short!("hpag")
             || capability == symbol_short!("batch")
             || capability == symbol_short!("gate")
             || capability == symbol_short!("aggr")

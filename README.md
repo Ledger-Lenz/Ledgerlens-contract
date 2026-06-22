@@ -67,6 +67,9 @@ Read-only function callable by any Soroban contract. Returns the most recent Led
 ### `get_score_count(wallet: Address, asset_pair: Symbol) -> u32`
 Read-only function callable by any account or contract. Returns the total number of score submissions ever recorded for `wallet` / `asset_pair`. Unlike `get_score_history` (which caps at `HISTORY_MAX_DEPTH`), this counter is never truncated, giving off-chain services a cheap O(1) signal to distinguish newly monitored wallets from those with a long history.
 
+### `get_score_history_paginated(wallet: Address, asset_pair: Symbol, offset: u32, limit: u32) -> Vec<RiskScore>`
+Read-only function callable by any account or contract. Returns a windowed slice of the score history for `wallet` / `asset_pair` without fetching the entire ring buffer, for callers that only need a recent slice (e.g. the last 3 scores). `offset` is 0-indexed from the most recent entry (`0` = newest) and `limit` caps the number of entries returned (clamped to `MAX_HISTORY_DEPTH`). Entries come back most-recent first; an `offset` at or beyond the current history length returns an empty `Vec` rather than erroring. The call never mutates the ring buffer.
+
 ### `set_history_max_depth(depth: u32)`
 Admin-only. Sets the maximum number of entries retained in the per-wallet / per-asset-pair score history ring buffer. `depth` must be in the range `[1, 50]`; values outside this range are rejected with `InvalidHistoryDepth`. Defaults to `10` until configured.
 
@@ -111,7 +114,7 @@ Confidence-gated extension of `query_risk_gate`. Returns `true` only when a scor
 Admin sets a system-wide minimum confidence floor (0–100). When configured, `query_risk_gate_with_confidence` uses `max(caller_param, global_floor)` as the effective floor, letting the contract operator enforce a baseline confidence requirement without requiring every integrating protocol to specify one. Defaults to `0` (no global floor). Returns `InvalidMinConfidence` for values above 100.
 
 ### `supports_interface(capability: Symbol) -> bool`
-Runtime capability detection for the composability interface. Returns `true` for the registered capabilities `score`, `history`, `batch`, `gate`, `aggr`, `count`, and `cgate`, letting integrators feature-detect instead of hardcoding contract version numbers.
+Runtime capability detection for the composability interface. Returns `true` for the registered capabilities `score`, `history`, `hpag`, `batch`, `gate`, `aggr`, `count`, and `cgate`, letting integrators feature-detect instead of hardcoding contract version numbers.
 
 ### `propose_upgrade(new_wasm_hash: BytesN<32>)`
 Admin only. Starts a time-locked contract upgrade by committing to `new_wasm_hash`. Stores an `UpgradeProposal` with `executable_after = now + get_upgrade_delay()` and emits `upgrade_proposed`. Does not change the code. Rejected with `UpgradeAlreadyPending` if a proposal is already in flight. See [Upgrade Governance](#upgrade-governance).

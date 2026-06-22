@@ -118,6 +118,7 @@ capabilities (all `symbol_short!`):
 |-----------------|----------------------------------------------------------------------|
 | `score`         | `get_score` / `submit_score`                                         |
 | `history`       | `get_score_history`                                                  |
+| `hpag`          | `get_score_history_paginated`                                        |
 | `batch`         | `submit_scores_batch`                                                |
 | `gate`          | `query_risk_gate`                                                    |
 | `aggr`          | `get_aggregate_score` (cross-asset aggregate risk)                   |
@@ -138,6 +139,7 @@ Unrecognised capabilities return `false`.
 |-----------|---------|-------|
 | `get_score(env, wallet, asset_pair) -> Result<RiskScore, Error>` | latest score | `Err(ScoreNotFound)` if absent |
 | `get_score_history(env, wallet, asset_pair) -> Vec<RiskScore>` | up to 10 entries, oldest first | empty `Vec` if none |
+| `get_score_history_paginated(env, wallet, asset_pair, offset, limit) -> Vec<RiskScore>` | windowed slice, most-recent first; `offset` 0-indexed from newest, `limit` clamped to `MAX_HISTORY_DEPTH` | empty `Vec` if `offset >= len` |
 | `get_aggregate_score(env, wallet) -> Result<AggregateRiskScore, Error>` | cross-asset weighted view | `Err(ScoreNotFound)` if the wallet has no scores |
 | `get_version(env) -> u32` | contract build version | currently `2` (was `1` prior to the `BatchResult` ABI change) |
 

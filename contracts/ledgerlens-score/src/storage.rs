@@ -244,6 +244,55 @@ pub fn get_score_history(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Ve
     history
 }
 
+/// Read-only windowed view into the score-history ring buffer.
+///
+/// `offset` is 0-indexed from the **most recent** entry (offset `0` == newest);
+/// at most `limit` entries are returned, ordered most-recent first. `limit` is
+/// clamped to [`MAX_HISTORY_DEPTH`](crate::constants::MAX_HISTORY_DEPTH). An
+/// `offset` at or beyond the current history length yields an empty `Vec`.
+///
+/// The whole ring entry is a single persistent value, so the read cost is the
+/// same as [`get_score_history`]; the saving is purely in the size of the
+/// returned slice. This function never mutates the ring (it only refreshes the
+/// entry TTL, exactly as `get_score_history` does).
+pub fn get_score_history_paginated(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    offset: u32,
+    limit: u32,
+) -> Vec<RiskScore> {
+    let key = DataKey::ScoreHistory(wallet.clone(), asset_pair.clone());
+    let history: Vec<RiskScore> =
+        env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+
+    let mut page = Vec::new(env);
+    let len = history.len();
+    // Out-of-bounds offset (including any read against an empty ring) is not an
+    // error — callers paging off the end simply get nothing back.
+    if offset >= len {
+        return page;
+    }
+
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+
+    let capped_limit = limit.min(crate::constants::MAX_HISTORY_DEPTH);
+    // History is stored oldest-first, so the newest entry sits at `len - 1`.
+    // Walk backwards from the `offset`-th most recent entry, emitting up to
+    // `capped_limit` entries in most-recent-first order.
+    let mut idx = len - 1 - offset;
+    let mut produced = 0u32;
+    while produced < capped_limit {
+        page.push_back(history.get(idx).unwrap());
+        produced += 1;
+        if idx == 0 {
+            break;
+        }
+        idx -= 1;
+    }
+    page
+}
+
 // ── Configurable history ring depth ──────────────────────────────────────────
 
 /// Returns the admin-configured ring-buffer depth, or
