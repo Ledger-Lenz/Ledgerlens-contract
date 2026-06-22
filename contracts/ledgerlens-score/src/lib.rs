@@ -34,12 +34,16 @@ mod test_score_delta;
 #[cfg(test)]
 mod test_finality_buffer;
 
+#[cfg(test)]
+mod test_heartbeat;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, xdr::ToXdr, Address, Bytes, BytesN,
     Env, Symbol, SymbolStr, TryFromVal, Vec,
 };
 
 pub use errors::Error;
+pub use events::{ServiceResumedEvent, ServiceSilenceAlertEvent};
 pub use types::{
     AggregateRiskScore, BatchEntryResult, BatchResult, PendingScoreEntry, RiskScore,
     ScoreAttestation, ScoreSubmission, ScoreTrend, SnapshotRecord, UpgradeProposal,
@@ -252,6 +256,7 @@ impl LedgerLensScoreContract {
             return Err(Error::RateLimitExceeded);
         }
         storage::set_last_submit_time(&env, &wallet, &asset_pair, now);
+        Self::record_service_activity(&env);
 
         let buffer = storage::get_finality_buffer_secs(&env);
         if buffer == 0 {
@@ -706,6 +711,10 @@ impl LedgerLensScoreContract {
             results.push_back(BatchEntryResult { index: i, accepted, rejection_code });
         }
 
+        if accepted_count > 0 {
+            Self::record_service_activity(&env);
+        }
+
         let rejected_count = submissions.len() - accepted_count;
         Ok(BatchResult { accepted_count, rejected_count, results })
     }
@@ -736,6 +745,7 @@ impl LedgerLensScoreContract {
     /// assert_eq!(score.score, 10);
     /// ```
     pub fn get_score(env: Env, wallet: Address, asset_pair: Symbol) -> Result<RiskScore, Error> {
+        Self::check_service_silence(&env);
         if storage::is_embargoed(&env, &wallet) {
             return Err(Error::ScoreEmbargoed);
         }
@@ -1250,6 +1260,180 @@ impl LedgerLensScoreContract {
         storage::get_admin(&env).require_auth();
         storage::set_service(&env, &new_service);
         events::service_updated(&env, &new_service);
+        Ok(())
+    }
+
+    // ── Service heartbeat monitor ─────────────────────────────────────────────
+    //
+    // If the off-chain scoring service goes down, every on-chain score ages
+    // silently — `is_score_stale` only answers "is *this* (wallet, pair) old"
+    // and gives no signal when the service itself has gone dark across the
+    // board. This section adds a lightweight global liveness signal, updated
+    // on every accepted submission (or an explicit `ping_heartbeat`) and
+    // queryable by any downstream contract via `is_service_alive`.
+
+    /// Returns the ledger timestamp of the most recent accepted submission
+    /// (`submit_score` / `submit_scores_batch`) or `ping_heartbeat` call.
+    /// Returns `0` if no submission has ever been accepted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_last_service_activity(), 0);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &10, &false, &false, &1, &50, &1, &None).unwrap();
+    /// assert!(client.get_last_service_activity() > 0);
+    /// ```
+    pub fn get_last_service_activity(env: Env) -> u64 {
+        storage::get_last_service_activity(&env)
+    }
+
+    /// Returns `true` if the off-chain scoring service has been active
+    /// within the configured `ServiceHeartbeatAlertThreshold` — i.e.
+    /// `now - last_activity <= heartbeat_alert_threshold`.
+    ///
+    /// Returns `true` when `LastServiceActivityAt == 0` (the service has
+    /// never submitted), so a freshly initialized contract is never reported
+    /// as "down" before it has had a chance to receive its first submission.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::{Address as _, Ledger as _}, Env, Address};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert!(client.is_service_alive()); // never active yet — alive by default
+    /// client.ping_heartbeat().unwrap();
+    /// assert!(client.is_service_alive());
+    /// env.ledger().with_mut(|l| l.timestamp += 3_601); // past the 1-hour default threshold
+    /// assert!(!client.is_service_alive());
+    /// ```
+    pub fn is_service_alive(env: Env) -> bool {
+        let last_active_at = storage::get_last_service_activity(&env);
+        if last_active_at == 0 {
+            return true;
+        }
+        let now = env.ledger().timestamp();
+        now.saturating_sub(last_active_at) <= storage::get_heartbeat_alert_threshold(&env)
+    }
+
+    /// Sets the number of seconds of silence (no accepted submission or
+    /// `ping_heartbeat`) before the service is considered unresponsive by
+    /// `is_service_alive`, and before the next `get_score` call emits a
+    /// `ServiceSilenceAlertEvent`. Admin only.
+    ///
+    /// Defaults to `DEFAULT_HEARTBEAT_ALERT_THRESHOLD_SECS` (1 hour) until
+    /// this is called.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_heartbeat_alert_threshold(&Vec::new(&env), &7_200).unwrap();
+    /// assert_eq!(client.get_heartbeat_alert_threshold(), 7_200);
+    /// ```
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    pub fn set_heartbeat_alert_threshold(
+        env: Env,
+        admin_signers: Vec<Address>,
+        secs: u64,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_heartbeat_alert_threshold(&env, secs);
+        events::heartbeat_threshold_updated(&env, secs);
+        Ok(())
+    }
+
+    /// Returns the current heartbeat alert threshold in seconds. Defaults to
+    /// `DEFAULT_HEARTBEAT_ALERT_THRESHOLD_SECS` (1 hour) until
+    /// `set_heartbeat_alert_threshold` is called.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_heartbeat_alert_threshold(), 3_600);
+    /// ```
+    pub fn get_heartbeat_alert_threshold(env: Env) -> u64 {
+        storage::get_heartbeat_alert_threshold(&env)
+    }
+
+    /// Proves off-chain service liveness without submitting a score.
+    /// Callable only by the configured service account. Updates
+    /// `LastServiceActivityAt` and, if a silence alert was previously
+    /// emitted, clears it and emits `ServiceResumedEvent` — treated
+    /// equivalently to a successful submission for heartbeat purposes.
+    /// Useful when no new scores need to be submitted but the service wants
+    /// to prove it is still up.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.ping_heartbeat().unwrap();
+    /// assert!(client.get_last_service_activity() > 0);
+    /// ```
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    pub fn ping_heartbeat(env: Env) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        let service = storage::get_service(&env);
+        service.require_auth();
+        Self::record_service_activity(&env);
         Ok(())
     }
 
@@ -2515,6 +2699,58 @@ impl LedgerLensScoreContract {
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────
+
+    /// Records that the off-chain service is active right now. Called by
+    /// `submit_score`, `submit_scores_batch` (once per call, after at least
+    /// one entry is accepted), and `ping_heartbeat`.
+    ///
+    /// If a silence alert was previously emitted (`ServiceSilentAlertEmitted
+    /// == true`), this is the first activity since that alert fired: it
+    /// emits `ServiceResumedEvent` with the gap since the last recorded
+    /// activity and clears the flag, before stamping `LastServiceActivityAt`
+    /// with the current ledger time.
+    fn record_service_activity(env: &Env) {
+        let now = env.ledger().timestamp();
+        if storage::is_silent_alert_emitted(env) {
+            let last_active_at = storage::get_last_service_activity(env);
+            events::service_resumed(
+                env,
+                &events::ServiceResumedEvent {
+                    last_active_at,
+                    gap_secs: now.saturating_sub(last_active_at),
+                },
+            );
+            storage::clear_silent_alert_emitted(env);
+        }
+        storage::set_last_service_activity(env, now);
+    }
+
+    /// Read-path liveness check, run at the top of `get_score`. Emits
+    /// `ServiceSilenceAlertEvent` (without otherwise affecting the read) the
+    /// first time the service has been silent for longer than
+    /// `ServiceHeartbeatAlertThreshold`, then sets `ServiceSilentAlertEmitted`
+    /// so the alert fires only once per silence window. A `LastServiceActivityAt`
+    /// of `0` (the service has never been active) is never treated as
+    /// silence — see `is_service_alive`.
+    fn check_service_silence(env: &Env) {
+        if storage::is_silent_alert_emitted(env) {
+            return;
+        }
+        let last_active_at = storage::get_last_service_activity(env);
+        if last_active_at == 0 {
+            return;
+        }
+        let now = env.ledger().timestamp();
+        let silent_secs = now.saturating_sub(last_active_at);
+        let threshold_secs = storage::get_heartbeat_alert_threshold(env);
+        if silent_secs > threshold_secs {
+            events::service_silence_alert(
+                env,
+                &events::ServiceSilenceAlertEvent { last_active_at, silent_secs, threshold_secs },
+            );
+            storage::set_silent_alert_emitted(env);
+        }
+    }
 
     /// Computes a fixed-point approximation of the exponential decay factor
     /// e^(-λ * age_seconds) using a piecewise Taylor-series approximation.

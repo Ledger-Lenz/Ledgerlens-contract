@@ -123,3 +123,15 @@ pub const MAX_DECAY_LAMBDA_DEN: u32 = 1;
 /// Maximum configurable finality buffer — 24 hour ceiling, so a misconfigured
 /// admin cannot delay score visibility indefinitely.
 pub const MAX_FINALITY_BUFFER_SECS: u64 = 86_400; // 24 hours
+
+// ── Service heartbeat monitor ─────────────────────────────────────────────
+//
+// If the off-chain scoring service goes down, on-chain scores silently age
+// without update, and composable protocols have no global signal to
+// distinguish a healthy wallet from a stale one. `LastServiceActivityAt`
+// tracks the most recent accepted submission (or `ping_heartbeat`); see
+// `is_service_alive`, `ping_heartbeat`, and `set_heartbeat_alert_threshold`.
+
+/// Default heartbeat alert threshold (seconds) until the admin configures
+/// one explicitly via `set_heartbeat_alert_threshold` — 1 hour.
+pub const DEFAULT_HEARTBEAT_ALERT_THRESHOLD_SECS: u64 = 3_600; // 1 hour

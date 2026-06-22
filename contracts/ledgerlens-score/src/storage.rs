@@ -689,3 +689,45 @@ pub fn clear_pending_score(env: &Env, wallet: &Address, asset_pair: &Symbol) {
     env.storage().persistent().remove(&key);
 }
 
+// ── Service heartbeat monitor ────────────────────────────────────────────
+
+/// Returns the ledger timestamp of the most recent accepted submission or
+/// `ping_heartbeat` call, or `0` if the service has never been active.
+pub fn get_last_service_activity(env: &Env) -> u64 {
+    env.storage().instance().get(&DataKey::LastServiceActivityAt).unwrap_or(0)
+}
+
+/// Records `timestamp` as the most recent service activity. Called by
+/// `submit_score`, `submit_scores_batch`, and `ping_heartbeat`.
+pub fn set_last_service_activity(env: &Env, timestamp: u64) {
+    env.storage().instance().set(&DataKey::LastServiceActivityAt, &timestamp);
+}
+
+/// Returns the admin-configured heartbeat alert threshold (seconds),
+/// defaulting to `DEFAULT_HEARTBEAT_ALERT_THRESHOLD_SECS` until
+/// `set_heartbeat_alert_threshold` is called.
+pub fn get_heartbeat_alert_threshold(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::ServiceHeartbeatAlertThreshold)
+        .unwrap_or(crate::constants::DEFAULT_HEARTBEAT_ALERT_THRESHOLD_SECS)
+}
+
+pub fn set_heartbeat_alert_threshold(env: &Env, secs: u64) {
+    env.storage().instance().set(&DataKey::ServiceHeartbeatAlertThreshold, &secs);
+}
+
+/// Returns `true` once a `ServiceSilenceAlertEvent` has been emitted for the
+/// current silence window and not yet cleared by a resumed submission.
+pub fn is_silent_alert_emitted(env: &Env) -> bool {
+    env.storage().instance().get(&DataKey::ServiceSilentAlertEmitted).unwrap_or(false)
+}
+
+pub fn set_silent_alert_emitted(env: &Env) {
+    env.storage().instance().set(&DataKey::ServiceSilentAlertEmitted, &true);
+}
+
+pub fn clear_silent_alert_emitted(env: &Env) {
+    env.storage().instance().remove(&DataKey::ServiceSilentAlertEmitted);
+}
+

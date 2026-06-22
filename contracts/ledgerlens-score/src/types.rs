@@ -309,4 +309,17 @@ pub enum DataKey {
     SnapshotHistory,
     /// u32, max entries in snapshot ring (admin-configured, default 10).
     SnapshotHistoryDepth,
+    /// u64, ledger timestamp of the most recent accepted submission
+    /// (`submit_score` / `submit_scores_batch`) or `ping_heartbeat` call.
+    /// `0` means the service has never been active. See `is_service_alive`.
+    LastServiceActivityAt,
+    /// u64, admin-configurable number of seconds of silence before the
+    /// off-chain service is considered unresponsive. Defaults to
+    /// `DEFAULT_HEARTBEAT_ALERT_THRESHOLD_SECS` (1 hour) when unset.
+    ServiceHeartbeatAlertThreshold,
+    /// bool, `true` once a `ServiceSilenceAlertEvent` has been emitted for
+    /// the current silence window. Cleared (and a `ServiceResumedEvent`
+    /// emitted) the next time a submission or `ping_heartbeat` is accepted —
+    /// see `submit_score` / `ping_heartbeat`.
+    ServiceSilentAlertEmitted,
 }

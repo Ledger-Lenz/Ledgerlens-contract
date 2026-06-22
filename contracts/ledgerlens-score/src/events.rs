@@ -1,4 +1,4 @@
-use soroban_sdk::{symbol_short, Address, Bytes, BytesN, Env, Symbol};
+use soroban_sdk::{contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol};
 
 use crate::types::RiskScore;
 
@@ -289,5 +289,42 @@ pub fn score_pending_cancelled(
         (symbol_short!("scr_canc"), wallet.clone(), asset_pair.clone()),
         cancelled_by.clone(),
     );
+}
+
+// ── Service heartbeat monitor ────────────────────────────────────────────
+
+/// Emitted (by the `get_score` read path) the first time the off-chain
+/// service has been silent for longer than `ServiceHeartbeatAlertThreshold`
+/// since `LastServiceActivityAt`. Fires only once per silence window — see
+/// `ServiceSilentAlertEmitted` and `service_resumed`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServiceSilenceAlertEvent {
+    pub last_active_at: u64,
+    pub silent_secs: u64,
+    pub threshold_secs: u64,
+}
+
+/// Emitted by `submit_score` / `submit_scores_batch` / `ping_heartbeat` when
+/// service activity resumes after a previously alerted silence window.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServiceResumedEvent {
+    pub last_active_at: u64,
+    pub gap_secs: u64,
+}
+
+pub fn service_silence_alert(env: &Env, event: &ServiceSilenceAlertEvent) {
+    env.events().publish((symbol_short!("svc_sil"),), event.clone());
+}
+
+pub fn service_resumed(env: &Env, event: &ServiceResumedEvent) {
+    env.events().publish((symbol_short!("svc_res"),), event.clone());
+}
+
+/// Emitted when the admin changes the heartbeat alert threshold via
+/// `set_heartbeat_alert_threshold`.
+pub fn heartbeat_threshold_updated(env: &Env, secs: u64) {
+    env.events().publish((symbol_short!("hb_upd"),), secs);
 }
 
