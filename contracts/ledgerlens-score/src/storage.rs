@@ -4,7 +4,9 @@ use crate::constants::{
     DEFAULT_COOLDOWN_SECS, DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS, SCORE_TTL_EXTEND_TO,
     SCORE_TTL_THRESHOLD,
 };
-use crate::types::{AggregateRiskScore, DataKey, RiskScore, ScoreTrend, UpgradeProposal};
+use crate::types::{
+    AggregateRiskScore, DataKey, RiskScore, ScoreFloorPolicy, ScoreTrend, UpgradeProposal,
+};
 
 // ── Admin / Service ─────────────────────────────────────────────────────────
 
@@ -591,5 +593,68 @@ pub fn set_score_delegate(env: &Env, sub_wallet: &Address, custodian: &Address) 
 
 pub fn remove_score_delegate(env: &Env, sub_wallet: &Address) {
     let key = DataKey::ScoreDelegate(sub_wallet.clone());
+    env.storage().persistent().remove(&key);
+}
+
+// ── Score submission floor ────────────────────────────────────────────────────
+
+/// Returns the current score-floor policy, falling back to the compiled-in
+/// defaults (disabled, HWM 80, floor 20) for any field the admin has not set.
+pub fn get_score_floor_policy(env: &Env) -> ScoreFloorPolicy {
+    let enabled: bool = env.storage().instance().get(&DataKey::ScoreFloorEnabled).unwrap_or(false);
+    let high_water_mark: u32 = env
+        .storage()
+        .instance()
+        .get(&DataKey::ScoreFloorHighWaterMark)
+        .unwrap_or(crate::constants::DEFAULT_SCORE_FLOOR_HWM);
+    let floor_value: u32 = env
+        .storage()
+        .instance()
+        .get(&DataKey::ScoreFloorMinValue)
+        .unwrap_or(crate::constants::DEFAULT_SCORE_FLOOR_MIN);
+    ScoreFloorPolicy { enabled, high_water_mark, floor_value }
+}
+
+/// Persists the score-floor policy. Validation of the bounds is the caller's
+/// responsibility (see `set_score_floor_policy`).
+pub fn set_score_floor_policy(env: &Env, enabled: bool, high_water_mark: u32, floor_value: u32) {
+    env.storage().instance().set(&DataKey::ScoreFloorEnabled, &enabled);
+    env.storage().instance().set(&DataKey::ScoreFloorHighWaterMark, &high_water_mark);
+    env.storage().instance().set(&DataKey::ScoreFloorMinValue, &floor_value);
+}
+
+/// Returns the highest score ever recorded for `(wallet, asset_pair)`, or `0`
+/// if none has been recorded yet.
+pub fn get_historical_max_score(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 {
+    let key = DataKey::HistoricalMaxScore(wallet.clone(), asset_pair.clone());
+    let result: Option<u32> = env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    result.unwrap_or(0)
+}
+
+/// Raises the historical maximum for `(wallet, asset_pair)` to `score` when it
+/// exceeds the current maximum. When `score` is not a new peak the stored
+/// value is left untouched, but its TTL is refreshed so the peak never expires
+/// before the score it protects. Writes nothing when no peak has ever been
+/// recorded and `score` is `0`, so a first-ever zero submission costs no
+/// storage.
+pub fn update_historical_max_score(env: &Env, wallet: &Address, asset_pair: &Symbol, score: u32) {
+    let key = DataKey::HistoricalMaxScore(wallet.clone(), asset_pair.clone());
+    let current: Option<u32> = env.storage().persistent().get(&key);
+    if score > current.unwrap_or(0) {
+        env.storage().persistent().set(&key, &score);
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    } else if current.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+}
+
+/// Clears the historical maximum for `(wallet, asset_pair)`, dropping it back
+/// to `0` so the next submission is no longer gated by the floor. Used by the
+/// admin emergency path `override_score_floor`.
+pub fn clear_historical_max_score(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    let key = DataKey::HistoricalMaxScore(wallet.clone(), asset_pair.clone());
     env.storage().persistent().remove(&key);
 }

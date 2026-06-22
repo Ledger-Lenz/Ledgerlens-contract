@@ -31,6 +31,9 @@ mod test_embargo;
 #[cfg(test)]
 mod test_score_delta;
 
+#[cfg(test)]
+mod test_score_floor;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN, Env, Symbol,
     SymbolStr, TryFromVal, Vec,
@@ -39,7 +42,7 @@ use soroban_sdk::{
 pub use errors::Error;
 pub use types::{
     AggregateRiskScore, BatchEntryResult, BatchResult, RiskScore, ScoreAttestation,
-    ScoreSubmission, ScoreTrend, UpgradeProposal,
+    ScoreFloorPolicy, ScoreSubmission, ScoreTrend, UpgradeProposal,
 };
 
 /// On-chain truth layer for LedgerLens risk scores.
@@ -242,6 +245,15 @@ impl LedgerLensScoreContract {
         if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
             return Err(Error::RateLimitExceeded);
         }
+
+        // Score submission floor — reject a sub-floor score for a wallet whose
+        // historical peak crossed the danger level, blocking reputation
+        // laundering by a compromised signer. Checked before any state is
+        // written so a blocked submission leaves the cooldown timer untouched.
+        if Self::score_floor_blocks(&env, &wallet, &asset_pair, score) {
+            return Err(Error::BelowScoreFloor);
+        }
+
         storage::set_last_submit_time(&env, &wallet, &asset_pair, now);
 
         let previous_score = storage::peek_score(&env, &wallet, &asset_pair).map(|s| s.score);
@@ -253,6 +265,7 @@ impl LedgerLensScoreContract {
         storage::push_score_history(&env, &wallet, &asset_pair, &risk_score);
         storage::register_pair_for_wallet(&env, &wallet, &asset_pair);
         storage::increment_score_count(&env, &wallet, &asset_pair);
+        storage::update_historical_max_score(&env, &wallet, &asset_pair, score);
         Self::refresh_aggregate_cache(&env, &wallet);
 
         let score_threshold = storage::get_risk_threshold(&env);
@@ -272,10 +285,12 @@ impl LedgerLensScoreContract {
     /// each (wallet, pair) individually.
     ///
     /// Entries targeting a paused pair (`PairPaused`), with out-of-range
-    /// `score` or `confidence`, a zero `timestamp`, or that arrive before
-    /// their `(wallet, asset_pair)`'s submission cooldown has elapsed, are
-    /// recorded as rejected in the result with an appropriate
-    /// `rejection_code` — the rest of the batch is still processed. The
+    /// `score` or `confidence`, a zero `timestamp`, that arrive before
+    /// their `(wallet, asset_pair)`'s submission cooldown has elapsed, or that
+    /// fall below the configured score floor for a high-risk wallet
+    /// (`BelowScoreFloor`), are recorded as rejected in the result with an
+    /// appropriate `rejection_code` — the rest of the batch is still
+    /// processed. The
     /// whole call instead fails outright with `ContractPaused` if the
     /// *global* circuit breaker is active, checked once up front. Two
     /// entries for the same pair within
@@ -352,6 +367,8 @@ impl LedgerLensScoreContract {
                 let last_submit = storage::get_last_submit_time(&env, &sub.wallet, &sub.asset_pair);
                 if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
                     rejection_code = Error::RateLimitExceeded as u32;
+                } else if Self::score_floor_blocks(&env, &sub.wallet, &sub.asset_pair, sub.score) {
+                    rejection_code = Error::BelowScoreFloor as u32;
                 } else {
                     let previous_score =
                         storage::peek_score(&env, &sub.wallet, &sub.asset_pair).map(|s| s.score);
@@ -371,6 +388,12 @@ impl LedgerLensScoreContract {
                     storage::push_score_history(&env, &sub.wallet, &sub.asset_pair, &risk_score);
                     storage::register_pair_for_wallet(&env, &sub.wallet, &sub.asset_pair);
                     storage::increment_score_count(&env, &sub.wallet, &sub.asset_pair);
+                    storage::update_historical_max_score(
+                        &env,
+                        &sub.wallet,
+                        &sub.asset_pair,
+                        sub.score,
+                    );
                     Self::refresh_aggregate_cache(&env, &sub.wallet);
 
                     if sub.score >= threshold {
@@ -1943,6 +1966,161 @@ impl LedgerLensScoreContract {
         storage::get_last_submit_time(&env, &wallet, &asset_pair)
     }
 
+    // ── Score submission floor ────────────────────────────────────────────────
+
+    /// Configure the per-wallet score submission floor. Admin only.
+    ///
+    /// When `enabled`, any `(wallet, asset_pair)` whose historical peak score
+    /// has reached `high_water_mark` can no longer receive a submission below
+    /// `floor_value`: such a submission is rejected with
+    /// [`Error::BelowScoreFloor`] (or recorded with that `rejection_code` in a
+    /// batch). Combined with the rate limiter and attestation, this is a
+    /// second line of defence — a compromised or colluding signer cannot
+    /// simply zero out a known high-risk wallet's score to whitewash it.
+    ///
+    /// The policy is **disabled by default**; no floor is enforced until the
+    /// admin opts in via this function.
+    ///
+    /// # Arguments
+    /// - `enabled` — kill-switch; `false` disables the floor entirely.
+    /// - `high_water_mark` — historical peak at or above which the floor
+    ///   applies. Must be within `[MIN_SCORE_FLOOR_HWM, MAX_SCORE_FLOOR_HWM]`
+    ///   (50–100).
+    /// - `floor_value` — minimum score permitted for a high-risk wallet. Must
+    ///   be strictly below `high_water_mark` (i.e. in `[0, high_water_mark - 1]`).
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::InvalidScoreFloorPolicy`] if `high_water_mark` is out of
+    ///   range or `floor_value` is not strictly below it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_score_floor_policy(&Vec::new(&env), &true, &80, &20);
+    /// let policy = client.get_score_floor_policy();
+    /// assert!(policy.enabled);
+    /// assert_eq!(policy.high_water_mark, 80);
+    /// assert_eq!(policy.floor_value, 20);
+    /// ```
+    pub fn set_score_floor_policy(
+        env: Env,
+        admin_signers: Vec<Address>,
+        enabled: bool,
+        high_water_mark: u32,
+        floor_value: u32,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if !(constants::MIN_SCORE_FLOOR_HWM..=constants::MAX_SCORE_FLOOR_HWM)
+            .contains(&high_water_mark)
+            || floor_value >= high_water_mark
+        {
+            return Err(Error::InvalidScoreFloorPolicy);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_score_floor_policy(&env, enabled, high_water_mark, floor_value);
+        events::score_floor_policy_updated(&env, enabled, high_water_mark, floor_value);
+        Ok(())
+    }
+
+    /// Returns the current score-floor policy. Defaults to disabled with a
+    /// high-water mark of `DEFAULT_SCORE_FLOOR_HWM` (80) and a floor of
+    /// `DEFAULT_SCORE_FLOOR_MIN` (20) until the admin configures it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let policy = client.get_score_floor_policy();
+    /// assert!(!policy.enabled);
+    /// assert_eq!(policy.high_water_mark, 80);
+    /// assert_eq!(policy.floor_value, 20);
+    /// ```
+    pub fn get_score_floor_policy(env: Env) -> ScoreFloorPolicy {
+        storage::get_score_floor_policy(&env)
+    }
+
+    /// Returns the highest score ever recorded for `(wallet, asset_pair)`, or
+    /// `0` if no score has ever been accepted. This running peak is what the
+    /// floor compares against `high_water_mark`. Read-only, callable by any
+    /// account or contract.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// assert_eq!(client.get_historical_max_score(&wallet, &pair), 0);
+    /// client.submit_score(&Vec::new(&env), &wallet, &pair, &85, &false, &false, &1, &90, &1, &None);
+    /// assert_eq!(client.get_historical_max_score(&wallet, &pair), 85);
+    /// ```
+    pub fn get_historical_max_score(env: Env, wallet: Address, asset_pair: Symbol) -> u32 {
+        storage::get_historical_max_score(&env, &wallet, &asset_pair)
+    }
+
+    /// Emergency one-shot override of the score floor for a single
+    /// `(wallet, asset_pair)`. Admin only.
+    ///
+    /// Mirrors [`override_rate_limit`](Self::override_rate_limit): it clears
+    /// the stored historical maximum for the pair, dropping it below the
+    /// high-water mark so the next `submit_score` / `submit_scores_batch`
+    /// write is accepted regardless of how low its score is. This is **not**
+    /// a routine operation — it exists for correcting a genuinely
+    /// mis-flagged wallet right away, not for working around the floor during
+    /// normal operation. After the override the running peak is rebuilt from
+    /// subsequent submissions, so the floor's protection resumes naturally
+    /// once a high score is recorded again.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    pub fn override_score_floor(
+        env: Env,
+        admin_signers: Vec<Address>,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        let admin = storage::get_admin(&env);
+        storage::clear_historical_max_score(&env, &wallet, &asset_pair);
+        events::score_floor_overridden(&env, &admin, &wallet, &asset_pair);
+        Ok(())
+    }
+
     // ── Score trend ───────────────────────────────────────────────────────────
 
     /// Returns the current trend direction and consecutive-count for
@@ -2430,6 +2608,27 @@ impl LedgerLensScoreContract {
         if let Ok(aggregate) = Self::compute_aggregate_score(env, wallet) {
             storage::set_aggregate_score(env, wallet, &aggregate);
         }
+    }
+
+    /// Returns `true` when the score-floor policy would block a submission of
+    /// `new_score` for `(wallet, asset_pair)` — i.e. the policy is enabled, the
+    /// pair's historical peak is at or above the high-water mark, and
+    /// `new_score` is below the floor value. Reads the historical maximum
+    /// *before* the current submission is folded in, so the decision reflects
+    /// the wallet's reputation prior to this write. Returns `false` whenever
+    /// the policy is disabled, keeping the default behaviour unchanged.
+    fn score_floor_blocks(
+        env: &Env,
+        wallet: &Address,
+        asset_pair: &Symbol,
+        new_score: u32,
+    ) -> bool {
+        let policy = storage::get_score_floor_policy(env);
+        if !policy.enabled {
+            return false;
+        }
+        let historical_max = storage::get_historical_max_score(env, wallet, asset_pair);
+        historical_max >= policy.high_water_mark && new_score < policy.floor_value
     }
 
     // ── Score attestation internals ──────────────────────────────────────────

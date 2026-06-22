@@ -110,3 +110,28 @@ pub const MAX_DECAY_LAMBDA_NUM: u32 = 1;
 
 /// Maximum allowed decay rate denominator (paired with MAX_DECAY_LAMBDA_NUM).
 pub const MAX_DECAY_LAMBDA_DEN: u32 = 1;
+
+// ── Score submission floor ─────────────────────────────────────────────────────
+//
+// A compromised or colluding signer could otherwise submit an artificially low
+// score for a wallet that has historically carried a high risk score, laundering
+// its on-chain reputation. The configurable floor blocks sudden large downward
+// revisions for wallets whose historical peak crossed a danger level. See
+// `set_score_floor_policy` and the README's Score Submission Floor section.
+
+/// Default high-water mark used until the admin configures the policy — a
+/// `(wallet, asset_pair)` whose historical peak reached this score is treated
+/// as high-risk and subject to the floor.
+pub const DEFAULT_SCORE_FLOOR_HWM: u32 = 80;
+
+/// Default minimum score permitted for a high-risk wallet until the admin
+/// configures the policy.
+pub const DEFAULT_SCORE_FLOOR_MIN: u32 = 20;
+
+/// Minimum configurable high-water mark. Keeps the floor from applying to
+/// merely-moderate wallets — it only protects scores that crossed a genuine
+/// danger level.
+pub const MIN_SCORE_FLOOR_HWM: u32 = 50;
+
+/// Maximum configurable high-water mark — the top of the score range.
+pub const MAX_SCORE_FLOOR_HWM: u32 = 100;

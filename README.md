@@ -131,6 +131,18 @@ Admin-only emergency escape hatch. Immediately clears the stored cooldown deadli
 ### `get_last_submit_time(wallet: Address, asset_pair: Symbol) -> u64`
 Read-only lookup of the ledger timestamp of the last accepted submission for `(wallet, asset_pair)`, or `0` if none has ever been accepted (or it was cleared by `override_rate_limit`).
 
+### `set_score_floor_policy(admin_signers: Vec<Address>, enabled: bool, high_water_mark: u32, floor_value: u32)`
+Admin-only (M-of-N). Configures the per-wallet score submission floor. When `enabled`, any `(wallet, asset_pair)` whose historical peak score has reached `high_water_mark` can no longer receive a submission below `floor_value` — such a submission is rejected with `BelowScoreFloor`. `high_water_mark` must be in `[50, 100]` and `floor_value` strictly below it (`[0, high_water_mark - 1]`); out-of-range values are rejected with `InvalidScoreFloorPolicy`. Disabled by default. Emits `sf_upd`. See [Score Submission Floor](#score-submission-floor).
+
+### `get_score_floor_policy() -> ScoreFloorPolicy`
+Read-only. Returns the current floor policy. Defaults to `{ enabled: false, high_water_mark: 80, floor_value: 20 }` until the admin opts in.
+
+### `get_historical_max_score(wallet: Address, asset_pair: Symbol) -> u32`
+Read-only. Returns the highest score ever recorded for `(wallet, asset_pair)`, or `0` if none. This running peak is what the floor compares against `high_water_mark`.
+
+### `override_score_floor(admin_signers: Vec<Address>, wallet: Address, asset_pair: Symbol)`
+Admin-only (M-of-N) emergency escape hatch, analogous to `override_rate_limit`. Clears the stored historical maximum for `(wallet, asset_pair)`, dropping it below the high-water mark so the next submission is accepted regardless of its score — for correcting a genuinely mis-flagged wallet. The peak is rebuilt from subsequent submissions, so the floor's protection resumes once a high score is recorded again. Emits `sf_ovrd`.
+
 ### `clear_score_history(wallet: Address, asset_pair: Symbol)` ⚠️ irreversible
 Admin only. Permanently erases the score history ring buffer for `wallet` / `asset_pair`. No-op if no history exists. Emits `clr_hist` for the on-chain audit trail. **Keep off-chain backups before calling — this cannot be undone on-chain.**
 
@@ -268,6 +280,8 @@ A wallet scoring 60-70 on three pairs individually might not breach the per-pair
 | 25 | `InvalidTimestamp` | `submit_score` called with `timestamp = 0` |
 | 30 | `PairPaused` | Submission attempted while this `asset_pair` is individually paused — see [Pause Circuit Breaker](#pause-circuit-breaker) |
 | 31 | `PausedPairIndexFull` | `set_pair_paused` would pause a new pair beyond `MAX_PAUSED_PAIRS` (50) |
+| 43 | `BelowScoreFloor` | Submission below the configured floor for a high-risk wallet — see [Score Submission Floor](#score-submission-floor) |
+| 44 | `InvalidScoreFloorPolicy` | `set_score_floor_policy` given `high_water_mark` outside `[50, 100]` or `floor_value` not strictly below it |
 
 ## Pause Circuit Breaker
 
@@ -344,6 +358,37 @@ The cooldown defaults to **1 hour** and is admin-configurable via `set_cooldown`
 
 Like the upgrade time-lock, the cooldown deadline is computed from `env.ledger().timestamp()` — deterministic and not caller-settable — so it cannot be bypassed by manipulating submission metadata such as the `timestamp` field on `RiskScore` itself.
 
+## Score Submission Floor
+
+A compromised or colluding service signer could submit an artificially low score (e.g. `0` or `1`) for a wallet that has historically carried a high risk score — effectively laundering the wallet's on-chain reputation. The rate limiter bounds *how often* scores change; attestation proves *who* signed them; the score floor bounds *how far down* a known high-risk wallet's score can be revised. Together they form three independent lines of defence: even a compromised service key cannot simply zero out a known-fraudulent wallet to whitewash it.
+
+**How it works:**
+
+1. On every accepted submission, the contract updates `HistoricalMaxScore(wallet, asset_pair) = max(current_max, new_score)` — a per-pair running peak that is never lowered by a subsequent submission.
+2. When the policy is **enabled** and a pair's historical peak has reached the `high_water_mark`, any submission with `score < floor_value` is rejected with `BelowScoreFloor` (in a batch, that entry is rejected with `rejection_code = BelowScoreFloor` while the rest of the batch proceeds, exactly like `RateLimitExceeded`). The check runs **before** any state is written, so a blocked submission leaves the stored score, the cooldown timer, and the historical peak untouched.
+3. The policy is **disabled by default** — no floor is enforced until the admin opts in via `set_score_floor_policy`. `high_water_mark` is bounded to `[50, 100]` and `floor_value` must be strictly below it.
+
+For correcting a genuinely mis-flagged wallet, the admin can call `override_score_floor(wallet, asset_pair)` to clear that pair's historical peak — the same emergency-escape-hatch pattern as `override_rate_limit`. The protection resumes naturally once a high score is recorded for the pair again.
+
+```rust
+client.set_score_floor_policy(&admin_signers, &true, &80, &20); // opt in: HWM 80, floor 20
+// wallet's XLM_USDC peaks at 90 over time...
+client.submit_score(/* score: 1, ... */);   // -> Error::BelowScoreFloor (laundering blocked)
+client.submit_score(/* score: 25, ... */);  // accepted (>= floor of 20)
+client.override_score_floor(&admin_signers, &wallet, &symbol_short!("XLM_USDC")); // emergency reset
+client.submit_score(/* score: 1, ... */);   // now accepted
+```
+
+### `ScoreFloorPolicy` Structure
+
+```rust
+pub struct ScoreFloorPolicy {
+    pub enabled: bool,         // kill-switch; false = no floor enforced
+    pub high_water_mark: u32,  // historical peak [50,100] at/above which the floor applies
+    pub floor_value: u32,      // minimum score [0, high_water_mark-1] for a high-risk wallet
+}
+```
+
 ## Score Attestation
 
 The service account's `require_auth` proves a transaction was sent by the authorised key, but says nothing about whether the score payload inside that transaction matches what the off-chain detection pipeline actually computed — relevant when the service key is held by infrastructure (a relayer, a batching service, a multisig signer) that's trusted to submit transactions but shouldn't be able to silently alter scores in transit.
@@ -408,6 +453,7 @@ A complete, compiling reference contract lives in [`examples/amm_gate.rs`](examp
 5. **Time-Locked Upgrades**: Contract WASM upgrades require a mandatory delay (≥48 h) with a public proposal anyone can inspect and an admin veto — see [Upgrade Governance](#upgrade-governance)
 6. **Submission Rate Limiting**: A configurable per-`(wallet, asset_pair)` cooldown (default 1 h) bounds how often the service account can overwrite a score — see [Rate Limiting](#rate-limiting)
 7. **Score Attestation**: An opt-in secp256k1 signature over the score payload lets the off-chain pipeline vouch for its contents independent of `require_auth` — see [Score Attestation](#score-attestation)
+8. **Score Submission Floor**: An opt-in per-wallet floor that blocks downward score-revision attacks on wallets whose historical peak crossed a danger level — see [Score Submission Floor](#score-submission-floor)
 
 ## Testing
 

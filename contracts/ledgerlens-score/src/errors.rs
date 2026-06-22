@@ -131,4 +131,17 @@ pub enum Error {
     /// Returned by read-path functions (`get_score`, `get_aggregate_score`)
     /// when the requested wallet is under an active regulatory embargo.
     ScoreEmbargoed = 42,
+
+    // ── Score submission floor ─────────────────────────────────────────────
+    /// Returned by `submit_score` (and recorded as a `rejection_code` in
+    /// `submit_scores_batch`) when the score-floor policy is enabled, the
+    /// `(wallet, asset_pair)`'s historical peak score is at or above the
+    /// configured high-water mark, and the submitted score is below the
+    /// configured floor value — blocking an attempt to launder a known
+    /// high-risk wallet's reputation by zeroing its score.
+    BelowScoreFloor = 43,
+    /// Returned by `set_score_floor_policy` when `high_water_mark` is outside
+    /// `[MIN_SCORE_FLOOR_HWM, MAX_SCORE_FLOOR_HWM]` (50–100), or when
+    /// `floor_value` is not strictly below `high_water_mark`.
+    InvalidScoreFloorPolicy = 44,
 }
