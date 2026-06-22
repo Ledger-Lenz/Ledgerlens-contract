@@ -1,6 +1,4 @@
-use soroban_sdk::{Env, Address};
-use crate::types::{DataKey, TierBounds};
-use crate::errors::Error;
+use soroban_sdk::{Address, Env, Symbol, Vec};
 
 use crate::constants::{
     BAND_STATE_TTL_EXTEND_TO, BAND_STATE_TTL_THRESHOLD, DEFAULT_CONSENSUS_EPSILON,
@@ -8,9 +6,11 @@ use crate::constants::{
     DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS, EMBARGO_TTL_EXTEND_TO,
     EMBARGO_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO, SCORE_TTL_THRESHOLD,
 };
-use crate::types::{AggregateRiskScore, DataKey, EmbargoExpiry, RiskScore, ScoreFloorPolicy, ScoreTrend, UpgradeProposal, SnapshotRecord};
-
-use crate::Error;
+use crate::errors::Error;
+use crate::types::{
+    AggregateRiskScore, DataKey, EmbargoExpiry, RiskScore, ScoreDispute, ScoreFloorPolicy,
+    ScoreTrend, SnapshotRecord, TierBounds, UpgradeProposal,
+};
 
 // ── Admin / Service ─────────────────────────────────────────────────────────
 
@@ -529,7 +529,6 @@ pub fn set_decay_rate(env: &Env, numerator: u32, denominator: u32) {
     env.storage().instance().set(&DataKey::DecayRateDenominator, &denominator);
 }
 
- feat/confidence-gated-risk-gate
 // ── Global minimum confidence floor ──────────────────────────────────────────
 
 /// Returns the admin-configured global minimum confidence floor (0–100).
@@ -549,6 +548,7 @@ pub fn get_global_min_confidence(env: &Env) -> u32 {
 /// Caller is responsible for validating the range (0–100) before calling.
 pub fn set_global_min_confidence(env: &Env, min_confidence: u32) {
     env.storage().instance().set(&DataKey::GlobalMinConfidence, &min_confidence);
+}
 
 // ── Fee withdrawal ────────────────────────────────────────────────────────────
 
@@ -570,7 +570,6 @@ pub fn set_withdrawal_lock(env: &Env) {
 
 pub fn clear_withdrawal_lock(env: &Env) {
     env.storage().instance().remove(&DataKey::WithdrawalLock);
- main
 }
 
 // ── Score delegation ──────────────────────────────────────────────────────────
@@ -908,4 +907,89 @@ pub fn get_consensus_epsilon(env: &Env) -> u32 {
 
 pub fn set_consensus_epsilon(env: &Env, epsilon: u32) {
     env.storage().instance().set(&DataKey::ConsensusEpsilon, &epsilon);
+}
+
+// ── Score dispute mechanism ─────────────────────────────────────────────────────
+
+/// Writes (or replaces) the open dispute record for `(wallet, asset_pair)` and
+/// refreshes its TTL. Stored in temporary storage so abandoned disputes
+/// eventually expire on their own.
+pub fn set_dispute(env: &Env, wallet: &Address, asset_pair: &Symbol, dispute: &ScoreDispute) {
+    let key = DataKey::ScoreDispute(wallet.clone(), asset_pair.clone());
+    env.storage().temporary().set(&key, dispute);
+    env.storage().temporary().extend_ttl(
+        &key,
+        crate::constants::DISPUTE_TTL_THRESHOLD,
+        crate::constants::DISPUTE_TTL_EXTEND_TO,
+    );
+}
+
+/// Returns the open dispute for `(wallet, asset_pair)`, if any, extending its
+/// TTL on read.
+pub fn get_dispute(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<ScoreDispute> {
+    let key = DataKey::ScoreDispute(wallet.clone(), asset_pair.clone());
+    let dispute: Option<ScoreDispute> = env.storage().temporary().get(&key);
+    if dispute.is_some() {
+        env.storage().temporary().extend_ttl(
+            &key,
+            crate::constants::DISPUTE_TTL_THRESHOLD,
+            crate::constants::DISPUTE_TTL_EXTEND_TO,
+        );
+    }
+    dispute
+}
+
+/// Removes the dispute record for `(wallet, asset_pair)`. No-op if absent.
+pub fn remove_dispute(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    let key = DataKey::ScoreDispute(wallet.clone(), asset_pair.clone());
+    env.storage().temporary().remove(&key);
+}
+
+/// Returns every currently open dispute as `(challenger, asset_pair)` pairs.
+/// O(1) storage read — the index is maintained incrementally by
+/// `add_to_dispute_index` / `remove_from_dispute_index`.
+pub fn get_dispute_index(env: &Env) -> Vec<(Address, Symbol)> {
+    let disputes: Vec<(Address, Symbol)> =
+        env.storage().persistent().get(&DataKey::DisputeIndex).unwrap_or_else(|| Vec::new(env));
+    if !disputes.is_empty() {
+        env.storage().persistent().extend_ttl(
+            &DataKey::DisputeIndex,
+            SCORE_TTL_THRESHOLD,
+            SCORE_TTL_EXTEND_TO,
+        );
+    }
+    disputes
+}
+
+/// Adds `(wallet, asset_pair)` to the dispute index if it isn't already there.
+/// Returns `false` (without modifying the index) if the entry is new *and* the
+/// index is already at `MAX_OPEN_DISPUTES` — the caller turns that into an
+/// error. Re-adding an existing entry is a no-op that returns `true`.
+pub fn add_to_dispute_index(env: &Env, wallet: &Address, asset_pair: &Symbol) -> bool {
+    let mut disputes = get_dispute_index(env);
+    let entry = (wallet.clone(), asset_pair.clone());
+    if disputes.contains(&entry) {
+        return true;
+    }
+    if disputes.len() >= crate::constants::MAX_OPEN_DISPUTES {
+        return false;
+    }
+    disputes.push_back(entry);
+    env.storage().persistent().set(&DataKey::DisputeIndex, &disputes);
+    env.storage().persistent().extend_ttl(
+        &DataKey::DisputeIndex,
+        SCORE_TTL_THRESHOLD,
+        SCORE_TTL_EXTEND_TO,
+    );
+    true
+}
+
+/// Removes `(wallet, asset_pair)` from the dispute index. No-op if absent.
+pub fn remove_from_dispute_index(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    let mut disputes = get_dispute_index(env);
+    let entry = (wallet.clone(), asset_pair.clone());
+    if let Some(idx) = disputes.first_index_of(&entry) {
+        disputes.remove(idx);
+        env.storage().persistent().set(&DataKey::DisputeIndex, &disputes);
+    }
 }

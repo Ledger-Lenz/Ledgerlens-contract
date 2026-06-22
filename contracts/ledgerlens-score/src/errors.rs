@@ -9,8 +9,9 @@ pub enum Error {
     Unauthorized = 3,
     InvalidScore = 4,
     InvalidConfidence = 5,
-   SignerTierViolation = 26,
-    InvalidSignerTier = 27, ScoreNotFound = 6,
+    SignerTierViolation = 53,
+    InvalidSignerTier = 54,
+    ScoreNotFound = 6,
     /// Returned when any state-mutating call is attempted while the
     /// contract is paused by the admin.
     ContractPaused = 7,
@@ -83,11 +84,9 @@ pub enum Error {
     /// Returned when `set_history_max_depth` is called with `0` or a value
     /// above `MAX_HISTORY_DEPTH`.
     InvalidHistoryDepth = 29,
-feat/confidence-gated-risk-gate
     /// Returned when `set_global_min_confidence` is called with a value
     /// above 100 (confidence is bounded to 0–100).
-    InvalidMinConfidence = 30,
-
+    InvalidMinConfidence = 52,
 
     // ── Fee withdrawal ─────────────────────────────────────────────────────
     /// Returned by `get_fee_token` and `withdraw_fees` when `set_fee_token`
@@ -172,6 +171,22 @@ feat/confidence-gated-risk-gate
     ConsensusInputEmpty = 50,
     /// `set_consensus_config` was called with `k == 0` or `epsilon > 100`.
     InvalidConsensusConfig = 51,
+
+    // ── Score dispute mechanism ────────────────────────────────────────────
+    /// Returned by `open_score_dispute` when a dispute already exists for the
+    /// given `(wallet, asset_pair)`.
+    DisputeAlreadyOpen = 55,
+    /// Returned by `resolve_dispute_timeout` when the dispute deadline has not
+    /// yet elapsed.
+    DisputeNotYetTimedOut = 56,
+    /// Returned when attempting to resolve a dispute that does not exist.
+    DisputeNotFound = 57,
+    /// Returned by `open_score_dispute` when the staked bond is zero or
+    /// negative.
+    InvalidDisputeBond = 58,
+    /// Returned by `open_score_dispute` when the open-dispute index is already
+    /// at `MAX_OPEN_DISPUTES`.
+    DisputeIndexFull = 59,
 }
 
 // Gate caller tracking error variants for structural protection

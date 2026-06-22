@@ -46,6 +46,9 @@ mod test_embargo;
 #[cfg(test)]
 mod test_consensus;
 
+#[cfg(test)]
+mod test_dispute;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, xdr::ToXdr, Address, Bytes, BytesN,
     Env, Symbol, SymbolStr, TryFromVal, Vec,
@@ -54,7 +57,7 @@ use soroban_sdk::{
 pub use errors::Error;
 pub use types::{
     AggregateRiskScore, BatchAttestation, BatchEntryResult, BatchResult, EmbargoExpiry,
-    ModelSubmission, RiskScore, ScoreAttestation, ScoreFloorPolicy, ScoreSubmission,
+    ModelSubmission, RiskScore, ScoreAttestation, ScoreDispute, ScoreFloorPolicy, ScoreSubmission,
     ScoreSubmissionWithProof, ScoreTrend, UpgradeProposal,
 };
 
@@ -1408,10 +1411,6 @@ impl LedgerLensScoreContract {
             return false;
         }
         match storage::peek_score(&env, &wallet, &asset_pair) {
-feat/confidence-gated-risk-gate
-            Some(risk) => risk.score < gate_threshold && risk.confidence >= effective_floor,
-            None => false,
-
             Some(risk) => risk.score < gate_threshold,
             None => {
                 if let Some(custodian) = storage::peek_score_delegate(&env, &wallet) {
@@ -1421,7 +1420,6 @@ feat/confidence-gated-risk-gate
                 }
                 false
             }
- main
         }
     }
 
@@ -2521,6 +2519,196 @@ feat/confidence-gated-risk-gate
     /// is exceeded — no admin action required for expiry.
     pub fn is_embargoed(env: Env, wallet: Address) -> bool {
         storage::is_embargoed(&env, &wallet)
+    }
+
+    // ── Score dispute mechanism ───────────────────────────────────────────────
+
+    /// Open a stake-backed dispute against `wallet`'s current risk score for
+    /// `asset_pair`.
+    ///
+    /// The challenger (`wallet`) escrows `bond` units of the configured fee
+    /// token into the contract and starts a challenge period of
+    /// [`constants::DISPUTE_CHALLENGE_PERIOD_SECS`]. During that window the
+    /// admin is expected to resubmit a corrected score via
+    /// [`resolve_dispute_admin`] (which returns the bond). If the admin fails
+    /// to act before the deadline, anyone may call
+    /// [`resolve_dispute_timeout`] to return the bond plus a
+    /// [`constants::DISPUTE_BONUS_PCT`] bonus from the contract's fee reserve.
+    ///
+    /// `wallet` must authorize the call (it is staking its own funds), and the
+    /// fee token must already be configured via `set_fee_token`.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] — contract has no admin.
+    /// - [`Error::ContractPaused`] — the global circuit breaker is active.
+    /// - [`Error::InvalidDisputeBond`] — `bond` is not strictly positive.
+    /// - [`Error::FeeTokenNotSet`] — `set_fee_token` has not been called.
+    /// - [`Error::DisputeAlreadyOpen`] — a dispute already exists for the pair.
+    /// - [`Error::DisputeIndexFull`] — the open-dispute index is at capacity.
+    pub fn open_score_dispute(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+        bond: i128,
+    ) -> Result<(), Error> {
+        Self::ensure_active(&env)?;
+
+        if bond <= 0 {
+            return Err(Error::InvalidDisputeBond);
+        }
+        let fee_token = storage::get_fee_token(&env).ok_or(Error::FeeTokenNotSet)?;
+
+        // The challenger stakes its own funds, so it must authorize.
+        wallet.require_auth();
+
+        if storage::get_dispute(&env, &wallet, &asset_pair).is_some() {
+            return Err(Error::DisputeAlreadyOpen);
+        }
+        if !storage::add_to_dispute_index(&env, &wallet, &asset_pair) {
+            return Err(Error::DisputeIndexFull);
+        }
+
+        // Escrow the bond into the contract.
+        let contract_address = env.current_contract_address();
+        token::TokenClient::new(&env, &fee_token).transfer(&wallet, &contract_address, &bond);
+
+        let challenged_score =
+            storage::peek_score(&env, &wallet, &asset_pair).map(|s| s.score).unwrap_or(0);
+        let deadline =
+            env.ledger().timestamp().saturating_add(constants::DISPUTE_CHALLENGE_PERIOD_SECS);
+        let dispute = ScoreDispute { challenger: wallet.clone(), bond, deadline, challenged_score };
+        storage::set_dispute(&env, &wallet, &asset_pair, &dispute);
+
+        events::dispute_opened(&env, &wallet, &asset_pair, bond, deadline);
+        Ok(())
+    }
+
+    /// Resolve an open dispute by resubmitting a corrected score. Admin only
+    /// (M-of-N when an admin set is configured). The escrowed bond is returned
+    /// in full to the challenger and the dispute is closed.
+    ///
+    /// The corrected score is written immediately, bypassing the per-pair
+    /// submission cooldown since this is an authorized remediation, and is
+    /// marked with `model_version = 0` to denote an on-chain admin correction.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] — contract has no admin.
+    /// - [`Error::ContractPaused`] — the global circuit breaker is active.
+    /// - [`Error::InsufficientAdminSigners`] / [`Error::AdminSignerNotInSet`]
+    ///   — admin M-of-N authorization failed.
+    /// - [`Error::DisputeNotFound`] — no open dispute for the pair.
+    /// - [`Error::InvalidScore`] — `corrected_score` exceeds 100.
+    /// - [`Error::FeeTokenNotSet`] — `set_fee_token` has not been called.
+    pub fn resolve_dispute_admin(
+        env: Env,
+        admin_signers: Vec<Address>,
+        wallet: Address,
+        asset_pair: Symbol,
+        corrected_score: u32,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if storage::is_paused(&env) {
+            return Err(Error::ContractPaused);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+
+        if corrected_score > 100 {
+            return Err(Error::InvalidScore);
+        }
+
+        let dispute =
+            storage::get_dispute(&env, &wallet, &asset_pair).ok_or(Error::DisputeNotFound)?;
+        let fee_token = storage::get_fee_token(&env).ok_or(Error::FeeTokenNotSet)?;
+
+        // Write the corrected score, bypassing the cooldown (admin remediation).
+        let now = env.ledger().timestamp();
+        let corrected = RiskScore {
+            score: corrected_score,
+            benford_flag: false,
+            ml_flag: false,
+            timestamp: now,
+            confidence: 100,
+            model_version: 0,
+        };
+        storage::set_score(&env, &wallet, &asset_pair, &corrected);
+        storage::push_score_history(&env, &wallet, &asset_pair, &corrected);
+        storage::register_pair_for_wallet(&env, &wallet, &asset_pair);
+        storage::increment_score_count(&env, &wallet, &asset_pair);
+        Self::refresh_aggregate_cache(&env, &wallet);
+        events::score_submitted(&env, &wallet, &asset_pair, &corrected);
+
+        // Return the escrowed bond to the challenger and close the dispute.
+        let contract_address = env.current_contract_address();
+        token::TokenClient::new(&env, &fee_token).transfer(
+            &contract_address,
+            &dispute.challenger,
+            &dispute.bond,
+        );
+        storage::remove_dispute(&env, &wallet, &asset_pair);
+        storage::remove_from_dispute_index(&env, &wallet, &asset_pair);
+
+        events::dispute_resolved(&env, &dispute.challenger, &asset_pair, corrected_score, dispute.bond);
+        Ok(())
+    }
+
+    /// Settle a dispute that the admin failed to resolve before its deadline.
+    /// Callable by anyone once `ledger_timestamp > deadline`. The challenger
+    /// receives the escrowed bond plus a [`constants::DISPUTE_BONUS_PCT`] bonus
+    /// drawn from the contract's accumulated fee reserve.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] — contract has no admin.
+    /// - [`Error::DisputeNotFound`] — no open dispute for the pair.
+    /// - [`Error::DisputeNotYetTimedOut`] — the deadline has not elapsed.
+    /// - [`Error::FeeTokenNotSet`] — `set_fee_token` has not been called.
+    pub fn resolve_dispute_timeout(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+
+        let dispute =
+            storage::get_dispute(&env, &wallet, &asset_pair).ok_or(Error::DisputeNotFound)?;
+        if env.ledger().timestamp() <= dispute.deadline {
+            return Err(Error::DisputeNotYetTimedOut);
+        }
+        let fee_token = storage::get_fee_token(&env).ok_or(Error::FeeTokenNotSet)?;
+
+        // Bond is returned with a bonus from the fee reserve. Bond is bounded to
+        // positive values at open time, so the bonus multiplication is safe.
+        let bonus = dispute.bond.saturating_mul(constants::DISPUTE_BONUS_PCT) / 100;
+        let payout = dispute.bond.saturating_add(bonus);
+
+        let contract_address = env.current_contract_address();
+        token::TokenClient::new(&env, &fee_token).transfer(
+            &contract_address,
+            &dispute.challenger,
+            &payout,
+        );
+        storage::remove_dispute(&env, &wallet, &asset_pair);
+        storage::remove_from_dispute_index(&env, &wallet, &asset_pair);
+
+        events::dispute_timed_out(&env, &dispute.challenger, &asset_pair, dispute.bond, bonus);
+        Ok(())
+    }
+
+    /// Returns every currently open dispute as `(challenger, asset_pair,
+    /// deadline)` tuples. Read-only; callable by anyone.
+    pub fn get_open_disputes(env: Env) -> Vec<(Address, Symbol, u64)> {
+        let index = storage::get_dispute_index(&env);
+        let mut out: Vec<(Address, Symbol, u64)> = Vec::new(&env);
+        for i in 0..index.len() {
+            let (wallet, asset_pair) = index.get(i).unwrap();
+            if let Some(dispute) = storage::get_dispute(&env, &wallet, &asset_pair) {
+                out.push_back((wallet, asset_pair, dispute.deadline));
+            }
+        }
+        out
     }
 
     // ── Staleness window ──────────────────────────────────────────────────────

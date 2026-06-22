@@ -195,3 +195,32 @@ pub const DEFAULT_CONSENSUS_THRESHOLD_K: u32 = 2;
 
 /// Default maximum allowed absolute deviation from the provisional median.
 pub const DEFAULT_CONSENSUS_EPSILON: u32 = 5;
+
+// ── Score dispute mechanism ─────────────────────────────────────────────────────
+//
+// A wallet operator can stake the fee token to challenge a risk score it
+// believes is erroneous. Opening a dispute starts a challenge period during
+// which the admin must resubmit a corrected score (resolving the dispute and
+// returning the stake). If the admin does not act before the deadline, anyone
+// may settle the dispute in the challenger's favour: the stake is returned with
+// a bonus drawn from the contract's accumulated fee reserve.
+
+/// Challenge period, in seconds, that the admin has to resubmit a corrected
+/// score before a dispute can be settled by timeout. Default: 7 days.
+pub const DISPUTE_CHALLENGE_PERIOD_SECS: u64 = 604_800;
+
+/// Bonus percentage added to the returned bond when a dispute is settled by
+/// timeout (e.g. `10` = 10%). The bonus is paid from the contract's fee
+/// reserve, compensating the challenger for a score the admin failed to correct.
+pub const DISPUTE_BONUS_PCT: i128 = 10;
+
+/// Upper bound on the number of simultaneously open disputes tracked in the
+/// dispute index, preventing unbounded growth of the index vector.
+pub const MAX_OPEN_DISPUTES: u32 = 100;
+
+/// Re-extend dispute TTL when remaining lifetime falls below this many ledgers
+/// (~30 days at 5 s/ledger). Comfortably outlives the challenge period.
+pub const DISPUTE_TTL_THRESHOLD: u32 = 518_400;
+
+/// Target TTL for dispute entries on creation or refresh (~45 days at 5 s/ledger).
+pub const DISPUTE_TTL_EXTEND_TO: u32 = 777_600;

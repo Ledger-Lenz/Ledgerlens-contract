@@ -392,3 +392,50 @@ pub fn embargo_set(env: &Env, wallet: &Address, expiry: Option<u64>) {
 pub fn embargo_lifted(env: &Env, wallet: &Address) {
     env.events().publish((symbol_short!("emb_lift"), wallet.clone()), ());
 }
+
+// ── Score dispute mechanism ─────────────────────────────────────────────────────
+
+/// Emitted when a wallet opens a dispute via `open_score_dispute`.
+/// Topic carries the challenger; data carries `(asset_pair, bond, deadline)`.
+pub fn dispute_opened(
+    env: &Env,
+    challenger: &Address,
+    asset_pair: &Symbol,
+    bond: i128,
+    deadline: u64,
+) {
+    env.events().publish(
+        (symbol_short!("disp_open"), challenger.clone()),
+        (asset_pair.clone(), bond, deadline),
+    );
+}
+
+/// Emitted when the admin resolves a dispute by resubmitting a corrected score
+/// via `resolve_dispute_admin`. The escrowed bond is returned to the challenger.
+pub fn dispute_resolved(
+    env: &Env,
+    challenger: &Address,
+    asset_pair: &Symbol,
+    corrected_score: u32,
+    bond_returned: i128,
+) {
+    env.events().publish(
+        (symbol_short!("disp_res"), challenger.clone()),
+        (asset_pair.clone(), corrected_score, bond_returned),
+    );
+}
+
+/// Emitted when a dispute is settled by timeout via `resolve_dispute_timeout`.
+/// The challenger receives the bond plus the fee-reserve bonus.
+pub fn dispute_timed_out(
+    env: &Env,
+    challenger: &Address,
+    asset_pair: &Symbol,
+    bond: i128,
+    bonus: i128,
+) {
+    env.events().publish(
+        (symbol_short!("disp_to"), challenger.clone()),
+        (asset_pair.clone(), bond, bonus),
+    );
+}
