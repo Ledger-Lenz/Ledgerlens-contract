@@ -281,8 +281,8 @@ pub struct ScoreFloorPolicy {
 pub struct SnapshotRecord {
     pub root: BytesN<32>,
     pub leaf_count: u64,
-    pub committed_at: u64,      // ledger timestamp
-    pub committed_by: Address,  // who called commit_snapshot
+    pub committed_at: u64,     // ledger timestamp
+    pub committed_by: Address, // who called commit_snapshot
 }
 
 #[contracttype]
@@ -300,6 +300,9 @@ pub enum DataKey {
     Watchlist(Address),
     /// Global risk-score threshold; scores ≥ threshold emit a breach event.
     RiskThreshold,
+    /// Admin-configured minimum confidence floor used by confidence-aware
+    /// risk gate queries. Defaults to 0 when unset.
+    GlobalMinConfidence,
     /// Admin-configurable score jump anomaly detection threshold. When the
     /// absolute delta between consecutive scores exceeds this value, a
     /// `ScoreJumpAnomalyEvent` is emitted. Defaults to
@@ -337,10 +340,13 @@ pub enum DataKey {
     /// Ledger timestamp of the most recent accepted submission for a
     /// (wallet, asset_pair) pair, used to enforce the submission cooldown.
     LastSubmitTime(Address, Symbol),
-    /// Admin-configured cooldown (seconds) enforced between accepted
+    /// Admin-configured global cooldown (seconds) enforced between accepted
     /// submissions for the same (wallet, asset_pair). Defaults to
     /// `DEFAULT_COOLDOWN_SECS` when unset.
     CooldownSecs,
+    /// Optional per-asset-pair cooldown override. When present, submissions
+    /// for this asset pair use this value instead of `CooldownSecs`.
+    PairCooldown(Symbol),
     /// Monotonically increasing count of total score submissions for a
     /// (wallet, asset_pair) combination. Unlike `ScoreHistory` (which caps
     /// at `HISTORY_MAX_DEPTH`), this counter is never truncated — it tracks
@@ -427,3 +433,4 @@ pub enum DataKey {
 pub struct TierBounds {
     pub min_score: u32,
     pub max_score: u32,
+}

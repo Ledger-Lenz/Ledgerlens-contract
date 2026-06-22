@@ -309,8 +309,8 @@ impl LedgerLensScoreContract {
             return Err(Error::InsufficientConsensus);
         }
 
-        let provisional_median =
-            Self::median_score_for_indices(&submissions, &valid_indices).ok_or(Error::InsufficientConsensus)?;
+        let provisional_median = Self::median_score_for_indices(&submissions, &valid_indices)
+            .ok_or(Error::InsufficientConsensus)?;
         let epsilon = storage::get_consensus_epsilon(&env);
         let lower_bound = provisional_median.saturating_sub(epsilon);
         let upper_bound = provisional_median.saturating_add(epsilon).min(100);
@@ -418,7 +418,6 @@ impl LedgerLensScoreContract {
         }
 
         let now = env.ledger().timestamp();
-        let cooldown = storage::get_cooldown_secs(&env);
         let threshold = storage::get_risk_threshold(&env);
         let mut accepted_count: u32 = 0;
         let mut results: Vec<BatchEntryResult> = Vec::new(&env);
@@ -438,6 +437,7 @@ impl LedgerLensScoreContract {
                 rejection_code = Error::InvalidTimestamp as u32;
             } else {
                 let last_submit = storage::get_last_submit_time(&env, &sub.wallet, &sub.asset_pair);
+                let cooldown = storage::get_pair_cooldown_secs(&env, &sub.asset_pair);
                 if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
                     rejection_code = Error::RateLimitExceeded as u32;
                 } else if Self::score_floor_blocks(&env, &sub.wallet, &sub.asset_pair, sub.score) {
@@ -699,7 +699,6 @@ impl LedgerLensScoreContract {
         Self::verify_signature(&env, &root_digest, &attestation.signature)?;
 
         let risk_threshold = storage::get_risk_threshold(&env);
-        let cooldown = storage::get_cooldown_secs(&env);
         let now = env.ledger().timestamp();
         let mut accepted_count: u32 = 0;
         let mut results: Vec<BatchEntryResult> = Vec::new(&env);
@@ -709,28 +708,28 @@ impl LedgerLensScoreContract {
             let mut accepted = false;
             let mut rejection_code: u32 = 0;
 
-        // Per-entry Merkle proof check. A failure here rejects only
-        // this entry with `InvalidAttestation` — siblings in the same
-        // batch can still process if their proofs hold.
-        let leaf = match Self::compute_merkle_leaf(&env, &entry.submission) {
-            Ok(leaf) => leaf,
-            Err(_) => {
-                results.push_back(BatchEntryResult {
-                    index: i,
-                    accepted: false,
-                    rejection_code: Error::InvalidAttestation as u32,
-                });
-                continue;
-            }
-        };
+            // Per-entry Merkle proof check. A failure here rejects only
+            // this entry with `InvalidAttestation` — siblings in the same
+            // batch can still process if their proofs hold.
+            let leaf = match Self::compute_merkle_leaf(&env, &entry.submission) {
+                Ok(leaf) => leaf,
+                Err(_) => {
+                    results.push_back(BatchEntryResult {
+                        index: i,
+                        accepted: false,
+                        rejection_code: Error::InvalidAttestation as u32,
+                    });
+                    continue;
+                }
+            };
 
-        if !Self::verify_merkle_proof(
-            &env,
-            &leaf,
-            &entry.proof,
-            entry.proof_flags,
-            &attestation.merkle_root,
-        ) {
+            if !Self::verify_merkle_proof(
+                &env,
+                &leaf,
+                &entry.proof,
+                entry.proof_flags,
+                &attestation.merkle_root,
+            ) {
                 results.push_back(BatchEntryResult {
                     index: i,
                     accepted: false,
@@ -748,8 +747,8 @@ impl LedgerLensScoreContract {
             } else if sub.timestamp == 0 {
                 rejection_code = Error::InvalidTimestamp as u32;
             } else {
-                let last_submit =
-                    storage::get_last_submit_time(&env, &sub.wallet, &sub.asset_pair);
+                let last_submit = storage::get_last_submit_time(&env, &sub.wallet, &sub.asset_pair);
+                let cooldown = storage::get_pair_cooldown_secs(&env, &sub.asset_pair);
                 if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
                     rejection_code = Error::RateLimitExceeded as u32;
                 } else {
@@ -765,12 +764,7 @@ impl LedgerLensScoreContract {
                     };
 
                     storage::set_score(&env, &sub.wallet, &sub.asset_pair, &risk_score);
-                    storage::push_score_history(
-                        &env,
-                        &sub.wallet,
-                        &sub.asset_pair,
-                        &risk_score,
-                    );
+                    storage::push_score_history(&env, &sub.wallet, &sub.asset_pair, &risk_score);
                     storage::register_pair_for_wallet(&env, &sub.wallet, &sub.asset_pair);
                     storage::increment_score_count(&env, &sub.wallet, &sub.asset_pair);
                     Self::refresh_aggregate_cache(&env, &sub.wallet);
@@ -795,12 +789,7 @@ impl LedgerLensScoreContract {
         }
 
         let rejected_count = submissions.len() - accepted_count;
-        events::batch_attested(
-            &env,
-            accepted_count,
-            rejected_count,
-            &attestation.merkle_root,
-        );
+        events::batch_attested(&env, accepted_count, rejected_count, &attestation.merkle_root);
         Ok(BatchResult { accepted_count, rejected_count, results })
     }
 
@@ -1030,7 +1019,10 @@ impl LedgerLensScoreContract {
     ///
     /// # Errors
     /// - [`Error::NotFound`] if no scores have ever been submitted for this version.
-    pub fn get_model_version_stats(env: Env, model_version: u32) -> Result<ModelVersionStats, Error> {
+    pub fn get_model_version_stats(
+        env: Env,
+        model_version: u32,
+    ) -> Result<ModelVersionStats, Error> {
         storage::get_model_stats(&env, model_version).ok_or(Error::NotFound)
     }
 
@@ -1312,13 +1304,13 @@ impl LedgerLensScoreContract {
     ///
     /// # Errors
     /// - [`Error::NotInitialized`] if the contract has no admin yet.
-    /// - [`Error::InvalidMinConfidence`] if `min_confidence > 100`.
+    /// - [`Error::InvalidConfidence`] if `min_confidence > 100`.
     pub fn set_global_min_confidence(env: Env, min_confidence: u32) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
         }
         if min_confidence > 100 {
-            return Err(Error::InvalidMinConfidence);
+            return Err(Error::InvalidConfidence);
         }
         let admin = storage::get_admin(&env);
         admin.require_auth();
@@ -1407,21 +1399,40 @@ impl LedgerLensScoreContract {
         if storage::peek_risk_band_state(&env, &wallet, &asset_pair) {
             return false;
         }
-        match storage::peek_score(&env, &wallet, &asset_pair) {
-feat/confidence-gated-risk-gate
-            Some(risk) => risk.score < gate_threshold && risk.confidence >= effective_floor,
-            None => false,
+        Self::query_risk_gate_with_confidence(env, wallet, asset_pair, gate_threshold, 0)
+    }
 
-            Some(risk) => risk.score < gate_threshold,
+    /// Infallible cross-contract risk gate with a minimum confidence floor.
+    /// Returns `true` only when a score exists, is below `gate_threshold`, and
+    /// has confidence greater than or equal to `max(min_confidence, global_floor)`.
+    pub fn query_risk_gate_with_confidence(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+        gate_threshold: u32,
+        min_confidence: u32,
+    ) -> bool {
+        if gate_threshold > 100 || min_confidence > 100 {
+            return false;
+        }
+        if storage::peek_is_embargoed(&env, &wallet) {
+            return false;
+        }
+        if storage::peek_risk_band_state(&env, &wallet, &asset_pair) {
+            return false;
+        }
+
+        let effective_floor = min_confidence.max(storage::get_global_min_confidence(&env));
+        match storage::peek_score(&env, &wallet, &asset_pair) {
+            Some(risk) => risk.score < gate_threshold && risk.confidence >= effective_floor,
             None => {
                 if let Some(custodian) = storage::peek_score_delegate(&env, &wallet) {
                     if let Some(risk) = storage::peek_score(&env, &custodian, &asset_pair) {
-                        return risk.score < gate_threshold;
+                        return risk.score < gate_threshold && risk.confidence >= effective_floor;
                     }
                 }
                 false
             }
- main
         }
     }
 
@@ -2724,6 +2735,49 @@ feat/confidence-gated-risk-gate
         storage::get_cooldown_secs(&env)
     }
 
+    /// Sets a per-asset-pair cooldown override. The value must satisfy the
+    /// same bounds as the global cooldown and takes precedence for this pair
+    /// until cleared. Admin only.
+    pub fn set_pair_cooldown(
+        env: Env,
+        admin_signers: Vec<Address>,
+        asset_pair: Symbol,
+        secs: u64,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if !(constants::MIN_COOLDOWN_SECS..=constants::MAX_COOLDOWN_SECS).contains(&secs) {
+            return Err(Error::InvalidCooldown);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_pair_cooldown_secs(&env, &asset_pair, secs);
+        events::pair_cooldown_updated(&env, &asset_pair, secs);
+        Ok(())
+    }
+
+    /// Returns this pair's cooldown, falling back to the global cooldown when
+    /// no pair-specific override is configured.
+    pub fn get_pair_cooldown(env: Env, asset_pair: Symbol) -> u64 {
+        storage::get_pair_cooldown_secs(&env, &asset_pair)
+    }
+
+    /// Clears a per-asset-pair cooldown override so the pair uses the current
+    /// global cooldown again. Admin only.
+    pub fn clear_pair_cooldown(
+        env: Env,
+        admin_signers: Vec<Address>,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::clear_pair_cooldown_secs(&env, &asset_pair);
+        events::pair_cooldown_updated(&env, &asset_pair, storage::get_cooldown_secs(&env));
+        Ok(())
+    }
+
     /// Emergency re-score path: immediately clears the submission cooldown
     /// for `(wallet, asset_pair)`, allowing the very next `submit_score` /
     /// `submit_scores_batch` call to be accepted regardless of how recently
@@ -2748,6 +2802,30 @@ feat/confidence-gated-risk-gate
         storage::clear_last_submit_time(&env, &wallet, &asset_pair);
         events::rate_limit_overridden(&env, &admin, &wallet, &asset_pair);
         Ok(())
+    }
+
+    /// Clears multiple `(wallet, asset_pair)` cooldown entries in one admin
+    /// operation. Emits the same `rl_ovrd` event for each cleared entry and
+    /// returns the number of entries processed.
+    pub fn batch_override_rate_limit(
+        env: Env,
+        admin_signers: Vec<Address>,
+        entries: Vec<(Address, Symbol)>,
+    ) -> Result<u32, Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if entries.len() > constants::MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        let admin = storage::get_admin(&env);
+        for i in 0..entries.len() {
+            let (wallet, asset_pair) = entries.get(i).unwrap();
+            storage::clear_last_submit_time(&env, &wallet, &asset_pair);
+            events::rate_limit_overridden(&env, &admin, &wallet, &asset_pair);
+        }
+        Ok(entries.len())
     }
 
     /// Erase the score history ring buffer for `wallet` / `asset_pair`.
@@ -3622,7 +3700,7 @@ feat/confidence-gated-risk-gate
         Self::validate_risk_score(risk_score)?;
 
         let last_submit = storage::get_last_submit_time(env, wallet, asset_pair);
-        let cooldown = storage::get_cooldown_secs(env);
+        let cooldown = storage::get_pair_cooldown_secs(env, asset_pair);
         let now = env.ledger().timestamp();
         if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
             return Err(Error::RateLimitExceeded);
@@ -3698,7 +3776,10 @@ feat/confidence-gated-risk-gate
         None
     }
 
-    fn median_score_for_indices(submissions: &Vec<ModelSubmission>, indices: &Vec<u32>) -> Option<u32> {
+    fn median_score_for_indices(
+        submissions: &Vec<ModelSubmission>,
+        indices: &Vec<u32>,
+    ) -> Option<u32> {
         if indices.is_empty() {
             return None;
         }
@@ -3864,11 +3945,7 @@ feat/confidence-gated-risk-gate
     /// key is compared against the recovered key's compressed form (parity
     /// byte + x-coordinate; no elliptic-curve math needed since the full
     /// point is already known).
-    fn verify_signature(
-        env: &Env,
-        digest: &Hash<32>,
-        sig: &BytesN<65>,
-    ) -> Result<(), Error> {
+    fn verify_signature(env: &Env, digest: &Hash<32>, sig: &BytesN<65>) -> Result<(), Error> {
         let pubkey = storage::get_service_pubkey(env).ok_or(Error::ServicePubkeyNotSet)?;
 
         let sig_bytes = sig.to_array();
@@ -3942,10 +4019,7 @@ feat/confidence-gated-risk-gate
     /// confidence > 100, zero timestamp) live in the batch validation
     /// pipeline, not here — `compute_merkle_leaf` does not validate the
     /// submission, only its attestation preimage layout.
-    fn compute_merkle_leaf(
-        env: &Env,
-        submission: &ScoreSubmission,
-    ) -> Result<BytesN<32>, Error> {
+    fn compute_merkle_leaf(env: &Env, submission: &ScoreSubmission) -> Result<BytesN<32>, Error> {
         let commitment_bytes = Self::compute_commitment(
             env,
             &submission.wallet,
@@ -3998,9 +4072,7 @@ feat/confidence-gated-risk-gate
             preimage[1..33].copy_from_slice(&current_bytes);
             preimage[33..65].copy_from_slice(&sibling_bytes);
         }
-        env.crypto()
-            .sha256(&Bytes::from_array(env, &preimage))
-            .to_bytes()
+        env.crypto().sha256(&Bytes::from_array(env, &preimage)).to_bytes()
     }
 
     /// Walk a Merkle inclusion proof and verify that `leaf` is included in
@@ -4055,9 +4127,9 @@ feat/confidence-gated-risk-gate
 
 // Structural block implementations for query gate allowlist controls
 mod storage_gate {
-    use soroban_sdk::{Env, Address, Symbol, Vec};
     use crate::storage;
     use crate::types::MAX_GATE_CALLERS;
+    use soroban_sdk::{Address, Env, Symbol, Vec};
 
     pub fn verify_caller_protection(env: &Env) -> bool {
         if !storage::get_gate_open(env) {
