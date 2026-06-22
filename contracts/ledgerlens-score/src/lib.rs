@@ -962,6 +962,28 @@ impl LedgerLensScoreContract {
         storage::get_score_history(&env, &wallet, &asset_pair)
     }
 
+    /// Returns an interpolated score at `timestamp` using stored history.
+    /// Minimal linear fallback implementation: exact-node returns stored
+    /// value, extrapolation is clamped to boundaries, and in-between points
+    /// are linearly interpolated.
+    pub fn get_interpolated_score(env: Env, wallet: Address, asset_pair: Symbol, timestamp: u64) -> u32 {
+        let history = storage::get_score_history(&env, &wallet, &asset_pair);
+        if history.is_empty() { return 0; }
+        for i in 0..history.len() { let r = history.get(i).unwrap(); if r.timestamp == timestamp { return r.score; } }
+        let first = history.get(0).unwrap(); let last = history.get(history.len()-1).unwrap();
+        if timestamp <= first.timestamp { return first.score; }
+        if timestamp >= last.timestamp { return last.score; }
+        for i in 0..(history.len()-1) {
+            let a = history.get(i).unwrap(); let b = history.get(i+1).unwrap();
+            if a.timestamp <= timestamp && timestamp <= b.timestamp {
+                let dt = (b.timestamp - a.timestamp) as i128; if dt == 0 { return a.score; }
+                let num = (timestamp - a.timestamp) as i128 * (b.score as i128 - a.score as i128);
+                return (a.score as i128 + num / dt) as u32;
+            }
+        }
+        last.score
+    }
+
     /// Returns the total number of score submissions ever recorded for
     /// `wallet` / `asset_pair`.
     ///
