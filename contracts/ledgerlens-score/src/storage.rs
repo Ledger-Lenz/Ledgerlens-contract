@@ -1,11 +1,14 @@
-use soroban_sdk::{Address, Bytes, BytesN, Env, Symbol, Vec};
-
+use soroban_sdk::{Env, Address};
+use crate::types::{DataKey, TierBounds};
+use crate::errors::Error;
 
 use crate::constants::{
-    DEFAULT_COOLDOWN_SECS, DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS, SCORE_TTL_EXTEND_TO,
-    SCORE_TTL_THRESHOLD,
+    DEFAULT_COOLDOWN_SECS, DEFAULT_ESCALATION_THRESHOLD, DEFAULT_RISK_THRESHOLD,
+    DEFAULT_UPGRADE_DELAY_SECS, SCORE_TTL_EXTEND_TO, SCORE_TTL_THRESHOLD,
 };
 use crate::types::{AggregateRiskScore, DataKey, RiskScore, ScoreTrend, UpgradeProposal, SnapshotRecord};
+
+use crate::Error;
 
 // ── Admin / Service ─────────────────────────────────────────────────────────
 
@@ -358,8 +361,11 @@ pub fn set_service_set(env: &Env, set: &Vec<Address>) {
     env.storage().instance().set(&DataKey::ServiceSet, set);
 }
 
-pub fn get_service_threshold(env: &Env) -> u32 {
-    env.storage().instance().get(&DataKey::ServiceThreshold).unwrap_or(0)
+pub fn get_signer_tier(env: &Env, signer: &Address) -> TierBounds {
+    env.storage()
+        .instance()
+        .get(&DataKey::SignerTier(signer.clone()))
+        .unwrap_or(TierBounds { min_score: 0, max_score: 100 })
 }
 
 pub fn set_service_threshold(env: &Env, threshold: u32) {
@@ -514,8 +520,8 @@ pub fn get_service_pubkey(env: &Env) -> Option<Bytes> {
     env.storage().instance().get(&DataKey::ServicePubKey)
 }
 
-pub fn set_service_pubkey(env: &Env, pubkey: &Bytes) {
-    env.storage().instance().set(&DataKey::ServicePubKey, pubkey);
+pub fn set_gate_callers(env: &Env, callers: &Vec<Address>) {
+    env.storage().instance().set(&GateDataKey::GateCallers, callers);
 }
 
 // ── Time-weighted exponential decay ──────────────────────────────────────
@@ -542,6 +548,27 @@ pub fn set_decay_rate(env: &Env, numerator: u32, denominator: u32) {
     env.storage().instance().set(&DataKey::DecayRateDenominator, &denominator);
 }
 
+ feat/confidence-gated-risk-gate
+// ── Global minimum confidence floor ──────────────────────────────────────────
+
+/// Returns the admin-configured global minimum confidence floor (0–100).
+/// Defaults to `0` (no floor) when unset.
+///
+/// This value is combined with the per-call `min_confidence` parameter in
+/// `query_risk_gate_with_confidence` using `max(param, global)` so the admin
+/// can enforce a system-wide floor without requiring every integrating protocol
+/// to specify one. Both values are bounded to 0–100, so the `max` cannot
+/// overflow.
+pub fn get_global_min_confidence(env: &Env) -> u32 {
+    let result: Option<u32> = env.storage().instance().get(&DataKey::GlobalMinConfidence);
+    result.unwrap_or(0)
+}
+
+/// Persists `min_confidence` as the global confidence floor.
+/// Caller is responsible for validating the range (0–100) before calling.
+pub fn set_global_min_confidence(env: &Env, min_confidence: u32) {
+    env.storage().instance().set(&DataKey::GlobalMinConfidence, &min_confidence);
+
 // ── Fee withdrawal ────────────────────────────────────────────────────────────
 
 pub fn get_fee_token(env: &Env) -> Option<Address> {
@@ -562,6 +589,7 @@ pub fn set_withdrawal_lock(env: &Env) {
 
 pub fn clear_withdrawal_lock(env: &Env) {
     env.storage().instance().remove(&DataKey::WithdrawalLock);
+ main
 }
 
 // ── Score delegation ──────────────────────────────────────────────────────────
@@ -595,46 +623,103 @@ pub fn remove_score_delegate(env: &Env, sub_wallet: &Address) {
     env.storage().persistent().remove(&key);
 }
 
-// ── Merkle root accumulator ──────────────────────────────────────────────────
+// ── Wallet Relationship Graph ───────────────────────────────────────────────
 
-pub fn get_merkle_root(env: &Env) -> Option<BytesN<32>> {
-    env.storage().instance().get(&DataKey::MerkleRoot)
+/// Returns the list of counterparties for a wallet on a specific asset pair.
+/// Returns an empty Vec if no links exist.
+pub fn get_counterparties(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Vec<Address> {
+    let key = DataKey::Counterparties(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env))
 }
 
-pub fn set_merkle_root(env: &Env, root: &BytesN<32>) {
-    env.storage().instance().set(&DataKey::MerkleRoot, root);
+/// Adds a bidirectional counterparty link between wallet_a and wallet_b.
+///
+/// # Errors
+/// - Returns `Error::SelfLink` if wallet_a == wallet_b
+/// - Returns `Error::CounterpartyLinkFull` if wallet_a or wallet_b would exceed MAX_COUNTERPARTY_LINKS_PER_WALLET
+pub fn add_counterparty_link(
+    env: &Env,
+    wallet_a: &Address,
+    wallet_b: &Address,
+    asset_pair: &Symbol,
+) -> Result<(), Error> {
+    if wallet_a == wallet_b {
+        return Err(Error::SelfLink);
+    }
+
+    // Check and update wallet_a's counterparties
+    let mut links_a = get_counterparties(env, wallet_a, asset_pair);
+    if !links_a.contains(wallet_b) {
+        if links_a.len() >= crate::constants::MAX_COUNTERPARTY_LINKS_PER_WALLET {
+            return Err(Error::CounterpartyLinkFull);
+        }
+        links_a.push_back(wallet_b.clone());
+        let key_a = DataKey::Counterparties(wallet_a.clone(), asset_pair.clone());
+        env.storage().persistent().set(&key_a, &links_a);
+        env.storage().persistent().extend_ttl(&key_a, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+
+    // Check and update wallet_b's counterparties
+    let mut links_b = get_counterparties(env, wallet_b, asset_pair);
+    if !links_b.contains(wallet_a) {
+        if links_b.len() >= crate::constants::MAX_COUNTERPARTY_LINKS_PER_WALLET {
+            return Err(Error::CounterpartyLinkFull);
+        }
+        links_b.push_back(wallet_a.clone());
+        let key_b = DataKey::Counterparties(wallet_b.clone(), asset_pair.clone());
+        env.storage().persistent().set(&key_b, &links_b);
+        env.storage().persistent().extend_ttl(&key_b, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+
+    Ok(())
 }
 
+/// Removes a bidirectional counterparty link between wallet_a and wallet_b.
+///
+/// # Errors
+/// - Returns `Error::CounterpartyNotFound` if the link does not exist in either direction
+pub fn remove_counterparty_link(
+    env: &Env,
+    wallet_a: &Address,
+    wallet_b: &Address,
+    asset_pair: &Symbol,
+) -> Result<(), Error> {
+    let mut links_a = get_counterparties(env, wallet_a, asset_pair);
+    let pos_a = links_a.first_index_of(wallet_b);
+    if let Some(idx) = pos_a {
+        links_a.remove(idx);
+        let key_a = DataKey::Counterparties(wallet_a.clone(), asset_pair.clone());
+        if links_a.is_empty() {
+            env.storage().persistent().remove(&key_a);
+        } else {
+            env.storage().persistent().set(&key_a, &links_a);
+            env.storage().persistent().extend_ttl(&key_a, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+        }
+    }
 
-pub fn get_merkle_leaf_count(env: &Env) -> u64 {
-    env.storage().instance().get(&DataKey::MerkleLeafCount).unwrap_or(0)
+    let mut links_b = get_counterparties(env, wallet_b, asset_pair);
+    let pos_b = links_b.first_index_of(wallet_a);
+    if let Some(idx) = pos_b {
+        links_b.remove(idx);
+        let key_b = DataKey::Counterparties(wallet_b.clone(), asset_pair.clone());
+        if links_b.is_empty() {
+            env.storage().persistent().remove(&key_b);
+        } else {
+            env.storage().persistent().set(&key_b, &links_b);
+            env.storage().persistent().extend_ttl(&key_b, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+        }
+    }
+
+    if pos_a.is_none() && pos_b.is_none() {
+        return Err(Error::CounterpartyNotFound);
+    }
+
+    Ok(())
 }
 
-pub fn set_merkle_leaf_count(env: &Env, count: u64) {
-    env.storage().instance().set(&DataKey::MerkleLeafCount, &count);
+/// Returns the number of registered counterparties (graph degree) for a wallet/pair.
+pub fn get_contagion_depth(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 {
+    let key = DataKey::Counterparties(wallet.clone(), asset_pair.clone());
+    let links: Vec<Address> = env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+    links.len()
 }
-
-pub fn is_merkle_enabled(env: &Env) -> bool {
-    env.storage().instance().get(&DataKey::MerkleEnabled).unwrap_or(false)
-}
-
-pub fn set_merkle_enabled(env: &Env, enabled: bool) {
-    env.storage().instance().set(&DataKey::MerkleEnabled, &enabled);
-}
-
-pub fn get_snapshot_history(env: &Env) -> Vec<SnapshotRecord> {
-    env.storage().instance().get(&DataKey::SnapshotHistory).unwrap_or_else(|| Vec::new(env))
-}
-
-pub fn set_snapshot_history(env: &Env, history: &Vec<SnapshotRecord>) {
-    env.storage().instance().set(&DataKey::SnapshotHistory, history);
-}
-
-pub fn get_snapshot_history_depth(env: &Env) -> u32 {
-    env.storage().instance().get(&DataKey::SnapshotHistoryDepth).unwrap_or(10)
-}
-
-pub fn set_snapshot_history_depth(env: &Env, depth: u32) {
-    env.storage().instance().set(&DataKey::SnapshotHistoryDepth, &depth);
-}
-

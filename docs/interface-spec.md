@@ -56,7 +56,55 @@ path:
 The comparison is strict (`score < gate_threshold`). A score *equal to* the
 threshold is **not** safe.
 
-### 1.2 `supports_interface` — capability detection
+Internally, this function delegates to `query_risk_gate_with_confidence` with
+`min_confidence = 0`. All gate logic lives in one place; this function is a
+non-breaking convenience wrapper preserved for backward compatibility.
+
+### 1.2 `query_risk_gate_with_confidence` — confidence-gated integration primitive
+
+```rust
+fn query_risk_gate_with_confidence(
+    env: Env,
+    wallet: Address,
+    asset_pair: Symbol,
+    gate_threshold: u32,
+    min_confidence: u32,
+) -> bool
+```
+
+An extended version of `query_risk_gate` that enforces **both** a maximum risk
+score threshold and a minimum confidence floor. A score whose confidence falls
+below the floor is treated as epistemically equivalent to "no data" — the gate
+returns `false` regardless of the risk score value.
+
+Returns `true` **only** when all three conditions hold simultaneously:
+
+1. A score exists for `(wallet, asset_pair)`.
+2. `score.score < gate_threshold` — the wallet is not too risky.
+3. `score.confidence >= effective_min_confidence` — the model had sufficient
+   data to make a meaningful determination.
+
+Returns `false` in all other cases, including:
+- No score exists (unknown wallet — fail closed).
+- Score is at or above `gate_threshold`.
+- Confidence is below the effective floor (insufficient data — treated as
+  unknown, not as evidence of safety).
+- `gate_threshold > 100` — scores are bounded to 0–100; no wallet can pass.
+- `min_confidence > 100` — confidence is bounded to 0–100; no wallet qualifies.
+
+**Effective confidence floor:** `max(min_confidence, global_min_confidence)`,
+where `global_min_confidence` is the value configured by the admin via
+`set_global_min_confidence` (defaults to `0`). The `max` operator means the
+stricter of the two floors always wins — neither the admin nor the caller can
+unilaterally weaken the other's floor.
+
+This function shares all infallibility and side-effect-free guarantees of
+`query_risk_gate`: it returns `bool`, never panics (including under `u32::MAX`
+inputs), and never calls `extend_ttl`.
+
+Detect this function at runtime with `supports_interface(symbol_short!("cgate"))`.
+
+### 1.3 `supports_interface` — capability detection
 
 ```rust
 fn supports_interface(env: Env, capability: Symbol) -> bool
@@ -66,15 +114,23 @@ Returns `true` if this deployment supports the named capability. Use it to
 feature-detect at runtime instead of hardcoding a contract version. Recognised
 capabilities (all `symbol_short!`):
 
-| Capability | Backing functionality                              |
-|------------|----------------------------------------------------|
-| `score`    | `get_score` / `submit_score`                       |
-| `history`  | `get_score_history`                                |
-| `batch`    | `submit_scores_batch`                              |
-| `gate`     | `query_risk_gate`                                  |
-| `aggr`     | `get_aggregate_score` (cross-asset aggregate risk) |
+| Capability      | Backing functionality                                                |
+|-----------------|----------------------------------------------------------------------|
+| `score`         | `get_score` / `submit_score`                                         |
+| `history`       | `get_score_history`                                                  |
+| `batch`         | `submit_scores_batch`                                                |
+| `gate`          | `query_risk_gate`                                                    |
+| `aggr`          | `get_aggregate_score` (cross-asset aggregate risk)                   |
+| `batch_attested`| `submit_scores_batch_attested` (Merkle-root attestation)             |
 
 Unrecognised capabilities return `false`.
+
+> Note: `batch_attested` is a 14-character symbol, longer than
+> `symbol_short!`'s 9-character ceiling, so it is constructed via
+> `Symbol::new(&env, "batch_attested")` rather than the `symbol_short!`
+> macro used for the shorter capabilities. The byte-level equality
+> check `capability == Symbol::new(&env, "batch_attested")` works
+> regardless of how the caller constructed the symbol.
 
 ### 1.3 Direct read functions
 
@@ -199,9 +255,21 @@ below are stable** — integrators may match on the numeric code:
   allow-list unknown wallets, you must make that decision explicitly in your
   own contract; do not assume `query_risk_gate` will ever return `true` for a
   wallet LedgerLens has never seen.
-- **`query_risk_gate` cannot be weaponised against you.** It is infallible and
-  side-effect free by design, so an attacker cannot craft inputs that make it
-  panic, consume unexpected gas, or mutate state to disable your guard.
+- **Low-confidence scores are epistemically equivalent to "unknown".** A score
+  of `score=30, confidence=5` carries almost no information — the model had
+  too little data to make any meaningful determination. Treating it as evidence
+  of safety (and passing the wallet through) is epistemically unjustified and
+  exploitable: an attacker who can arrange for their wallet to receive a
+  low-confidence score has an easy bypass. `query_risk_gate_with_confidence`
+  closes this gap by treating any score below the confidence floor as if no
+  score exists — the gate returns `false` (fail closed). When in doubt, use
+  this function rather than `query_risk_gate` for high-value guard clauses.
+  The admin-configurable `global_min_confidence` allows a system-wide floor to
+  be enforced without requiring every integrating protocol to specify one.
+- **`query_risk_gate` and `query_risk_gate_with_confidence` cannot be
+  weaponised against you.** Both are infallible and side-effect free by design,
+  so an attacker cannot craft inputs that make them panic, consume unexpected
+  gas, or mutate state to disable your guard.
 - **Decide your own threshold.** `gate_threshold` is a caller parameter, not a
   protocol constant. Higher-value actions warrant a lower (stricter) threshold.
   LedgerLens's own default risk threshold is `75`; it is a reasonable starting
@@ -254,4 +322,6 @@ an older deployment instead of trapping on a missing function.
 
 - Reference integration: [`examples/amm_gate.rs`](../examples/amm_gate.rs)
 - Interface stability tests: `contracts/ledgerlens-score/src/test_interface.rs`
+- Batch Attestation spec: [`docs/batch-attestation-spec.md`](batch-attestation-spec.md)
+- Batch Attestation tests: `contracts/ledgerlens-score/src/test_batch_attestation.rs`
 - Contract source: `contracts/ledgerlens-score/src/lib.rs`

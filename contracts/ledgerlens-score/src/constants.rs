@@ -17,13 +17,25 @@ pub const DEFAULT_RISK_THRESHOLD: u32 = 75;
 
 /// Semantic contract version; bump on breaking ABI changes.
 ///
-/// Bumped to 2 when `submit_score` gained its `attestation` parameter (see
-/// `docs/attestation-spec.md`).
-/// Bumped to 3 when `AggregateRiskScore` gained `decay_lambda_applied` field.
-/// Bumped to 3 when all admin-tier functions gained `admin_signers: Vec<Address>`
-/// for M-of-N governance and the `AdminSet` / `AdminThreshold` storage keys
-/// were introduced.
+/// History:
+///
+/// * `1` — initial release (`submit_score` / `get_score`).
+/// * `2` — `submit_score` gained the `attestation: Option<ScoreAttestation>`
+///   parameter and `set_service_pubkey` / `get_service_pubkey` were added
+///   (see `docs/attestation-spec.md`).
+/// * `3` — `submit_scores_batch_attested` and the `batch_attested`
+///   `supports_interface` capability were added (see
+///   `docs/batch-attestation-spec.md`).
 pub const CONTRACT_VERSION: u32 = 3;
+
+/// Hard upper bound on Merkle proof length accepted by
+/// `submit_scores_batch_attested`. Thirty levels of a binary tree can
+/// accommodate up to 2^30 ≈ 1.07 billion leaves — well above the
+/// `MAX_BATCH_SIZE` of 20 today, but large enough that the field cannot be
+/// exploited as an unbounded loop budget. Beyond this, the contract
+/// rejects the call with `Error::InvalidAttestation` (see
+/// `docs/batch-attestation-spec.md` for the rationale).
+pub const MAX_MERKLE_PROOF_DEPTH: u32 = 30;
 
 /// Practical upper bound on the number of distinct asset pairs tracked per
 /// wallet. `get_aggregate_score` iterates the wallet's full `AssetPairs`
@@ -110,3 +122,9 @@ pub const MAX_DECAY_LAMBDA_NUM: u32 = 1;
 
 /// Maximum allowed decay rate denominator (paired with MAX_DECAY_LAMBDA_NUM).
 pub const MAX_DECAY_LAMBDA_DEN: u32 = 1;
+
+// ── Wallet Relationship Graph ───────────────────────────────────────────────
+
+/// Maximum number of counterparty links allowed per wallet per asset pair.
+/// Prevents unbounded storage growth and gas exhaustion.
+pub const MAX_COUNTERPARTY_LINKS_PER_WALLET: u32 = 50;
