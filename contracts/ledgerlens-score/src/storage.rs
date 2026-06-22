@@ -1,4 +1,6 @@
-use soroban_sdk::{Address, Bytes, Env, Symbol, Vec};
+use soroban_sdk::{Env, Address};
+use crate::types::{DataKey, TierBounds};
+use crate::errors::Error;
 
 use crate::constants::{
     DEFAULT_COOLDOWN_SECS, DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS, SCORE_TTL_EXTEND_TO,
@@ -359,8 +361,11 @@ pub fn set_service_set(env: &Env, set: &Vec<Address>) {
     env.storage().instance().set(&DataKey::ServiceSet, set);
 }
 
-pub fn get_service_threshold(env: &Env) -> u32 {
-    env.storage().instance().get(&DataKey::ServiceThreshold).unwrap_or(0)
+pub fn get_signer_tier(env: &Env, signer: &Address) -> TierBounds {
+    env.storage()
+        .instance()
+        .get(&DataKey::SignerTier(signer.clone()))
+        .unwrap_or(TierBounds { min_score: 0, max_score: 100 })
 }
 
 pub fn set_service_threshold(env: &Env, threshold: u32) {
@@ -515,8 +520,8 @@ pub fn get_service_pubkey(env: &Env) -> Option<Bytes> {
     env.storage().instance().get(&DataKey::ServicePubKey)
 }
 
-pub fn set_service_pubkey(env: &Env, pubkey: &Bytes) {
-    env.storage().instance().set(&DataKey::ServicePubKey, pubkey);
+pub fn set_gate_callers(env: &Env, callers: &Vec<Address>) {
+    env.storage().instance().set(&GateDataKey::GateCallers, callers);
 }
 
 // ── Time-weighted exponential decay ──────────────────────────────────────
@@ -543,6 +548,27 @@ pub fn set_decay_rate(env: &Env, numerator: u32, denominator: u32) {
     env.storage().instance().set(&DataKey::DecayRateDenominator, &denominator);
 }
 
+ feat/confidence-gated-risk-gate
+// ── Global minimum confidence floor ──────────────────────────────────────────
+
+/// Returns the admin-configured global minimum confidence floor (0–100).
+/// Defaults to `0` (no floor) when unset.
+///
+/// This value is combined with the per-call `min_confidence` parameter in
+/// `query_risk_gate_with_confidence` using `max(param, global)` so the admin
+/// can enforce a system-wide floor without requiring every integrating protocol
+/// to specify one. Both values are bounded to 0–100, so the `max` cannot
+/// overflow.
+pub fn get_global_min_confidence(env: &Env) -> u32 {
+    let result: Option<u32> = env.storage().instance().get(&DataKey::GlobalMinConfidence);
+    result.unwrap_or(0)
+}
+
+/// Persists `min_confidence` as the global confidence floor.
+/// Caller is responsible for validating the range (0–100) before calling.
+pub fn set_global_min_confidence(env: &Env, min_confidence: u32) {
+    env.storage().instance().set(&DataKey::GlobalMinConfidence, &min_confidence);
+
 // ── Fee withdrawal ────────────────────────────────────────────────────────────
 
 pub fn get_fee_token(env: &Env) -> Option<Address> {
@@ -563,6 +589,7 @@ pub fn set_withdrawal_lock(env: &Env) {
 
 pub fn clear_withdrawal_lock(env: &Env) {
     env.storage().instance().remove(&DataKey::WithdrawalLock);
+ main
 }
 
 // ── Score delegation ──────────────────────────────────────────────────────────

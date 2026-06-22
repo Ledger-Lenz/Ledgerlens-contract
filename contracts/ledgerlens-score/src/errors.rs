@@ -9,7 +9,8 @@ pub enum Error {
     Unauthorized = 3,
     InvalidScore = 4,
     InvalidConfidence = 5,
-    ScoreNotFound = 6,
+   SignerTierViolation = 26,
+    InvalidSignerTier = 27, ScoreNotFound = 6,
     /// Returned when any state-mutating call is attempted while the
     /// contract is paused by the admin.
     ContractPaused = 7,
@@ -82,6 +83,11 @@ pub enum Error {
     /// Returned when `set_history_max_depth` is called with `0` or a value
     /// above `MAX_HISTORY_DEPTH`.
     InvalidHistoryDepth = 29,
+feat/confidence-gated-risk-gate
+    /// Returned when `set_global_min_confidence` is called with a value
+    /// above 100 (confidence is bounded to 0–100).
+    InvalidMinConfidence = 30,
+
 
     // ── Fee withdrawal ─────────────────────────────────────────────────────
     /// Returned by `get_fee_token` and `withdraw_fees` when `set_fee_token`
@@ -140,3 +146,8 @@ pub enum Error {
     /// Returned when `add_counterparty_link` is called with the same wallet twice.
     SelfLink = 45,
 }
+
+// Gate caller tracking error variants for structural protection
+pub const GATE_CALLER_ALREADY_ALLOWED: u32 = 26;
+pub const GATE_CALLER_NOT_FOUND: u32 = 27;
+pub const GATE_CALLER_LIST_FULL: u32 = 28;
