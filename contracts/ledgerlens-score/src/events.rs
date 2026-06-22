@@ -134,6 +134,11 @@ pub fn cooldown_updated(env: &Env, cooldown_secs: u64) {
     env.events().publish((symbol_short!("cd_upd"),), cooldown_secs);
 }
 
+/// Emitted when the admin sets or clears a per-pair submission cooldown.
+pub fn pair_cooldown_updated(env: &Env, asset_pair: &Symbol, cooldown_secs: u64) {
+    env.events().publish((symbol_short!("pair_cd"), asset_pair.clone()), cooldown_secs);
+}
+
 /// Emitted by `override_rate_limit`. `by` is the admin that cleared the
 /// cooldown for `(wallet, asset_pair)` — the emergency re-score path, not a
 /// routine operation, so this is worth a dedicated audit-trail event.
@@ -158,16 +163,8 @@ pub fn service_pubkey_updated(env: &Env, pubkey: &Bytes) {
 /// signature was produced over, so an off-chain indexer can reconcile
 /// on-chain outcomes against the originally-signed batch without
 /// re-reading the per-entry proofs.
-pub fn batch_attested(
-    env: &Env,
-    accepted: u32,
-    rejected: u32,
-    merkle_root: &BytesN<32>,
-) {
-    env.events().publish(
-        (symbol_short!("bat_ok"), merkle_root.clone()),
-        (accepted, rejected),
-    );
+pub fn batch_attested(env: &Env, accepted: u32, rejected: u32, merkle_root: &BytesN<32>) {
+    env.events().publish((symbol_short!("bat_ok"), merkle_root.clone()), (accepted, rejected));
 }
 
 // ── Multi-model consensus scoring ─────────────────────────────────────────────
@@ -191,7 +188,6 @@ pub fn consensus_score_submitted(
 pub fn consensus_config_updated(env: &Env, k: u32, epsilon: u32) {
     env.events().publish((symbol_short!("cons_cfg"),), (k, epsilon));
 }
-
 
 // ── History depth ─────────────────────────────────────────────────────────────
 
@@ -382,10 +378,7 @@ pub fn hysteresis_margin_updated(env: &Env, old_margin: u32, new_margin: u32) {
 /// Emitted when an embargo is created or updated via `set_score_embargo`.
 /// `expiry` is `None` for an indefinite embargo, or `Some(ts)` for a timed one.
 pub fn embargo_set(env: &Env, wallet: &Address, expiry: Option<u64>) {
-    env.events().publish(
-        (symbol_short!("emb_set"), wallet.clone()),
-        expiry,
-    );
+    env.events().publish((symbol_short!("emb_set"), wallet.clone()), expiry);
 }
 
 /// Emitted when an embargo is explicitly lifted via `lift_score_embargo`.

@@ -1,6 +1,6 @@
-use soroban_sdk::{Env, Address};
-use crate::types::{DataKey, TierBounds};
 use crate::errors::Error;
+use crate::types::{DataKey, TierBounds};
+use soroban_sdk::{Address, Env, Symbol};
 
 use crate::constants::{
     BAND_STATE_TTL_EXTEND_TO, BAND_STATE_TTL_THRESHOLD, DEFAULT_CONSENSUS_EPSILON,
@@ -8,7 +8,10 @@ use crate::constants::{
     DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS, EMBARGO_TTL_EXTEND_TO,
     EMBARGO_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO, SCORE_TTL_THRESHOLD,
 };
-use crate::types::{AggregateRiskScore, DataKey, EmbargoExpiry, RiskScore, ScoreFloorPolicy, ScoreTrend, UpgradeProposal, SnapshotRecord};
+use crate::types::{
+    AggregateRiskScore, DataKey, EmbargoExpiry, RiskScore, ScoreFloorPolicy, ScoreTrend,
+    SnapshotRecord, UpgradeProposal,
+};
 
 use crate::Error;
 
@@ -436,6 +439,23 @@ pub fn set_cooldown_secs(env: &Env, secs: u64) {
     env.storage().instance().set(&DataKey::CooldownSecs, &secs);
 }
 
+/// Returns the cooldown for `asset_pair`, falling back to the global default
+/// when no pair-specific override has been configured.
+pub fn get_pair_cooldown_secs(env: &Env, asset_pair: &Symbol) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::PairCooldown(asset_pair.clone()))
+        .unwrap_or_else(|| get_cooldown_secs(env))
+}
+
+pub fn set_pair_cooldown_secs(env: &Env, asset_pair: &Symbol, secs: u64) {
+    env.storage().instance().set(&DataKey::PairCooldown(asset_pair.clone()), &secs);
+}
+
+pub fn clear_pair_cooldown_secs(env: &Env, asset_pair: &Symbol) {
+    env.storage().instance().remove(&DataKey::PairCooldown(asset_pair.clone()));
+}
+
 // ── GDPR / data-erasure ───────────────────────────────────────────────────────
 
 /// Removes the score history ring buffer for `wallet` / `asset_pair`.
@@ -529,7 +549,6 @@ pub fn set_decay_rate(env: &Env, numerator: u32, denominator: u32) {
     env.storage().instance().set(&DataKey::DecayRateDenominator, &denominator);
 }
 
- feat/confidence-gated-risk-gate
 // ── Global minimum confidence floor ──────────────────────────────────────────
 
 /// Returns the admin-configured global minimum confidence floor (0–100).
@@ -549,6 +568,7 @@ pub fn get_global_min_confidence(env: &Env) -> u32 {
 /// Caller is responsible for validating the range (0–100) before calling.
 pub fn set_global_min_confidence(env: &Env, min_confidence: u32) {
     env.storage().instance().set(&DataKey::GlobalMinConfidence, &min_confidence);
+}
 
 // ── Fee withdrawal ────────────────────────────────────────────────────────────
 
@@ -570,7 +590,6 @@ pub fn set_withdrawal_lock(env: &Env) {
 
 pub fn clear_withdrawal_lock(env: &Env) {
     env.storage().instance().remove(&DataKey::WithdrawalLock);
- main
 }
 
 // ── Score delegation ──────────────────────────────────────────────────────────
@@ -791,9 +810,11 @@ pub fn get_risk_band_state(env: &Env, wallet: &Address, asset_pair: &Symbol) -> 
     let key = DataKey::RiskBandState(wallet.clone(), asset_pair.clone());
     let result: Option<bool> = env.storage().temporary().get(&key);
     if result.is_some() {
-        env.storage()
-            .temporary()
-            .extend_ttl(&key, BAND_STATE_TTL_THRESHOLD, BAND_STATE_TTL_EXTEND_TO);
+        env.storage().temporary().extend_ttl(
+            &key,
+            BAND_STATE_TTL_THRESHOLD,
+            BAND_STATE_TTL_EXTEND_TO,
+        );
     }
     result.unwrap_or(false)
 }
@@ -816,9 +837,7 @@ pub fn peek_risk_band_state(env: &Env, wallet: &Address, asset_pair: &Symbol) ->
 pub fn set_embargo(env: &Env, wallet: &Address, expiry: &EmbargoExpiry) {
     let key = DataKey::ScoreEmbargo(wallet.clone());
     env.storage().temporary().set(&key, expiry);
-    env.storage()
-        .temporary()
-        .extend_ttl(&key, EMBARGO_TTL_THRESHOLD, EMBARGO_TTL_EXTEND_TO);
+    env.storage().temporary().extend_ttl(&key, EMBARGO_TTL_THRESHOLD, EMBARGO_TTL_EXTEND_TO);
 }
 
 /// Removes the embargo entry for `wallet`, immediately lifting any embargo.
@@ -840,18 +859,22 @@ pub fn is_embargoed(env: &Env, wallet: &Address) -> bool {
     match expiry {
         None => false,
         Some(EmbargoExpiry::Indefinite) => {
-            env.storage()
-                .temporary()
-                .extend_ttl(&key, EMBARGO_TTL_THRESHOLD, EMBARGO_TTL_EXTEND_TO);
+            env.storage().temporary().extend_ttl(
+                &key,
+                EMBARGO_TTL_THRESHOLD,
+                EMBARGO_TTL_EXTEND_TO,
+            );
             true
         }
         Some(EmbargoExpiry::Until(ts)) => {
             let now = env.ledger().timestamp();
             let active = now <= ts;
             if active {
-                env.storage()
-                    .temporary()
-                    .extend_ttl(&key, EMBARGO_TTL_THRESHOLD, EMBARGO_TTL_EXTEND_TO);
+                env.storage().temporary().extend_ttl(
+                    &key,
+                    EMBARGO_TTL_THRESHOLD,
+                    EMBARGO_TTL_EXTEND_TO,
+                );
             }
             active
         }
@@ -878,9 +901,11 @@ pub fn set_risk_band_state(env: &Env, wallet: &Address, asset_pair: &Symbol, in_
     let key = DataKey::RiskBandState(wallet.clone(), asset_pair.clone());
     if in_band {
         env.storage().temporary().set(&key, &true);
-        env.storage()
-            .temporary()
-            .extend_ttl(&key, BAND_STATE_TTL_THRESHOLD, BAND_STATE_TTL_EXTEND_TO);
+        env.storage().temporary().extend_ttl(
+            &key,
+            BAND_STATE_TTL_THRESHOLD,
+            BAND_STATE_TTL_EXTEND_TO,
+        );
     } else {
         env.storage().temporary().remove(&key);
     }
@@ -900,10 +925,7 @@ pub fn set_consensus_threshold_k(env: &Env, k: u32) {
 }
 
 pub fn get_consensus_epsilon(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKey::ConsensusEpsilon)
-        .unwrap_or(DEFAULT_CONSENSUS_EPSILON)
+    env.storage().instance().get(&DataKey::ConsensusEpsilon).unwrap_or(DEFAULT_CONSENSUS_EPSILON)
 }
 
 pub fn set_consensus_epsilon(env: &Env, epsilon: u32) {
