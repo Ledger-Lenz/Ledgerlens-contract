@@ -31,6 +31,9 @@ mod test_embargo;
 #[cfg(test)]
 mod test_score_delta;
 
+#[cfg(test)]
+mod test_finality_buffer;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, xdr::ToXdr, Address, Bytes, BytesN,
     Env, Symbol, SymbolStr, TryFromVal, Vec,
@@ -38,8 +41,8 @@ use soroban_sdk::{
 
 pub use errors::Error;
 pub use types::{
-    AggregateRiskScore, BatchEntryResult, BatchResult, RiskScore, ScoreAttestation,
-    ScoreSubmission, ScoreTrend, UpgradeProposal, SnapshotRecord,
+    AggregateRiskScore, BatchEntryResult, BatchResult, PendingScoreEntry, RiskScore,
+    ScoreAttestation, ScoreSubmission, ScoreTrend, SnapshotRecord, UpgradeProposal,
 };
 
 /// On-chain truth layer for LedgerLens risk scores.
@@ -187,6 +190,10 @@ impl LedgerLensScoreContract {
         let service_set = storage::get_service_set(&env);
         let threshold = storage::get_service_threshold(&env);
 
+        // Tracked for `PendingScoreEntry::submitted_by` when the finality
+        // buffer is active; in the multi-sig path this is the first
+        // verified co-signer.
+        let submitted_by: Address;
         if !service_set.is_empty() && threshold > 0 {
             // Multi-sig path: verify count, membership, then require_auth each.
             if signers.len() < threshold {
@@ -199,10 +206,12 @@ impl LedgerLensScoreContract {
                 }
                 signer.require_auth();
             }
+            submitted_by = signers.get(0).unwrap();
         } else {
             // Legacy single-service path.
             let service = storage::get_service(&env);
             service.require_auth();
+            submitted_by = service;
         }
 
         // Cryptographic payload attestation — opt-in. Once the admin has
@@ -244,10 +253,201 @@ impl LedgerLensScoreContract {
         }
         storage::set_last_submit_time(&env, &wallet, &asset_pair, now);
 
+        let buffer = storage::get_finality_buffer_secs(&env);
+        if buffer == 0 {
+            // Disabled — commit straight to live storage, exactly as before
+            // the finality buffer existed.
+            let previous_score = storage::peek_score(&env, &wallet, &asset_pair).map(|s| s.score);
+
+            let risk_score =
+                RiskScore { score, benford_flag, ml_flag, timestamp, confidence, model_version };
+
+            storage::set_score(&env, &wallet, &asset_pair, &risk_score);
+            storage::push_score_history(&env, &wallet, &asset_pair, &risk_score);
+            storage::register_pair_for_wallet(&env, &wallet, &asset_pair);
+            storage::increment_score_count(&env, &wallet, &asset_pair);
+            Self::refresh_aggregate_cache(&env, &wallet);
+            Self::update_merkle_accumulator(
+                &env,
+                &wallet,
+                &asset_pair,
+                score,
+                timestamp,
+                confidence,
+                model_version,
+            );
+
+            let score_threshold = storage::get_risk_threshold(&env);
+            if score >= score_threshold {
+                events::threshold_breached(&env, &wallet, &asset_pair, score, score_threshold);
+            }
+
+            Self::emit_score_delta(&env, &wallet, &asset_pair, previous_score, score);
+            events::score_submitted(&env, &wallet, &asset_pair, &risk_score);
+        } else {
+            // Buffer active — hold the score in `PendingScore` instead of
+            // writing to live storage. `get_score` / `query_risk_gate` never
+            // read this key, so the submission has no observable effect on
+            // any consumer until `commit_pending_score` runs. A second
+            // submission while one is pending overwrites it rather than
+            // queuing alongside it.
+            let commit_after = now.saturating_add(buffer);
+            let pending = PendingScoreEntry {
+                score,
+                benford_flag,
+                ml_flag,
+                timestamp,
+                confidence,
+                model_version,
+                submitted_at: now,
+                commit_after,
+                submitted_by,
+            };
+            storage::set_pending_score(&env, &wallet, &asset_pair, &pending);
+            events::score_pending(&env, &wallet, &asset_pair, commit_after);
+        }
+
+        Ok(())
+    }
+
+    // ── Finality buffer (pending score commit window) ───────────────────────
+
+    /// Sets the finality buffer: the number of seconds a `submit_score`
+    /// payload is held in `PendingScore` before it can be committed to live
+    /// storage via `commit_pending_score`. While pending, the admin may
+    /// inspect it with `get_pending_score` and discard it with
+    /// `cancel_pending_score` before it ever reaches `get_score` /
+    /// `query_risk_gate`. Admin only.
+    ///
+    /// `secs == 0` (the default) disables the buffer entirely — `submit_score`
+    /// then writes straight to live storage, exactly as it did before this
+    /// feature existed. Any non-zero value up to `MAX_FINALITY_BUFFER_SECS`
+    /// (24 hours) is accepted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_finality_buffer(&Vec::new(&env), &300);
+    /// assert_eq!(client.get_finality_buffer(), 300);
+    /// ```
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::InvalidFinalityBuffer`] if `secs` exceeds
+    ///   `MAX_FINALITY_BUFFER_SECS`.
+    pub fn set_finality_buffer(
+        env: Env,
+        admin_signers: Vec<Address>,
+        secs: u64,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if secs > constants::MAX_FINALITY_BUFFER_SECS {
+            return Err(Error::InvalidFinalityBuffer);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_finality_buffer_secs(&env, secs);
+        events::finality_buffer_updated(&env, secs);
+        Ok(())
+    }
+
+    /// Returns the current finality buffer in seconds. `0` means the buffer
+    /// is disabled and `submit_score` commits immediately.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_finality_buffer(), 0);
+    /// ```
+    pub fn get_finality_buffer(env: Env) -> u64 {
+        storage::get_finality_buffer_secs(&env)
+    }
+
+    /// Commits a pending score to live storage once its hold window has
+    /// elapsed. Callable by **anyone** — there is nothing secret about a
+    /// pending score, so no authorization is required; the only gate is
+    /// `commit_after <= now`.
+    ///
+    /// On success this performs exactly the side effects `submit_score`
+    /// would have performed immediately had the buffer been disabled:
+    /// writing `Score`, appending to `ScoreHistory`, registering the pair,
+    /// incrementing the submission counter, refreshing the aggregate cache,
+    /// updating the Merkle accumulator, and emitting `threshold_breached` /
+    /// the score-delta event — then clears the pending entry and emits
+    /// `ScoreCommittedEvent`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::{Address as _, Ledger as _}, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_finality_buffer(&Vec::new(&env), &300);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &90, &true, &true, &1, &95, &1, &None);
+    /// assert!(client.try_get_score(&wallet, &asset_pair).is_err()); // still pending, invisible
+    /// env.ledger().with_mut(|l| l.timestamp += 300);
+    /// client.commit_pending_score(&wallet, &asset_pair);
+    /// assert_eq!(client.get_score(&wallet, &asset_pair).score, 90);
+    /// ```
+    ///
+    /// # Errors
+    /// - [`Error::NoPendingScore`] if no pending score exists for
+    ///   `(wallet, asset_pair)`.
+    /// - [`Error::FinalityWindowNotElapsed`] if `commit_after > now`.
+    pub fn commit_pending_score(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        let pending =
+            storage::get_pending_score(&env, &wallet, &asset_pair).ok_or(Error::NoPendingScore)?;
+
+        let now = env.ledger().timestamp();
+        if now < pending.commit_after {
+            return Err(Error::FinalityWindowNotElapsed);
+        }
+
         let previous_score = storage::peek_score(&env, &wallet, &asset_pair).map(|s| s.score);
 
-        let risk_score =
-            RiskScore { score, benford_flag, ml_flag, timestamp, confidence, model_version };
+        let risk_score = RiskScore {
+            score: pending.score,
+            benford_flag: pending.benford_flag,
+            ml_flag: pending.ml_flag,
+            timestamp: pending.timestamp,
+            confidence: pending.confidence,
+            model_version: pending.model_version,
+        };
 
         storage::set_score(&env, &wallet, &asset_pair, &risk_score);
         storage::push_score_history(&env, &wallet, &asset_pair, &risk_score);
@@ -258,20 +458,109 @@ impl LedgerLensScoreContract {
             &env,
             &wallet,
             &asset_pair,
-            score,
-            timestamp,
-            confidence,
-            model_version,
+            pending.score,
+            pending.timestamp,
+            pending.confidence,
+            pending.model_version,
         );
 
         let score_threshold = storage::get_risk_threshold(&env);
-        if score >= score_threshold {
-            events::threshold_breached(&env, &wallet, &asset_pair, score, score_threshold);
+        if pending.score >= score_threshold {
+            events::threshold_breached(&env, &wallet, &asset_pair, pending.score, score_threshold);
         }
 
-        Self::emit_score_delta(&env, &wallet, &asset_pair, previous_score, score);
-        events::score_submitted(&env, &wallet, &asset_pair, &risk_score);
+        Self::emit_score_delta(&env, &wallet, &asset_pair, previous_score, pending.score);
+        storage::clear_pending_score(&env, &wallet, &asset_pair);
+        events::score_committed(&env, &wallet, &asset_pair);
         Ok(())
+    }
+
+    /// Discards a pending score before it can take effect. Admin only —
+    /// this is the review-and-cancel mechanism the finality buffer exists
+    /// to provide: a compromised service key may still pass attestation,
+    /// multisig, and the velocity cap, but an adversarial score can be
+    /// vetoed here during the hold window.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_finality_buffer(&Vec::new(&env), &300);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &90, &true, &true, &1, &95, &1, &None);
+    /// client.cancel_pending_score(&Vec::new(&env), &wallet, &asset_pair);
+    /// assert!(client.get_pending_score(&wallet, &asset_pair).is_none());
+    /// ```
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::NoPendingScore`] if no pending score exists for
+    ///   `(wallet, asset_pair)`.
+    pub fn cancel_pending_score(
+        env: Env,
+        admin_signers: Vec<Address>,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+
+        if storage::get_pending_score(&env, &wallet, &asset_pair).is_none() {
+            return Err(Error::NoPendingScore);
+        }
+        storage::clear_pending_score(&env, &wallet, &asset_pair);
+
+        let admin = storage::get_admin(&env);
+        events::score_pending_cancelled(&env, &wallet, &asset_pair, &admin);
+        Ok(())
+    }
+
+    /// Read-only lookup of the pending score held for `(wallet, asset_pair)`,
+    /// if any. Lets the admin (or any observer) inspect a submission during
+    /// its hold window before deciding whether to let it commit or to
+    /// `cancel_pending_score` it. Returns `None` once the buffer is disabled,
+    /// once it has been committed, or once it has been cancelled.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_finality_buffer(&Vec::new(&env), &300);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &90, &true, &true, &1, &95, &1, &None);
+    /// let pending = client.get_pending_score(&wallet, &asset_pair).unwrap();
+    /// assert_eq!(pending.score, 90);
+    /// ```
+    pub fn get_pending_score(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Option<PendingScoreEntry> {
+        storage::get_pending_score(&env, &wallet, &asset_pair)
     }
 
     /// Submit multiple risk scores in a single invocation.  The service

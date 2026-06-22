@@ -84,6 +84,38 @@ pub struct ScoreAttestation {
     pub signature: BytesN<65>,
 }
 
+/// Pending, time-locked risk score submission.
+///
+/// Written by `submit_score` when the admin has configured
+/// `FinalityBufferSecs > 0`. The score is held in this pending state
+/// (invisible to `get_score` / `query_risk_gate`) until
+/// `commit_pending_score` observes that `env.ledger().timestamp() >=
+/// commit_after`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingScoreEntry {
+    /// Overall risk score, 0-100. Higher = more suspicious.
+    pub score: u32,
+    /// True if the Benford's Law engine flagged this entity.
+    pub benford_flag: bool,
+    /// True if the ML ensemble classifier flagged this entity.
+    pub ml_flag: bool,
+    /// Ledger timestamp when the score content was submitted.
+    pub submitted_at: u64,
+    /// The service's pipeline model confidence, 0-100.
+    pub confidence: u32,
+    /// Integer model version that produced this score.
+    pub model_version: u32,
+    /// Ledger timestamp when this payload was produced off-chain.
+    /// Stored for consumers/audit trails.
+    pub timestamp: u64,
+    /// `submitted_at + FinalityBufferSecs`.
+    pub commit_after: u64,
+    /// Who submitted this score (service address / admin multisig signer in
+    /// the off-chain pipeline context).
+    pub submitted_by: Address,
+}
+
 /// Result for a single entry in a batch score submission.
 /// Returned as part of `BatchResult` from `submit_scores_batch` so the
 /// caller knows exactly which entries succeeded and why any failed,
@@ -247,6 +279,12 @@ pub enum DataKey {
     /// Ordered list of all currently paused asset pairs — an incrementally
     /// maintained index so `get_paused_pairs` is O(1).
     PausedPairIndex,
+    /// u64, admin-configurable finality buffer (seconds). Defaults to 0
+    /// (disabled).
+    FinalityBufferSecs,
+    /// Pending score for a (wallet, asset_pair) combination, when
+    /// finality buffering is enabled.
+    PendingScore(Address, Symbol),
     /// Ordered set of M-of-N admin co-signers.
     AdminSet,
     /// Minimum number of admin-set members that must sign an admin call.

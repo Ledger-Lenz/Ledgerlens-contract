@@ -133,5 +133,16 @@ pub enum Error {
     ScoreEmbargoed = 42,
     /// Merkle accumulator is disabled.
     MerkleAccumulatorDisabled = 43,
+
+    // ── Finality buffer (pending score commit window) ──────────────────────
+    /// `set_finality_buffer` was called with a value above
+    /// `MAX_FINALITY_BUFFER_SECS`.
+    InvalidFinalityBuffer = 44,
+    /// `commit_pending_score`, `cancel_pending_score`, or any function
+    /// expecting a pending entry was called for a `(wallet, asset_pair)`
+    /// with no pending score.
+    NoPendingScore = 45,
+    /// `commit_pending_score` was called before `commit_after` elapsed.
+    FinalityWindowNotElapsed = 46,
 }
 

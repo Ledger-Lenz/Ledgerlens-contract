@@ -256,3 +256,38 @@ pub fn snapshot_committed(
     );
 }
 
+// ── Finality buffer (pending score commit window) ────────────────────────────
+
+/// Emitted when the admin changes the finality buffer via
+/// `set_finality_buffer`.
+pub fn finality_buffer_updated(env: &Env, secs: u64) {
+    env.events().publish((symbol_short!("fb_upd"),), secs);
+}
+
+/// Emitted by `submit_score` when `FinalityBufferSecs > 0` and the score is
+/// written to `PendingScore` instead of taking effect immediately.
+pub fn score_pending(env: &Env, wallet: &Address, asset_pair: &Symbol, commit_after: u64) {
+    env.events()
+        .publish((symbol_short!("scr_pend"), wallet.clone(), asset_pair.clone()), commit_after);
+}
+
+/// Emitted by `commit_pending_score` after a pending score is moved to live
+/// storage.
+pub fn score_committed(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    env.events().publish((symbol_short!("scr_comm"), wallet.clone()), asset_pair.clone());
+}
+
+/// Emitted by `cancel_pending_score` after the admin removes a pending score
+/// before it could take effect.
+pub fn score_pending_cancelled(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    cancelled_by: &Address,
+) {
+    env.events().publish(
+        (symbol_short!("scr_canc"), wallet.clone(), asset_pair.clone()),
+        cancelled_by.clone(),
+    );
+}
+

@@ -5,7 +5,10 @@ use crate::constants::{
     DEFAULT_COOLDOWN_SECS, DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS, SCORE_TTL_EXTEND_TO,
     SCORE_TTL_THRESHOLD,
 };
-use crate::types::{AggregateRiskScore, DataKey, RiskScore, ScoreTrend, UpgradeProposal, SnapshotRecord};
+use crate::types::{
+    AggregateRiskScore, DataKey, PendingScoreEntry, RiskScore, ScoreTrend, SnapshotRecord,
+    UpgradeProposal,
+};
 
 // ── Admin / Service ─────────────────────────────────────────────────────────
 
@@ -636,5 +639,53 @@ pub fn get_snapshot_history_depth(env: &Env) -> u32 {
 
 pub fn set_snapshot_history_depth(env: &Env, depth: u32) {
     env.storage().instance().set(&DataKey::SnapshotHistoryDepth, &depth);
+}
+
+// ── Finality buffer (pending score commit window) ────────────────────────────
+
+/// Returns the admin-configured finality buffer in seconds, defaulting to
+/// `0` (disabled — `submit_score` writes straight to live storage) until
+/// `set_finality_buffer` is called.
+pub fn get_finality_buffer_secs(env: &Env) -> u64 {
+    env.storage().instance().get(&DataKey::FinalityBufferSecs).unwrap_or(0)
+}
+
+pub fn set_finality_buffer_secs(env: &Env, secs: u64) {
+    env.storage().instance().set(&DataKey::FinalityBufferSecs, &secs);
+}
+
+/// Returns the pending score held for `(wallet, asset_pair)`, if any.
+/// Invisible to `get_score` / `query_risk_gate` — only `commit_pending_score`,
+/// `cancel_pending_score`, and `get_pending_score` read this key.
+pub fn get_pending_score(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) -> Option<PendingScoreEntry> {
+    let key = DataKey::PendingScore(wallet.clone(), asset_pair.clone());
+    let entry: Option<PendingScoreEntry> = env.storage().persistent().get(&key);
+    if entry.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    entry
+}
+
+/// Writes `entry` as the pending score for `(wallet, asset_pair)`, replacing
+/// any existing pending entry rather than queuing alongside it.
+pub fn set_pending_score(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    entry: &PendingScoreEntry,
+) {
+    let key = DataKey::PendingScore(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, entry);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+/// Removes the pending score for `(wallet, asset_pair)`. No-op if none exists.
+pub fn clear_pending_score(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    let key = DataKey::PendingScore(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().remove(&key);
 }
 

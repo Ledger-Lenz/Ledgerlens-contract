@@ -110,3 +110,16 @@ pub const MAX_DECAY_LAMBDA_NUM: u32 = 1;
 
 /// Maximum allowed decay rate denominator (paired with MAX_DECAY_LAMBDA_NUM).
 pub const MAX_DECAY_LAMBDA_DEN: u32 = 1;
+
+// ── Finality buffer (pending score commit window) ────────────────────────────
+//
+// A compromised service key can still pass attestation, multisig, and the
+// velocity cap, yet push an adversarial score. The finality buffer holds a
+// submitted score in `PendingScore` for a short, admin-configurable window
+// before it becomes visible on the live read path, giving the admin a chance
+// to inspect and `cancel_pending_score` it first. See `submit_score`,
+// `set_finality_buffer`, and `commit_pending_score`.
+
+/// Maximum configurable finality buffer — 24 hour ceiling, so a misconfigured
+/// admin cannot delay score visibility indefinitely.
+pub const MAX_FINALITY_BUFFER_SECS: u64 = 86_400; // 24 hours
