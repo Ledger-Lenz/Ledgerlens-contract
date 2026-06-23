@@ -240,6 +240,15 @@ pub struct ScoreTrend {
     pub consecutive: u32,
 }
 
+/// Largest score-jump anomaly observed so far for a (wallet, asset_pair)
+/// pair. See `get_jump_stats`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct JumpStats {
+    pub max_jump: u32,
+    pub at_timestamp: u64,
+}
+
 /// Global configuration for the per-wallet score submission floor.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -312,6 +321,9 @@ pub enum DataKey {
     Watchlist(Address),
     RiskThreshold,
     JumpThreshold,
+    /// Largest score-jump anomaly observed for a (wallet, asset_pair) pair.
+    /// See `get_jump_stats`.
+    JumpStats(Address, Symbol),
     ScoreHistory(Address, Symbol),
     ContractVersion,
     AssetPairs(Address),

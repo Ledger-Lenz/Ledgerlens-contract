@@ -6,9 +6,9 @@ use crate::constants::{
 };
 use crate::errors::Error;
 use crate::types::{
-    AggregateRiskScore, DataKey, EmbargoExpiry, GateDataKey, PendingScoreEntry, RiskScore,
-    ScoreDispute, ScoreFloorPolicy, ScoreTrend, ScoreVelocityCap, SnapshotRecord, TierBounds,
-    UpgradeProposal,
+    AggregateRiskScore, DataKey, EmbargoExpiry, GateDataKey, JumpStats, PendingScoreEntry,
+    RiskScore, ScoreDispute, ScoreFloorPolicy, ScoreTrend, ScoreVelocityCap, SnapshotRecord,
+    TierBounds, UpgradeProposal,
 };
 use soroban_sdk::{Address, Bytes, Env, Symbol, Vec};
 
@@ -182,6 +182,41 @@ pub fn get_jump_threshold(env: &Env) -> u32 {
 
 pub fn set_jump_threshold(env: &Env, threshold: u32) {
     env.storage().instance().set(&DataKey::JumpThreshold, &threshold);
+}
+
+/// Returns `(max_jump, at_timestamp)` for the largest score-jump anomaly
+/// observed so far for `(wallet, asset_pair)`, or `(0, 0)` if none has been
+/// recorded.
+pub fn get_jump_stats(env: &Env, wallet: &Address, asset_pair: &Symbol) -> (u32, u64) {
+    let key = DataKey::JumpStats(wallet.clone(), asset_pair.clone());
+    let stats: Option<JumpStats> = env.storage().persistent().get(&key);
+    match stats {
+        Some(stats) => (stats.max_jump, stats.at_timestamp),
+        None => (0, 0),
+    }
+}
+
+/// Records `jump` as the new largest observed jump for `(wallet, asset_pair)`
+/// if it exceeds the currently stored maximum (or none is stored yet).
+pub fn record_jump_stats(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    jump: u32,
+    timestamp: u64,
+) {
+    let key = DataKey::JumpStats(wallet.clone(), asset_pair.clone());
+    let current: Option<JumpStats> = env.storage().persistent().get(&key);
+    let is_new_max = match &current {
+        Some(stats) => jump > stats.max_jump,
+        None => true,
+    };
+    if is_new_max {
+        env.storage()
+            .persistent()
+            .set(&key, &JumpStats { max_jump: jump, at_timestamp: timestamp });
+    }
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
 }
 
 // ── Score history ring buffer ────────────────────────────────────────────────

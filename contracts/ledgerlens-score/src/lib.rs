@@ -77,6 +77,9 @@ mod test_model_version;
 #[cfg(test)]
 mod test_histogram;
 
+#[cfg(test)]
+mod test_jump_stats;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN,
     Env, Symbol, SymbolStr, TryFromVal, Vec,
@@ -3600,6 +3603,33 @@ impl LedgerLensScoreContract {
         storage::get_jump_threshold(&env)
     }
 
+    /// Returns `(max_jump, at_timestamp)`, the largest score-jump anomaly
+    /// magnitude observed so far for `(wallet, asset_pair)` and the ledger
+    /// timestamp it occurred at. Returns `(0, 0)` if no jump has ever been
+    /// recorded for this pair.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// assert_eq!(client.get_jump_stats(&wallet, &pair), (0, 0));
+    /// ```
+    pub fn get_jump_stats(env: Env, wallet: Address, asset_pair: Symbol) -> (u32, u64) {
+        storage::get_jump_stats(&env, &wallet, &asset_pair)
+    }
+
     // ── Hysteresis layer ─────────────────────────────────────────────────────
 
     /// Set the hysteresis margin (0-50) used to widen the exit threshold
@@ -5050,6 +5080,7 @@ impl LedgerLensScoreContract {
             let jump_threshold = storage::get_jump_threshold(env);
             if delta_abs > jump_threshold {
                 let delta = (new_score as i64) - (prev as i64);
+                let timestamp = env.ledger().timestamp();
                 events::score_jump_anomaly(
                     env,
                     wallet,
@@ -5058,8 +5089,9 @@ impl LedgerLensScoreContract {
                     new_score,
                     delta,
                     model_version,
-                    env.ledger().timestamp(),
+                    timestamp,
                 );
+                storage::record_jump_stats(env, wallet, asset_pair, delta_abs, timestamp);
             }
         }
     }
