@@ -1,16 +1,15 @@
 use soroban_sdk::{
-    symbol_short,
-    testutils::{Address as _, Events as _, Ledger as _},
-    Address, Env, IntoVal, Symbol, Vec,
+    testutils::{Address as _, Ledger as _},
+    Address, Env,
 };
 
 use crate::{
-    BatchResult, Error, LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreSubmission,
+    LedgerLensScoreContract, LedgerLensScoreContractClient,
 };
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
-fn setup<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address, Address) {
+pub fn setup<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address, Address) {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -23,8 +22,9 @@ fn setup<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address, Address) {
     (env, client, admin, service)
 }
 
-fn initialized<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address, Address) {
+pub fn initialized<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address, Address) {
     let (env, client, admin, service) = setup();
+    env.ledger().with_mut(|l| l.timestamp = 100_000);
     client.initialize(&admin, &service);
     (env, client, admin, service)
 }
