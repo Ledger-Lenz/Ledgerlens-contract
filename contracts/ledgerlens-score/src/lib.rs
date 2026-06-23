@@ -75,27 +75,27 @@ pub struct LedgerLensScoreContract;
 impl LedgerLensScoreContract {
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
-    // One-time setup.  `admin` can rotate the scoring service address
-    // and manage contract-wide configuration; `service` is the off-chain
-    // LedgerLens account authorised to submit scores.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // assert_eq!(client.get_admin(), admin);
-    // assert_eq!(client.get_service(), service);
-    // ```
+    //// One-time setup.  `admin` can rotate the scoring service address
+    //// and manage contract-wide configuration; `service` is the off-chain
+    //// LedgerLens account authorised to submit scores.
+    ////
+    //// # Examples
+    ////
+    //// ```
+    //// # use ledgerlens_score::LedgerLensScoreContractClient;
+    //// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    //// # use ledgerlens_score::LedgerLensScoreContract;
+    //// # use soroban_sdk::symbol_short;
+    //// let env = Env::default();
+    //// env.mock_all_auths();
+    //// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    //// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    //// let admin = Address::generate(&env);
+    //// let service = Address::generate(&env);
+    //// client.initialize(&admin, &service);
+    //// assert_eq!(client.get_admin(), admin);
+    //// assert_eq!(client.get_service(), service);
+    //// ```
     pub fn initialize(env: Env, admin: Address, service: Address) -> Result<(), Error> {
         if storage::has_admin(&env) {
             return Err(Error::AlreadyInitialized);
@@ -105,81 +105,82 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Returns the baked-in ABI version of this contract build.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // assert_eq!(client.get_version(), 3);
-    // ```
+    //// Returns the baked-in ABI version of this contract build.
+    ////
+    //// # Examples
+    ////
+    //// ```
+    //// # use ledgerlens_score::LedgerLensScoreContractClient;
+    //// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    //// # use ledgerlens_score::LedgerLensScoreContract;
+    //// let env = Env::default();
+    //// env.mock_all_auths();
+    //// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    //// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    //// let admin = Address::generate(&env);
+    //// let service = Address::generate(&env);
+    //// client.initialize(&admin, &service);
+    //// assert_eq!(client.get_version(), 4);
+    //// ```
     pub fn get_version(env: Env) -> u32 {
+
         storage::get_contract_version(&env)
     }
 
     // ── Score submission ─────────────────────────────────────────────────────
 
-    // Register a freshly computed risk score for `wallet` / `asset_pair`.
-    //
-    // When a multi-sig service set has been configured (via
-    // `add_service_signer` / `set_service_threshold`), `signers` must
-    // contain at least `ServiceThreshold` addresses, each of which must be
-    // a member of `ServiceSet`.  Each listed signer must individually
-    // authorize the transaction via Soroban's native `require_auth`.
-    //
-    // When no multi-sig set has been configured (legacy mode) the function
-    // falls back to the original single-service authorization path.
-    //
-    // Returns `ContractPaused` if the admin has activated the global circuit
-    // breaker, checked *before* the per-pair one below — a globally paused
-    // contract rejects every submission regardless of per-pair state.
-    //
-    // Returns `PairPaused` if `asset_pair` has been individually frozen via
-    // `set_pair_paused`, even while the global circuit breaker is off. See
-    // that function's rustdoc for the surgical-freeze use case.
-    //
-    // Rejects submissions for the same `(wallet, asset_pair)` that arrive
-    // before the configured cooldown (`get_cooldown`, 1 hour by default) has
-    // elapsed since the last accepted one, returning `RateLimitExceeded`.
-    // See the README's Rate Limiting section.
-    //
-    // `attestation`, when present, is verified against the registered
-    // off-chain signing key (`set_service_pubkey`) per
-    // `docs/attestation-spec.md` — see that function's rustdoc for the
-    // opt-in enforcement model: once a pubkey is configured, every call
-    // must carry a valid attestation, but calls are unaffected (and
-    // `attestation` may be `None`) until the admin opts in.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let wallet = Address::generate(&env);
-    // let asset_pair = symbol_short!("XLM_USDC");
-    // client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &42, &true, &false, &1, &90, &1, &None).unwrap();
-    // let score = client.get_score(&wallet, &asset_pair).unwrap();
-    // assert_eq!(score.score, 42);
-    // assert!(score.benford_flag);
-    // ```
+    /// Register a freshly computed risk score for `wallet` / `asset_pair`.
+    ///
+    /// When a multi-sig service set has been configured (via
+    /// `add_service_signer` / `set_service_threshold`), `signers` must
+    /// contain at least `ServiceThreshold` addresses, each of which must be
+    /// a member of `ServiceSet`.  Each listed signer must individually
+    /// authorize the transaction via Soroban's native `require_auth`.
+    ///
+    /// When no multi-sig set has been configured (legacy mode) the function
+    /// falls back to the original single-service authorization path.
+    ///
+    /// Returns `ContractPaused` if the admin has activated the global circuit
+    /// breaker, checked *before* the per-pair one below — a globally paused
+    /// contract rejects every submission regardless of per-pair state.
+    ///
+    /// Returns `PairPaused` if `asset_pair` has been individually frozen via
+    /// `set_pair_paused`, even while the global circuit breaker is off. See
+    /// that function's rustdoc for the surgical-freeze use case.
+    ///
+    /// Rejects submissions for the same `(wallet, asset_pair)` that arrive
+    /// before the configured cooldown (`get_cooldown`, 1 hour by default) has
+    /// elapsed since the last accepted one, returning `RateLimitExceeded`.
+    /// See the README's Rate Limiting section.
+    ///
+    /// `attestation`, when present, is verified against the registered
+    /// off-chain signing key (`set_service_pubkey`) per
+    /// `docs/attestation-spec.md` — see that function's rustdoc for the
+    /// opt-in enforcement model: once a pubkey is configured, every call
+    /// must carry a valid attestation, but calls are unaffected (and
+    /// `attestation` may be `None`) until the admin opts in.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &42, &true, &false, &1, &90, &1, &None);
+    /// let score = client.get_score(&wallet, &asset_pair);
+    /// assert_eq!(score.score, 42);
+    /// assert!(score.benford_flag);
+    /// ```
     #[allow(clippy::too_many_arguments)]
     pub fn submit_score(
         env: Env,
@@ -360,51 +361,51 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Submit multiple risk scores in a single invocation.  The service
-    // account authorises once for the whole batch.  Returns a `BatchResult`
-    // that lists every entry's outcome so the caller knows exactly which
-    // entries succeeded and why any failed, without needing to re-query
-    // each (wallet, pair) individually.
-    //
-    // Entries targeting a paused pair (`PairPaused`), with out-of-range
-    // `score` or `confidence`, a zero `timestamp`, that arrive before
-    // their `(wallet, asset_pair)`'s submission cooldown has elapsed, or that
-    // fall below the configured score floor for a high-risk wallet
-    // (`BelowScoreFloor`), are recorded as rejected in the result with an
-    // appropriate `rejection_code` — the rest of the batch is still
-    // processed. The
-    // whole call instead fails outright with `ContractPaused` if the
-    // *global* circuit breaker is active, checked once up front. Two
-    // entries for the same pair within
-    // one batch are subject to the same cooldown — the second is rejected,
-    // since both share the same ledger timestamp.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreSubmission};
-    // # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let wallet1 = Address::generate(&env);
-    // let wallet2 = Address::generate(&env);
-    // let asset_pair = symbol_short!("XLM_USDC");
-    // let mut batch: Vec<ScoreSubmission> = Vec::new(&env);
-    // batch.push_back(ScoreSubmission { wallet: wallet1.clone(), asset_pair: asset_pair.clone(), score: 45, benford_flag: false, ml_flag: false, timestamp: 1000, confidence: 80, model_version: 2 });
-    // batch.push_back(ScoreSubmission { wallet: wallet2.clone(), asset_pair: asset_pair.clone(), score: 85, benford_flag: true, ml_flag: true, timestamp: 2000, confidence: 90, model_version: 2 });
-    // let result = client.submit_scores_batch(&batch);
-    // assert_eq!(result.accepted_count, 2);
-    // assert_eq!(result.rejected_count, 0);
-    // assert_eq!(result.results.len(), 2);
-    // assert_eq!(client.get_score(&wallet1, &asset_pair).unwrap().score, 45);
-    // assert_eq!(client.get_score(&wallet2, &asset_pair).unwrap().score, 85);
-    // ```
+    /// Submit multiple risk scores in a single invocation.  The service
+    /// account authorises once for the whole batch.  Returns a `BatchResult`
+    /// that lists every entry's outcome so the caller knows exactly which
+    /// entries succeeded and why any failed, without needing to re-query
+    /// each (wallet, pair) individually.
+    ///
+    /// Entries targeting a paused pair (`PairPaused`), with out-of-range
+    /// `score` or `confidence`, a zero `timestamp`, that arrive before
+    /// their `(wallet, asset_pair)`'s submission cooldown has elapsed, or that
+    /// fall below the configured score floor for a high-risk wallet
+    /// (`BelowScoreFloor`), are recorded as rejected in the result with an
+    /// appropriate `rejection_code` — the rest of the batch is still
+    /// processed. The
+    /// whole call instead fails outright with `ContractPaused` if the
+    /// *global* circuit breaker is active, checked once up front. Two
+    /// entries for the same pair within
+    /// one batch are subject to the same cooldown — the second is rejected,
+    /// since both share the same ledger timestamp.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreSubmission};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet1 = Address::generate(&env);
+    /// let wallet2 = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// let mut batch: Vec<ScoreSubmission> = Vec::new(&env);
+    /// batch.push_back(ScoreSubmission { wallet: wallet1.clone(), asset_pair: asset_pair.clone(), score: 45, benford_flag: false, ml_flag: false, timestamp: 1000, confidence: 80, model_version: 2 });
+    /// batch.push_back(ScoreSubmission { wallet: wallet2.clone(), asset_pair: asset_pair.clone(), score: 85, benford_flag: true, ml_flag: true, timestamp: 2000, confidence: 90, model_version: 2 });
+    /// let result = client.submit_scores_batch(&batch);
+    /// assert_eq!(result.accepted_count, 2);
+    /// assert_eq!(result.rejected_count, 0);
+    /// assert_eq!(result.results.len(), 2);
+    /// assert_eq!(client.get_score(&wallet1, &asset_pair).score, 45);
+    /// assert_eq!(client.get_score(&wallet2, &asset_pair).score, 85);
+    /// ```
     pub fn submit_scores_batch(
         env: Env,
         submissions: Vec<ScoreSubmission>,
@@ -535,104 +536,104 @@ impl LedgerLensScoreContract {
         Ok(BatchResult { accepted_count, rejected_count, results })
     }
 
-    // Submit multiple risk scores under a single Merkle-root attestation.
-    //
-    // Unlike [`submit_scores_batch`] — which only enforces Soroban's native
-    // service-account `require_auth` — this entry point requires the
-    // off-chain detection pipeline to produce **one** secp256k1 signature
-    // over the Merkle root of every entry's commitment, plus a per-entry
-    // inclusion proof that the contract walks through and verifies
-    // in-line. The cryptographic-payload-integrity gap that the plain
-    // `submit_scores_batch` leaves open is closed by this entry point.
-    //
-    // # Auth
-    //
-    // Same model as [`submit_score`]: when the admin has configured an
-    // M-of-N service set (`add_service_signer` / `set_service_threshold`),
-    // `signers` must contain at least `threshold` members of the set, each
-    // of which individually calls `require_auth`; otherwise the legacy
-    // single-service-account `require_auth` path runs.
-    //
-    // # Attestation
-    //
-    // Requires `attestation.merkle_root` to be a SHA-256 root over the
-    // `0x00`-prefixed leaf commitments of every entry (see
-    // `docs/batch-attestation-spec.md` for the off-chain tree-construction
-    // algorithm and a worked 4-leaf example), and `attestation.signature`
-    // to be a valid secp256k1 signature over `SHA256(merkle_root)`
-    // — not over `merkle_root` directly — recoverable to the key
-    // registered via `set_service_pubkey`.
-    //
-    // The `SHA256(merkle_root)` wrap is a soroban-sdk 21.x API shim:
-    // `env.crypto().secp256k1_recover` consumes an opaque `Hash<32>`
-    // that has no public constructor, so both sides wrap once via
-    // `env.crypto().sha256`. See [`BatchAttestation`]'s rustdoc for the
-    // full convention and §5 of the spec for the rationale.
-    //
-    // **The service pubkey must already be configured.** Unlike the
-    // opt-in `submit_score` path (which silently ignores `attestation`
-    // until a pubkey is set), this function returns
-    // [`Error::ServicePubkeyNotSet`] if no pubkey exists — there is no
-    // way to "skip attestation" on the batch path, because then the
-    // security property is gone.
-    //
-    // # Per-entry validation
-    //
-    // Each entry is rejected individually (with `rejection_code =
-    // Error::InvalidAttestation as u32`) on a Merkle-proof mismatch or on
-    // `proof.len() > MAX_MERKLE_PROOF_DEPTH`. Entries that pass the
-    // Merkle check then proceed through the same validation pipeline as
-    // [`submit_scores_batch`]: score range, confidence range, timestamp
-    // non-zero, and per-(wallet, pair) submission cooldown. Any of those
-    // failures are reported in the entry's `rejection_code`. The whole
-    // batch is **never** aborted by a single bad entry.
-    //
-    // # Worked example (4-leaf batch)
-    //
-    // Given four submissions whose 32-byte underlying commitments are
-    // `C0, C1, C2, C3`, the off-chain pipeline builds:
-    //
-    // ```text
-    // L0 = SHA256(0x00 || C0)
-    // L1 = SHA256(0x00 || C1)
-    // L2 = SHA256(0x00 || C2)
-    // L3 = SHA256(0x00 || C3)
-    // N0 = SHA256(0x01 || L0 || L1)   // proof_flags bit 0 for L1 = 0 (right sibling)
-    // N1 = SHA256(0x01 || L2 || L3)   // proof_flags bit 0 for L3 = 0 (right sibling)
-    // R  = SHA256(0x01 || N0 || N1)   // root
-    // ```
-    //
-    // The per-entry proofs are:
-    //
-    // | Index | `proof`            | `proof_flags` |
-    // |------:|-------------------|--------------:|
-    // |   0   | `[L1, N1]`         | `0b000` (= 0) |
-    // |   1   | `[L0, N1]`         | `0b001` (= 1) |
-    // |   2   | `[L3, N0]`         | `0b010` (= 2) |
-    // |   3   | `[L2, N0]`         | `0b011` (= 3) |
-    //
-    // The off-chain pipeline signs `R` with the secp256k1 key registered
-    // via `set_service_pubkey` and submits the batch with `attestation =
-    // { merkle_root: R, signature: sig }`.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::{
-    // #     BatchAttestation, LedgerLensScoreContract, LedgerLensScoreContractClient,
-    // #     ScoreSubmissionWithProof,
-    // # };
-    // # use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // // The `submit_scores_batch_attested` new entry point surfaces as a new
-    // // public capability under `supports_interface("batch_attested")`:
-    // let batch_attested_cap = soroban_sdk::Symbol::new(&env, "batch_attested");
-    // assert!(client.supports_interface(&batch_attested_cap));
-    // ```
+    /// Submit multiple risk scores under a single Merkle-root attestation.
+    ///
+    /// Unlike [`submit_scores_batch`] — which only enforces Soroban's native
+    /// service-account `require_auth` — this entry point requires the
+    /// off-chain detection pipeline to produce **one** secp256k1 signature
+    /// over the Merkle root of every entry's commitment, plus a per-entry
+    /// inclusion proof that the contract walks through and verifies
+    /// in-line. The cryptographic-payload-integrity gap that the plain
+    /// `submit_scores_batch` leaves open is closed by this entry point.
+    ///
+    /// # Auth
+    ///
+    /// Same model as [`submit_score`]: when the admin has configured an
+    /// M-of-N service set (`add_service_signer` / `set_service_threshold`),
+    /// `signers` must contain at least `threshold` members of the set, each
+    /// of which individually calls `require_auth`; otherwise the legacy
+    /// single-service-account `require_auth` path runs.
+    ///
+    /// # Attestation
+    ///
+    /// Requires `attestation.merkle_root` to be a SHA-256 root over the
+    /// `0x00`-prefixed leaf commitments of every entry (see
+    /// `docs/batch-attestation-spec.md` for the off-chain tree-construction
+    /// algorithm and a worked 4-leaf example), and `attestation.signature`
+    /// to be a valid secp256k1 signature over `SHA256(merkle_root)`
+    /// — not over `merkle_root` directly — recoverable to the key
+    /// registered via `set_service_pubkey`.
+    ///
+    /// The `SHA256(merkle_root)` wrap is a soroban-sdk 21.x API shim:
+    /// `env.crypto().secp256k1_recover` consumes an opaque `Hash<32>`
+    /// that has no public constructor, so both sides wrap once via
+    /// `env.crypto().sha256`. See [`BatchAttestation`]'s rustdoc for the
+    /// full convention and §5 of the spec for the rationale.
+    ///
+    /// **The service pubkey must already be configured.** Unlike the
+    /// opt-in `submit_score` path (which silently ignores `attestation`
+    /// until a pubkey is set), this function returns
+    /// [`Error::ServicePubkeyNotSet`] if no pubkey exists — there is no
+    /// way to "skip attestation" on the batch path, because then the
+    /// security property is gone.
+    ///
+    /// # Per-entry validation
+    ///
+    /// Each entry is rejected individually (with `rejection_code =
+    /// Error::InvalidAttestation as u32`) on a Merkle-proof mismatch or on
+    /// `proof.len() > MAX_MERKLE_PROOF_DEPTH`. Entries that pass the
+    /// Merkle check then proceed through the same validation pipeline as
+    /// [`submit_scores_batch`]: score range, confidence range, timestamp
+    /// non-zero, and per-(wallet, pair) submission cooldown. Any of those
+    /// failures are reported in the entry's `rejection_code`. The whole
+    /// batch is **never** aborted by a single bad entry.
+    ///
+    /// # Worked example (4-leaf batch)
+    ///
+    /// Given four submissions whose 32-byte underlying commitments are
+    /// `C0, C1, C2, C3`, the off-chain pipeline builds:
+    ///
+    /// ```text
+    /// L0 = SHA256(0x00 || C0)
+    /// L1 = SHA256(0x00 || C1)
+    /// L2 = SHA256(0x00 || C2)
+    /// L3 = SHA256(0x00 || C3)
+    /// N0 = SHA256(0x01 || L0 || L1)   // proof_flags bit 0 for L1 = 0 (right sibling)
+    /// N1 = SHA256(0x01 || L2 || L3)   // proof_flags bit 0 for L3 = 0 (right sibling)
+    /// R  = SHA256(0x01 || N0 || N1)   // root
+    /// ```
+    ///
+    /// The per-entry proofs are:
+    ///
+    /// | Index | `proof`            | `proof_flags` |
+    /// |------:|-------------------|--------------:|
+    /// |   0   | `[L1, N1]`         | `0b000` (= 0) |
+    /// |   1   | `[L0, N1]`         | `0b001` (= 1) |
+    /// |   2   | `[L3, N0]`         | `0b010` (= 2) |
+    /// |   3   | `[L2, N0]`         | `0b011` (= 3) |
+    ///
+    /// The off-chain pipeline signs `R` with the secp256k1 key registered
+    /// via `set_service_pubkey` and submits the batch with `attestation =
+    /// { merkle_root: R, signature: sig }`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{
+    /// #     BatchAttestation, LedgerLensScoreContract, LedgerLensScoreContractClient,
+    /// #     ScoreSubmissionWithProof,
+    /// # };
+    /// # use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// // The `submit_scores_batch_attested` new entry point surfaces as a new
+    /// // public capability under `supports_interface("batch_attested")`:
+    /// let batch_attested_cap = soroban_sdk::Symbol::new(&env, "batch_attested");
+    /// assert!(client.supports_interface(&batch_attested_cap));
+    /// ```
     #[allow(clippy::too_many_arguments)]
     pub fn submit_scores_batch_attested(
         env: Env,
@@ -811,29 +812,29 @@ impl LedgerLensScoreContract {
 
     // ── Score retrieval ──────────────────────────────────────────────────────
 
-    // Read-only lookup of the latest risk score for `wallet` / `asset_pair`.
-    // Callable by any account or contract.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let wallet = Address::generate(&env);
-    // let asset_pair = symbol_short!("XLM_USDC");
-    // client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &10, &false, &false, &1, &50, &1, &None).unwrap();
-    // let score = client.get_score(&wallet, &asset_pair);
-    // assert_eq!(score.score, 10);
-    // ```
+    /// Read-only lookup of the latest risk score for `wallet` / `asset_pair`.
+    /// Callable by any account or contract.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &10, &false, &false, &1, &50, &1, &None);
+    /// let score = client.get_score(&wallet, &asset_pair);
+    /// assert_eq!(score.score, 10);
+    /// ```
     pub fn get_score(env: Env, wallet: Address, asset_pair: Symbol) -> Result<RiskScore, Error> {
         if storage::is_embargoed(&env, &wallet) {
             return Err(Error::ScoreEmbargoed);
@@ -850,37 +851,37 @@ impl LedgerLensScoreContract {
         }
     }
 
-    // Read-only lookup of the live decay-adjusted score for `wallet` / `asset_pair`.
-    // Applies the configured exponential decay rate to the stored raw score
-    // based on elapsed time since submission. A pure read with no state mutation.
-    //
-    // When no decay is configured (`λ = 0`), `effective_score == raw_score` and
-    // `decay_applied == false`.
-    //
-    // # Errors
-    // - [`Error::ScoreNotFound`] if no score exists for this pair (or its delegate).
-    // - [`Error::ScoreEmbargoed`] if the wallet is under an active embargo.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient, EffectiveRiskScore};
-    // # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let wallet = Address::generate(&env);
-    // let asset_pair = symbol_short!("XLM_USDC");
-    // client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &42, &true, &false, &1, &90, &1, &None).unwrap();
-    // let eff = client.get_effective_score(&wallet, &asset_pair).unwrap();
-    // assert_eq!(eff.raw_score, 42);
-    // assert!(!eff.decay_applied);
-    // ```
+    /// Read-only lookup of the live decay-adjusted score for `wallet` / `asset_pair`.
+    /// Applies the configured exponential decay rate to the stored raw score
+    /// based on elapsed time since submission. A pure read with no state mutation.
+    ///
+    /// When no decay is configured (`λ = 0`), `effective_score == raw_score` and
+    /// `decay_applied == false`.
+    ///
+    /// # Errors
+    /// - [`Error::ScoreNotFound`] if no score exists for this pair (or its delegate).
+    /// - [`Error::ScoreEmbargoed`] if the wallet is under an active embargo.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient, EffectiveRiskScore};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &42, &true, &false, &1, &90, &1, &None);
+    /// let eff = client.get_effective_score(&wallet, &asset_pair);
+    /// assert_eq!(eff.raw_score, 42);
+    /// assert!(!eff.decay_applied);
+    /// ```
     pub fn get_effective_score(
         env: Env,
         wallet: Address,
@@ -931,35 +932,35 @@ impl LedgerLensScoreContract {
         })
     }
 
-    // Returns the ordered history of the last `HISTORY_MAX_DEPTH` risk scores
-    // for `wallet` / `asset_pair`, oldest first.  Returns an empty Vec when no
-    // scores have been submitted yet.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::{Address as _, Ledger as _}, Env, Address, Vec};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let wallet = Address::generate(&env);
-    // let asset_pair = symbol_short!("XLM_USDC");
-    // client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &10, &false, &false, &1, &50, &1, &None).unwrap();
-    // // Advance past the default 1-hour cooldown before re-scoring the same pair.
-    // env.ledger().with_mut(|l| l.timestamp += 3_601);
-    // client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &20, &false, &false, &2, &60, &1, &None).unwrap();
-    // let history = client.get_score_history(&wallet, &asset_pair);
-    // assert_eq!(history.len(), 2);
-    // assert_eq!(history.get(0).unwrap().score, 10);
-    // assert_eq!(history.get(1).unwrap().score, 20);
-    // ```
+    /// Returns the ordered history of the last `HISTORY_MAX_DEPTH` risk scores
+    /// for `wallet` / `asset_pair`, oldest first.  Returns an empty Vec when no
+    /// scores have been submitted yet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::{Address as _, Ledger as _}, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &10, &false, &false, &1, &50, &1, &None);
+    /// // Advance past the default 1-hour cooldown before re-scoring the same pair.
+    /// env.ledger().with_mut(|l| l.timestamp += 3_601);
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &20, &false, &false, &2, &60, &1, &None);
+    /// let history = client.get_score_history(&wallet, &asset_pair);
+    /// assert_eq!(history.len(), 2);
+    /// assert_eq!(history.get(0).unwrap().score, 10);
+    /// assert_eq!(history.get(1).unwrap().score, 20);
+    /// ```
     pub fn get_score_history(env: Env, wallet: Address, asset_pair: Symbol) -> Vec<RiskScore> {
         if storage::is_embargoed(&env, &wallet) {
             return Vec::new(&env);
@@ -967,149 +968,149 @@ impl LedgerLensScoreContract {
         storage::get_score_history(&env, &wallet, &asset_pair)
     }
 
-    // Returns the total number of score submissions ever recorded for
-    // `wallet` / `asset_pair`.
-    //
-    // Unlike `get_score_history` (which caps at [`HISTORY_MAX_DEPTH`]),
-    // this counter is **never truncated** — it reflects every successful
-    // submission since the first. This gives off-chain indexers and
-    // integrators a cheap, O(1) signal to distinguish a newly monitored
-    // wallet (count = 1) from one with a long scoring history (count > 10
-    // after ring-buffer overflow).
-    //
-    // Returns 0 when no scores have ever been submitted for this pair.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let wallet = Address::generate(&env);
-    // let asset_pair = symbol_short!("XLM_USDC");
-    // assert_eq!(client.get_score_count(&wallet, &asset_pair), 0);
-    // client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &50, &false, &false, &1, &90, &1, &None).unwrap();
-    // assert_eq!(client.get_score_count(&wallet, &asset_pair), 1);
-    // ```
+    /// Returns the total number of score submissions ever recorded for
+    /// `wallet` / `asset_pair`.
+    ///
+    /// Unlike `get_score_history` (which caps at [`HISTORY_MAX_DEPTH`]),
+    /// this counter is **never truncated** — it reflects every successful
+    /// submission since the first. This gives off-chain indexers and
+    /// integrators a cheap, O(1) signal to distinguish a newly monitored
+    /// wallet (count = 1) from one with a long scoring history (count > 10
+    /// after ring-buffer overflow).
+    ///
+    /// Returns 0 when no scores have ever been submitted for this pair.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// assert_eq!(client.get_score_count(&wallet, &asset_pair), 0);
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &50, &false, &false, &1, &90, &1, &None);
+    /// assert_eq!(client.get_score_count(&wallet, &asset_pair), 1);
+    /// ```
     pub fn get_score_count(env: Env, wallet: Address, asset_pair: Symbol) -> u32 {
         storage::get_score_count(&env, &wallet, &asset_pair)
     }
 
     // ── Model-version statistics ────────────────────────────────────────────
 
-    // Returns the running performance statistics for `model_version`.
-    //
-    // Tracked on-chain so operators can detect model drift and distinguish
-    // between a model that consistently scores 90 and one that has drifted to
-    // systematically score near the threshold.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let wallet = Address::generate(&env);
-    // let pair = symbol_short!("XLM_USDC");
-    // client.submit_score(&Vec::new(&env), &wallet, &pair, &50, &false, &false, &1, &90, &1, &None).unwrap();
-    // let stats = client.get_model_version_stats(&1).unwrap();
-    // assert_eq!(stats.submission_count, 1);
-    // assert_eq!(stats.score_sum, 50);
-    // ```
-    //
-    // # Errors
-    // - [`Error::NotFound`] if no scores have ever been submitted for this version.
+    /// Returns the running performance statistics for `model_version`.
+    ///
+    /// Tracked on-chain so operators can detect model drift and distinguish
+    /// between a model that consistently scores 90 and one that has drifted to
+    /// systematically score near the threshold.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &pair, &50, &false, &false, &1, &90, &1, &None);
+    /// let stats = client.get_model_version_stats(&1);
+    /// assert_eq!(stats.submission_count, 1);
+    /// assert_eq!(stats.score_sum, 50);
+    /// ```
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`] if no scores have ever been submitted for this version.
     pub fn get_model_version_stats(env: Env, model_version: u32) -> Result<ModelVersionStats, Error> {
         storage::get_model_stats(&env, model_version).ok_or(Error::NotFound)
     }
 
-    // Returns a sorted list of every model version the contract has seen.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let wallet = Address::generate(&env);
-    // let pair = symbol_short!("XLM_USDC");
-    // client.submit_score(&Vec::new(&env), &wallet, &pair, &50, &false, &false, &1, &90, &1, &None).unwrap();
-    // let versions = client.get_all_model_versions();
-    // assert_eq!(versions.len(), 1);
-    // assert_eq!(versions.get(0).unwrap(), 1);
-    // ```
+    /// Returns a sorted list of every model version the contract has seen.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &pair, &50, &false, &false, &1, &90, &1, &None);
+    /// let versions = client.get_all_model_versions();
+    /// assert_eq!(versions.len(), 1);
+    /// assert_eq!(versions.get(0).unwrap(), 1);
+    /// ```
     pub fn get_all_model_versions(env: Env) -> Vec<u32> {
         storage::get_all_model_versions(&env)
     }
 
     // ── History ring-buffer depth ────────────────────────────────────────────
 
-    // Sets the maximum number of history entries retained in the per-wallet /
-    // per-asset-pair ring buffer.  Admin only.
-    //
-    // `depth` must be in the range `[1, MAX_HISTORY_DEPTH]` (currently 1–50);
-    // passing `0` or a value above the ceiling returns
-    // [`Error::InvalidConfigValue`].
-    //
-    // # Lazy-truncation behaviour on depth decrease
-    //
-    // Reducing the depth does **not** retroactively remove existing entries
-    // from storage immediately.  Entries that exceed the new cap remain in the
-    // ring until the next `submit_score` (or `submit_scores_batch`) call for
-    // that `(wallet, asset_pair)` triggers the eviction loop inside
-    // `push_score_history`.  On that next write the ring is trimmed to the new
-    // depth in a single pass, so the transition is bounded and deterministic —
-    // it just isn't instantaneous.  Off-chain consumers that read
-    // `get_score_history` between the depth change and the next submission may
-    // temporarily observe more entries than the new cap; they should treat the
-    // returned length as authoritative rather than assuming it equals the
-    // configured depth.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // client.set_history_max_depth(&Vec::new(&env), &20).unwrap();
-    // assert_eq!(client.get_history_max_depth(), 20);
-    // ```
-    //
-    // # Errors
-    // - [`Error::NotInitialized`] if the contract has no admin yet.
-    // - [`Error::InvalidConfigValue`] if `depth` is `0` or above
-    //   `MAX_HISTORY_DEPTH` (50).
+    /// Sets the maximum number of history entries retained in the per-wallet /
+    /// per-asset-pair ring buffer.  Admin only.
+    ///
+    /// `depth` must be in the range `[1, MAX_HISTORY_DEPTH]` (currently 1–50);
+    /// passing `0` or a value above the ceiling returns
+    /// [`Error::InvalidConfigValue`].
+    ///
+    /// # Lazy-truncation behaviour on depth decrease
+    ///
+    /// Reducing the depth does **not** retroactively remove existing entries
+    /// from storage immediately.  Entries that exceed the new cap remain in the
+    /// ring until the next `submit_score` (or `submit_scores_batch`) call for
+    /// that `(wallet, asset_pair)` triggers the eviction loop inside
+    /// `push_score_history`.  On that next write the ring is trimmed to the new
+    /// depth in a single pass, so the transition is bounded and deterministic —
+    /// it just isn't instantaneous.  Off-chain consumers that read
+    /// `get_score_history` between the depth change and the next submission may
+    /// temporarily observe more entries than the new cap; they should treat the
+    /// returned length as authoritative rather than assuming it equals the
+    /// configured depth.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_history_max_depth(&Vec::new(&env), &20);
+    /// assert_eq!(client.get_history_max_depth(), 20);
+    /// ```
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::InvalidConfigValue`] if `depth` is `0` or above
+    ///   `MAX_HISTORY_DEPTH` (50).
     pub fn set_history_max_depth(
         env: Env,
         admin_signers: Vec<Address>,
@@ -1127,24 +1128,24 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Returns the current history ring-buffer depth.  Defaults to
-    // `DEFAULT_HISTORY_MAX_DEPTH` (10) until the admin sets one explicitly.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // assert_eq!(client.get_history_max_depth(), 10);
-    // ```
+    /// Returns the current history ring-buffer depth.  Defaults to
+    /// `DEFAULT_HISTORY_MAX_DEPTH` (10) until the admin sets one explicitly.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_history_max_depth(), 10);
+    /// ```
     pub fn get_history_max_depth(env: Env) -> u32 {
         storage::get_history_max_depth(&env)
     }
@@ -1247,28 +1248,28 @@ impl LedgerLensScoreContract {
         Self::compute_aggregate_score(&env, &wallet)
     }
 
-    // Sets the weight used for `asset_pair` in the aggregate risk
-    // computation. A weight of `0` excludes the pair from the weighted
-    // average's denominator entirely. Admin only.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let pair = symbol_short!("XLM_USDC");
-    // client.set_pair_weight(&Vec::new(&env), &pair, &3).unwrap();
-    // assert_eq!(client.get_pair_weight(&pair), 3);
-    // ```
+    /// Sets the weight used for `asset_pair` in the aggregate risk
+    /// computation. A weight of `0` excludes the pair from the weighted
+    /// average's denominator entirely. Admin only.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// client.set_pair_weight(&Vec::new(&env), &pair, &3);
+    /// assert_eq!(client.get_pair_weight(&pair), 3);
+    /// ```
     pub fn set_pair_weight(
         env: Env,
         admin_signers: Vec<Address>,
@@ -1292,32 +1293,32 @@ impl LedgerLensScoreContract {
 
     // ── Global minimum confidence floor ──────────────────────────────────────
 
-    // Set the admin-configured global minimum confidence floor (0–100).
-    //
-    // When set, every call to [`query_gate_with_confidence`] uses
-    // `max(min_confidence_param, global_min_confidence)` as the effective
-    // floor. This lets the contract operator enforce a system-wide minimum
-    // confidence without requiring every integrating protocol to specify one.
-    //
-    // Using `max` ensures the stricter of the two floors always wins —
-    // neither the admin nor the caller can unilaterally weaken the other's
-    // floor. Both values are bounded to `0..=100`, so overflow is impossible:
-    // `max(a, b)` where `a, b ≤ 100` is at most `100`.
-    //
-    // Admin only. Valid range: `0..=100`.
-    //
-    // # Examples
-    //
-    // Set a floor of 60 — calls with `min_confidence < 60` will still use 60:
-    // ```ignore
-    // client.set_global_min_confidence(&60).unwrap();
-    // assert_eq!(client.get_global_min_confidence(), 60);
-    // // query with min_confidence=30 → effective floor = max(30, 60) = 60
-    // ```
-    //
-    // # Errors
-    // - [`Error::NotInitialized`] if the contract has no admin yet.
-    // - [`Error::InvalidConfigValue`] if `min_confidence > 100`.
+    /// Set the admin-configured global minimum confidence floor (0–100).
+    ///
+    /// When set, every call to [`query_gate_with_confidence`] uses
+    /// `max(min_confidence_param, global_min_confidence)` as the effective
+    /// floor. This lets the contract operator enforce a system-wide minimum
+    /// confidence without requiring every integrating protocol to specify one.
+    ///
+    /// Using `max` ensures the stricter of the two floors always wins —
+    /// neither the admin nor the caller can unilaterally weaken the other's
+    /// floor. Both values are bounded to `0..=100`, so overflow is impossible:
+    /// `max(a, b)` where `a, b ≤ 100` is at most `100`.
+    ///
+    /// Admin only. Valid range: `0..=100`.
+    ///
+    /// # Examples
+    ///
+    /// Set a floor of 60 — calls with `min_confidence < 60` will still use 60:
+    /// ```ignore
+    /// client.set_global_min_confidence(&60);
+    /// assert_eq!(client.get_global_min_confidence(), 60);
+    /// // query with min_confidence=30 → effective floor = max(30, 60) = 60
+    /// ```
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::InvalidConfigValue`] if `min_confidence > 100`.
     pub fn set_global_min_confidence(env: Env, min_confidence: u32) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
@@ -1331,22 +1332,22 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Returns the admin-configured global minimum confidence floor.
-    // Defaults to `0` (no global floor) until [`set_global_min_confidence`]
-    // is called.
-    //
-    // This value is combined with the per-call `min_confidence` parameter in
-    // [`query_gate_with_confidence`] using `max(param, global)` so the
-    // stricter of the two floors always applies.
-    //
-    // # Examples
-    //
-    // ```ignore
-    // // Before any admin configuration → 0 (no floor).
-    // assert_eq!(client.get_global_min_confidence(), 0);
-    // client.set_global_min_confidence(&70).unwrap();
-    // assert_eq!(client.get_global_min_confidence(), 70);
-    // ```
+    /// Returns the admin-configured global minimum confidence floor.
+    /// Defaults to `0` (no global floor) until [`set_global_min_confidence`]
+    /// is called.
+    ///
+    /// This value is combined with the per-call `min_confidence` parameter in
+    /// [`query_gate_with_confidence`] using `max(param, global)` so the
+    /// stricter of the two floors always applies.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Before any admin configuration → 0 (no floor).
+    /// assert_eq!(client.get_global_min_confidence(), 0);
+    /// client.set_global_min_confidence(&70);
+    /// assert_eq!(client.get_global_min_confidence(), 70);
+    /// ```
     pub fn get_global_min_confidence(env: Env) -> u32 {
         storage::get_global_min_confidence(&env)
     }
@@ -1361,38 +1362,38 @@ impl LedgerLensScoreContract {
     // spec — do not change them without bumping `CONTRACT_VERSION` and the
     // interface version, and announcing a breaking change.
 
-    // Infallible cross-contract risk gate.
-    //
-    // Returns `true` when the wallet's latest risk score for `asset_pair`
-    // is **strictly below** `gate_threshold` — i.e. the wallet is considered
-    // safe to proceed. Returns `false` when:
-    //
-    // * the score is `>= gate_threshold` (too risky), **or**
-    // * no score exists for the `(wallet, asset_pair)` pair.
-    //
-    // The "no score" case deliberately returns `false` (the *conservative*
-    // default): an integrating protocol should treat wallets it has no
-    // information about as potentially risky rather than waving them through.
-    //
-    // This function is **infallible** (returns `bool`, never `Result`) and
-    // **side-effect free** — it performs a pure read that does not even
-    // extend storage TTL. It is designed to be called directly from inside
-    // another contract's authorization / guard logic: it can never panic and
-    // can never propagate an `Error` back into the caller, so it cannot be
-    // used to grief the calling protocol's gas or disable its security guard.
-    //
-    // This function delegates to [`query_gate_with_confidence`] with
-    // `min_confidence = 0`, meaning no confidence floor is applied. All
-    // logic lives in one place to eliminate duplication.
-    //
-    // # Example (caller side)
-    //
-    // ```ignore
-    // let client = LedgerLensScoreContractClient::new(&env, &llens_id);
-    // if !client.query_risk_gate(&user, &symbol_short!("XLM_USDC"), &75) {
-    //     return Err(MyError::HighRiskWallet);
-    // }
-    // ```
+    /// Infallible cross-contract risk gate.
+    ///
+    /// Returns `true` when the wallet's latest risk score for `asset_pair`
+    /// is **strictly below** `gate_threshold` — i.e. the wallet is considered
+    /// safe to proceed. Returns `false` when:
+    ///
+    /// * the score is `>= gate_threshold` (too risky), **or**
+    /// * no score exists for the `(wallet, asset_pair)` pair.
+    ///
+    /// The "no score" case deliberately returns `false` (the *conservative*
+    /// default): an integrating protocol should treat wallets it has no
+    /// information about as potentially risky rather than waving them through.
+    ///
+    /// This function is **infallible** (returns `bool`, never `Result`) and
+    /// **side-effect free** — it performs a pure read that does not even
+    /// extend storage TTL. It is designed to be called directly from inside
+    /// another contract's authorization / guard logic: it can never panic and
+    /// can never propagate an `Error` back into the caller, so it cannot be
+    /// used to grief the calling protocol's gas or disable its security guard.
+    ///
+    /// This function delegates to [`query_gate_with_confidence`] with
+    /// `min_confidence = 0`, meaning no confidence floor is applied. All
+    /// logic lives in one place to eliminate duplication.
+    ///
+    /// # Example (caller side)
+    ///
+    /// ```ignore
+    /// let client = LedgerLensScoreContractClient::new(&env, &llens_id);
+    /// if !client.query_risk_gate(&user, &symbol_short!("XLM_USDC"), &75) {
+    ///     return Err(MyError::HighRiskWallet);
+    /// }
+    /// ```
     pub fn query_gate_with_confidence(
         env: Env,
         wallet: Address,
@@ -1683,27 +1684,27 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Complete a pending admin transfer.  Must be called by the address
-    // nominated in `transfer_admin`.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let new_admin = Address::generate(&env);
-    // client.transfer_admin(&Vec::new(&env), &new_admin);
-    // client.accept_admin();
-    // assert_eq!(client.get_admin(), new_admin);
-    // ```
+    /// Complete a pending admin transfer.  Must be called by the address
+    /// nominated in `transfer_admin`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let new_admin = Address::generate(&env);
+    /// client.transfer_admin(&Vec::new(&env), &new_admin);
+    /// client.accept_admin();
+    /// assert_eq!(client.get_admin(), new_admin);
+    /// ```
     pub fn accept_admin(env: Env) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
@@ -1716,26 +1717,26 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Cancel a pending admin transfer.  Admin only.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let new_admin = Address::generate(&env);
-    // client.transfer_admin(&Vec::new(&env), &new_admin);
-    // client.cancel_admin_transfer(&Vec::new(&env));
-    // assert_eq!(client.get_admin(), admin);
-    // ```
+    /// Cancel a pending admin transfer.  Admin only.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let new_admin = Address::generate(&env);
+    /// client.transfer_admin(&Vec::new(&env), &new_admin);
+    /// client.cancel_admin_transfer(&Vec::new(&env));
+    /// assert_eq!(client.get_admin(), admin);
+    /// ```
     pub fn cancel_admin_transfer(env: Env, admin_signers: Vec<Address>) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
@@ -1752,25 +1753,25 @@ impl LedgerLensScoreContract {
 
     // ── Pause circuit breaker ────────────────────────────────────────────────
 
-    // Pause the contract, blocking all score submissions.  Admin only.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // assert!(!client.is_paused());
-    // client.pause(&Vec::new(&env));
-    // assert!(client.is_paused());
-    // ```
+    /// Pause the contract, blocking all score submissions.  Admin only.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert!(!client.is_paused());
+    /// client.pause(&Vec::new(&env));
+    /// assert!(client.is_paused());
+    /// ```
     pub fn pause(env: Env, admin_signers: Vec<Address>) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
@@ -1782,26 +1783,26 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Resume normal operations after a pause.  Admin only.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // client.pause(&Vec::new(&env));
-    // assert!(client.is_paused());
-    // client.unpause(&Vec::new(&env));
-    // assert!(!client.is_paused());
-    // ```
+    /// Resume normal operations after a pause.  Admin only.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.pause(&Vec::new(&env));
+    /// assert!(client.is_paused());
+    /// client.unpause(&Vec::new(&env));
+    /// assert!(!client.is_paused());
+    /// ```
     pub fn unpause(env: Env, admin_signers: Vec<Address>) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
@@ -1813,73 +1814,73 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Returns `true` when the contract is paused.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // assert!(!client.is_paused());
-    // ```
+    /// Returns `true` when the contract is paused.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert!(!client.is_paused());
+    /// ```
     pub fn is_paused(env: Env) -> bool {
         storage::is_paused(&env)
     }
 
     // ── Per-asset-pair circuit breaker ────────────────────────────────────────
 
-    // Freeze or unfreeze score submissions for a single `asset_pair`, without
-    // touching any other pair or the global circuit breaker.  Admin only.
-    //
-    // This is the surgical alternative to [`pause`](Self::pause): if a
-    // detection signal for one pair (e.g. a bad `XLM_USDC` model run) is
-    // compromised or malfunctioning, the admin can freeze writes for just
-    // that pair while every other pair keeps accepting submissions normally.
-    // Reads (`get_score`, `get_score_history`, `query_risk_gate`,
-    // `get_aggregate_score`) are never affected — only `submit_score` and
-    // `submit_scores_batch` consult this flag. See those functions'
-    // rustdoc for the exact precedence against the global pause.
-    //
-    // Pausing a pair that is not already paused adds it to the bounded
-    // `PausedPairIndex` (see [`get_paused_pairs`](Self::get_paused_pairs));
-    // pausing an already-paused pair, or unpausing one, never grows it.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let pair = symbol_short!("XLM_USDC");
-    // assert!(!client.is_pair_paused(&pair));
-    // client.set_pair_paused(&pair, &true);
-    // assert!(client.is_pair_paused(&pair));
-    // // submit_score for this pair now returns Error::PairPaused, while
-    // // every other pair is unaffected.
-    // client.set_pair_paused(&pair, &false);
-    // assert!(!client.is_pair_paused(&pair));
-    // ```
-    //
-    // # Errors
-    // - [`Error::NotInitialized`] if the contract has no admin yet.
-    // - [`Error::PausedPairIndexFull`] if `asset_pair` is not already paused
-    //   and `PausedPairIndex` already holds `MAX_PAUSED_PAIRS` (50) entries.
+    /// Freeze or unfreeze score submissions for a single `asset_pair`, without
+    /// touching any other pair or the global circuit breaker.  Admin only.
+    ///
+    /// This is the surgical alternative to [`pause`](Self::pause): if a
+    /// detection signal for one pair (e.g. a bad `XLM_USDC` model run) is
+    /// compromised or malfunctioning, the admin can freeze writes for just
+    /// that pair while every other pair keeps accepting submissions normally.
+    /// Reads (`get_score`, `get_score_history`, `query_risk_gate`,
+    /// `get_aggregate_score`) are never affected — only `submit_score` and
+    /// `submit_scores_batch` consult this flag. See those functions'
+    /// rustdoc for the exact precedence against the global pause.
+    ///
+    /// Pausing a pair that is not already paused adds it to the bounded
+    /// `PausedPairIndex` (see [`get_paused_pairs`](Self::get_paused_pairs));
+    /// pausing an already-paused pair, or unpausing one, never grows it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// assert!(!client.is_pair_paused(&pair));
+    /// client.set_pair_paused(&pair, &true);
+    /// assert!(client.is_pair_paused(&pair));
+    /// // submit_score for this pair now returns Error::PairPaused, while
+    /// // every other pair is unaffected.
+    /// client.set_pair_paused(&pair, &false);
+    /// assert!(!client.is_pair_paused(&pair));
+    /// ```
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::PausedPairIndexFull`] if `asset_pair` is not already paused
+    ///   and `PausedPairIndex` already holds `MAX_PAUSED_PAIRS` (50) entries.
     pub fn set_pair_paused(env: Env, asset_pair: Symbol, paused: bool) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
@@ -1903,58 +1904,58 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Returns `true` only while `asset_pair` is individually paused via
-    // [`set_pair_paused`](Self::set_pair_paused). Returns `false` for any
-    // pair that has never been paused, callable by any account or contract.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let pair = symbol_short!("XLM_USDC");
-    // assert!(!client.is_pair_paused(&pair));
-    // ```
+    /// Returns `true` only while `asset_pair` is individually paused via
+    /// [`set_pair_paused`](Self::set_pair_paused). Returns `false` for any
+    /// pair that has never been paused, callable by any account or contract.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// assert!(!client.is_pair_paused(&pair));
+    /// ```
     pub fn is_pair_paused(env: Env, asset_pair: Symbol) -> bool {
         storage::is_pair_paused(&env, &asset_pair)
     }
 
-    // Returns every asset pair currently paused via
-    // [`set_pair_paused`](Self::set_pair_paused), in no particular order.
-    // Returns an empty `Vec` when nothing is paused. Backed by the
-    // incrementally-maintained `PausedPairIndex`, so this is an O(1)
-    // storage read regardless of how many pairs exist in the system overall
-    // — it is bounded by `MAX_PAUSED_PAIRS` (50), not by the total number of
-    // pairs ever scored.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // assert!(client.get_paused_pairs().is_empty());
-    // let pair = symbol_short!("XLM_USDC");
-    // client.set_pair_paused(&pair, &true);
-    // assert_eq!(client.get_paused_pairs().len(), 1);
-    // ```
+    /// Returns every asset pair currently paused via
+    /// [`set_pair_paused`](Self::set_pair_paused), in no particular order.
+    /// Returns an empty `Vec` when nothing is paused. Backed by the
+    /// incrementally-maintained `PausedPairIndex`, so this is an O(1)
+    /// storage read regardless of how many pairs exist in the system overall
+    /// — it is bounded by `MAX_PAUSED_PAIRS` (50), not by the total number of
+    /// pairs ever scored.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert!(client.get_paused_pairs().is_empty());
+    /// let pair = symbol_short!("XLM_USDC");
+    /// client.set_pair_paused(&pair, &true);
+    /// assert_eq!(client.get_paused_pairs().len(), 1);
+    /// ```
     pub fn get_paused_pairs(env: Env) -> Vec<Symbol> {
         storage::get_paused_pairs(&env)
     }
@@ -2126,28 +2127,28 @@ impl LedgerLensScoreContract {
 
     // ── Watchlist ────────────────────────────────────────────────────────────
 
-    // Add or remove `wallet` from the priority-monitoring watchlist.
-    // Watchlisted wallets receive elevated scrutiny in off-chain analysis.
-    // Admin only.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let wallet = Address::generate(&env);
-    // assert!(!client.is_watchlisted(&wallet));
-    // client.set_watchlist(&Vec::new(&env), &wallet, &true);
-    // assert!(client.is_watchlisted(&wallet));
-    // ```
+    /// Add or remove `wallet` from the priority-monitoring watchlist.
+    /// Watchlisted wallets receive elevated scrutiny in off-chain analysis.
+    /// Admin only.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// assert!(!client.is_watchlisted(&wallet));
+    /// client.set_watchlist(&Vec::new(&env), &wallet, &true);
+    /// assert!(client.is_watchlisted(&wallet));
+    /// ```
     pub fn set_watchlist(
         env: Env,
         admin_signers: Vec<Address>,
@@ -2163,58 +2164,58 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Returns `true` if `wallet` is on the priority-monitoring watchlist.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let wallet = Address::generate(&env);
-    // assert!(!client.is_watchlisted(&wallet));
-    // ```
+    /// Returns `true` if `wallet` is on the priority-monitoring watchlist.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// assert!(!client.is_watchlisted(&wallet));
+    /// ```
     pub fn is_watchlisted(env: Env, wallet: Address) -> bool {
         storage::is_watchlisted(&env, &wallet)
     }
 
     // ── Consecutive-breach auto-escalation ─────────────────────────────────────
 
-    // Set the escalation threshold N: after N consecutive high-risk
-    // submissions for a (wallet, asset_pair), an `escalation_triggered`
-    // event is emitted. Admin only.
-    //
-    // `n` must be in the range `[1, 100]`. A value of `1` causes
-    // `escalation_triggered` to fire on every single threshold breach.
-    // The default is 5.
-    //
-    // # Errors
-    // - [`Error::NotInitialized`] if the contract has no admin yet.
-    // - [`Error::InvalidConfigValue`] if `n` is below 1 or above 100.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // client.set_escalation_threshold(&Vec::new(&env), &3).unwrap();
-    // assert_eq!(client.get_escalation_threshold(), 3);
-    // ```
+    /// Set the escalation threshold N: after N consecutive high-risk
+    /// submissions for a (wallet, asset_pair), an `escalation_triggered`
+    /// event is emitted. Admin only.
+    ///
+    /// `n` must be in the range `[1, 100]`. A value of `1` causes
+    /// `escalation_triggered` to fire on every single threshold breach.
+    /// The default is 5.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::InvalidConfigValue`] if `n` is below 1 or above 100.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_escalation_threshold(&Vec::new(&env), &3);
+    /// assert_eq!(client.get_escalation_threshold(), 3);
+    /// ```
     pub fn set_escalation_threshold(
         env: Env,
         admin_signers: Vec<Address>,
@@ -2233,84 +2234,84 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Returns the current escalation threshold. Defaults to 5 until
-    // configured.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // assert_eq!(client.get_escalation_threshold(), 5);
-    // ```
+    /// Returns the current escalation threshold. Defaults to 5 until
+    /// configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_escalation_threshold(), 5);
+    /// ```
     pub fn get_escalation_threshold(env: Env) -> u32 {
         storage::get_escalation_threshold(&env)
     }
 
-    // Returns the current consecutive breach count for `(wallet, asset_pair)`.
-    // Read-only, callable by any account. Returns 0 when no breaches have
-    // occurred.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let wallet = Address::generate(&env);
-    // let asset_pair = symbol_short!("XLM_USDC");
-    // assert_eq!(client.get_breach_count(&wallet, &asset_pair), 0);
-    // client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &90, &true, &true, &1, &95, &1, &None).unwrap();
-    // assert_eq!(client.get_breach_count(&wallet, &asset_pair), 1);
-    // ```
+    /// Returns the current consecutive breach count for `(wallet, asset_pair)`.
+    /// Read-only, callable by any account. Returns 0 when no breaches have
+    /// occurred.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// assert_eq!(client.get_breach_count(&wallet, &asset_pair), 0);
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &90, &true, &true, &1, &95, &1, &None);
+    /// assert_eq!(client.get_breach_count(&wallet, &asset_pair), 1);
+    /// ```
     pub fn get_breach_count(env: Env, wallet: Address, asset_pair: Symbol) -> u32 {
         storage::get_breach_count(&env, &wallet, &asset_pair)
     }
 
-    // Emergency override: clears the consecutive breach counter for
-    // `(wallet, asset_pair)` without emitting `escalation_resolved`.
-    // Admin only. Intended for use after a false-positive bust.
-    //
-    // # Errors
-    // - [`Error::NotInitialized`] if the contract has no admin yet.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let wallet = Address::generate(&env);
-    // let asset_pair = symbol_short!("XLM_USDC");
-    // client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &90, &true, &true, &1, &95, &1, &None).unwrap();
-    // assert_eq!(client.get_breach_count(&wallet, &asset_pair), 1);
-    // client.reset_breach_count(&Vec::new(&env), &wallet, &asset_pair).unwrap();
-    // assert_eq!(client.get_breach_count(&wallet, &asset_pair), 0);
-    // ```
+    /// Emergency override: clears the consecutive breach counter for
+    /// `(wallet, asset_pair)` without emitting `escalation_resolved`.
+    /// Admin only. Intended for use after a false-positive bust.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &90, &true, &true, &1, &95, &1, &None);
+    /// assert_eq!(client.get_breach_count(&wallet, &asset_pair), 1);
+    /// client.reset_breach_count(&Vec::new(&env), &wallet, &asset_pair);
+    /// assert_eq!(client.get_breach_count(&wallet, &asset_pair), 0);
+    /// ```
     pub fn reset_breach_count(
         env: Env,
         admin_signers: Vec<Address>,
@@ -2327,26 +2328,26 @@ impl LedgerLensScoreContract {
 
     // ── Risk threshold ───────────────────────────────────────────────────────
 
-    // Set the global risk threshold (0-100).  Scores at or above this
-    // value will emit a `threshold_breached` event on every submission.
-    // Admin only.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // client.set_risk_threshold(&Vec::new(&env), &80);
-    // assert_eq!(client.get_risk_threshold(), 80);
-    // ```
+    /// Set the global risk threshold (0-100).  Scores at or above this
+    /// value will emit a `threshold_breached` event on every submission.
+    /// Admin only.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_risk_threshold(&Vec::new(&env), &80);
+    /// assert_eq!(client.get_risk_threshold(), 80);
+    /// ```
     pub fn set_risk_threshold(
         env: Env,
         admin_signers: Vec<Address>,
@@ -2365,51 +2366,51 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Returns the current risk threshold.  Defaults to 75 until configured.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // assert_eq!(client.get_risk_threshold(), 75);
-    // ```
+    /// Returns the current risk threshold.  Defaults to 75 until configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_risk_threshold(), 75);
+    /// ```
     pub fn get_risk_threshold(env: Env) -> u32 {
         storage::get_risk_threshold(&env)
     }
 
     // ── Score jump anomaly detection ──────────────────────────────────────────
 
-    // Set the score jump anomaly detection threshold (1–99). When the
-    // absolute delta between consecutive scores exceeds this value, a
-    // `ScoreJumpAnomalyEvent` is emitted in addition to the normal
-    // `ScoreDeltaEvent`. No event is emitted on the first submission
-    // (no previous score to diff against). Default: 30. Admin only.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // client.set_jump_threshold(&Vec::new(&env), &50);
-    // assert_eq!(client.get_jump_threshold(), 50);
-    // ```
+    /// Set the score jump anomaly detection threshold (1–99). When the
+    /// absolute delta between consecutive scores exceeds this value, a
+    /// `ScoreJumpAnomalyEvent` is emitted in addition to the normal
+    /// `ScoreDeltaEvent`. No event is emitted on the first submission
+    /// (no previous score to diff against). Default: 30. Admin only.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_jump_threshold(&Vec::new(&env), &50);
+    /// assert_eq!(client.get_jump_threshold(), 50);
+    /// ```
     pub fn set_jump_threshold(
         env: Env,
         admin_signers: Vec<Address>,
@@ -2426,24 +2427,24 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Returns the current score jump anomaly detection threshold.
-    // Defaults to 30 until configured.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // assert_eq!(client.get_jump_threshold(), 30);
-    // ```
+    /// Returns the current score jump anomaly detection threshold.
+    /// Defaults to 30 until configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_jump_threshold(), 30);
+    /// ```
     pub fn get_jump_threshold(env: Env) -> u32 {
         storage::get_jump_threshold(&env)
     }
@@ -2584,43 +2585,43 @@ impl LedgerLensScoreContract {
 
     // ── Time-weighted exponential decay ──────────────────────────────────────
 
-    // Set the exponential decay rate (λ) applied to per-pair scores in the
-    // aggregate computation. The decay formula is:
-    //   decay_factor(age) = e^(-λ * age_seconds)
-    // where λ = numerator / denominator.
-    //
-    // When λ = 0 (numerator = 0), no decay occurs and aggregate scores
-    // behave exactly as in prior contract versions. A higher λ causes older
-    // scores to contribute less to the aggregate.
-    //
-    // # Arguments
-    // - `numerator`: numerator of λ
-    // - `denominator`: denominator of λ; must be > 0
-    //
-    // The ratio must satisfy: 0 <= numerator / denominator <= MAX_DECAY_LAMBDA.
-    // Admin only. Blocked when the contract is paused.
-    //
-    // # Errors
-    // - [`Error::NotInitialized`] if the contract has no admin yet.
-    // - [`Error::ContractPaused`] if the contract is paused.
-    // - [`Error::InvalidDecayRate`] if the ratio exceeds MAX_DECAY_LAMBDA.
-    //
-    // # Examples
-    //
-    // Set λ to 0.001 per second (half-life ~693 seconds):
-    // ```text
-    // client.set_decay_rate(&1, &1000);
-    // ```
-    //
-    // With a 7-day staleness window, a score from 7 days ago decays by factor:
-    // ```text
-    // decay = e^(-0.001 * 604800) ≈ e^(-604.8) ≈ 0 (fully decayed)
-    // ```
-    //
-    // A score from 1 day ago decays by:
-    // ```text
-    // decay = e^(-0.001 * 86400) ≈ e^(-86.4) ≈ 0 (nearly fully decayed)
-    // ```
+    /// Set the exponential decay rate (λ) applied to per-pair scores in the
+    /// aggregate computation. The decay formula is:
+    ///   decay_factor(age) = e^(-λ * age_seconds)
+    /// where λ = numerator / denominator.
+    ///
+    /// When λ = 0 (numerator = 0), no decay occurs and aggregate scores
+    /// behave exactly as in prior contract versions. A higher λ causes older
+    /// scores to contribute less to the aggregate.
+    ///
+    /// # Arguments
+    /// - `numerator`: numerator of λ
+    /// - `denominator`: denominator of λ; must be > 0
+    ///
+    /// The ratio must satisfy: 0 <= numerator / denominator <= MAX_DECAY_LAMBDA.
+    /// Admin only. Blocked when the contract is paused.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::ContractPaused`] if the contract is paused.
+    /// - [`Error::InvalidDecayRate`] if the ratio exceeds MAX_DECAY_LAMBDA.
+    ///
+    /// # Examples
+    ///
+    /// Set λ to 0.001 per second (half-life ~693 seconds):
+    /// ```text
+    /// client.set_decay_rate(&1, &1000);
+    /// ```
+    ///
+    /// With a 7-day staleness window, a score from 7 days ago decays by factor:
+    /// ```text
+    /// decay = e^(-0.001 * 604800) ≈ e^(-604.8) ≈ 0 (fully decayed)
+    /// ```
+    ///
+    /// A score from 1 day ago decays by:
+    /// ```text
+    /// decay = e^(-0.001 * 86400) ≈ e^(-86.4) ≈ 0 (nearly fully decayed)
+    /// ```
     pub fn set_decay_rate(env: Env, numerator: u32, denominator: u32) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
@@ -2655,56 +2656,56 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Returns the current decay rate as (numerator, denominator).
-    // Defaults to (0, 1) (no decay) until configured.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let (num, den) = client.get_decay_rate();
-    // assert_eq!((num, den), (0, 1));
-    // ```
+    /// Returns the current decay rate as (numerator, denominator).
+    /// Defaults to (0, 1) (no decay) until configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let (num, den) = client.get_decay_rate();
+    /// assert_eq!((num, den), (0, 1));
+    /// ```
     pub fn get_decay_rate(env: Env) -> (u32, u32) {
         storage::get_decay_rate(&env)
     }
 
     // ── Per-wallet/pair submission rate limiting ─────────────────────────────
 
-    // Configure the cooldown (seconds) enforced between accepted
-    // submissions for the same `(wallet, asset_pair)`. Must be within
-    // `[MIN_COOLDOWN_SECS, MAX_COOLDOWN_SECS]` (1 minute – 24 hours).
-    // Admin only.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // client.set_cooldown(&Vec::new(&env), &120);
-    // assert_eq!(client.get_cooldown(), 120);
-    // ```
-    //
-    // # Errors
-    // - [`Error::NotInitialized`] if the contract has no admin yet.
-    // - [`Error::InvalidConfigValue`] if `secs` is outside the bounds.
+    /// Configure the cooldown (seconds) enforced between accepted
+    /// submissions for the same `(wallet, asset_pair)`. Must be within
+    /// `[MIN_COOLDOWN_SECS, MAX_COOLDOWN_SECS]` (1 minute – 24 hours).
+    /// Admin only.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_cooldown(&Vec::new(&env), &120);
+    /// assert_eq!(client.get_cooldown(), 120);
+    /// ```
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::InvalidConfigValue`] if `secs` is outside the bounds.
     pub fn set_cooldown(env: Env, admin_signers: Vec<Address>, secs: u64) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
@@ -2718,24 +2719,24 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Returns the current submission cooldown in seconds. Defaults to
-    // `DEFAULT_COOLDOWN_SECS` (1 hour) until configured.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // assert_eq!(client.get_cooldown(), 3_600);
-    // ```
+    /// Returns the current submission cooldown in seconds. Defaults to
+    /// `DEFAULT_COOLDOWN_SECS` (1 hour) until configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_cooldown(), 3_600);
+    /// ```
     pub fn get_cooldown(env: Env) -> u64 {
         storage::get_cooldown_secs(&env)
     }
@@ -2821,51 +2822,51 @@ impl LedgerLensScoreContract {
 
     // ── Score submission floor ────────────────────────────────────────────────
 
-    // Configure the per-wallet score submission floor. Admin only.
-    //
-    // When `enabled`, any `(wallet, asset_pair)` whose historical peak score
-    // has reached `high_water_mark` can no longer receive a submission below
-    // `floor_value`: such a submission is rejected with
-    // [`Error::BelowScoreFloor`] (or recorded with that `rejection_code` in a
-    // batch). Combined with the rate limiter and attestation, this is a
-    // second line of defence — a compromised or colluding signer cannot
-    // simply zero out a known high-risk wallet's score to whitewash it.
-    //
-    // The policy is **disabled by default**; no floor is enforced until the
-    // admin opts in via this function.
-    //
-    // # Arguments
-    // - `enabled` — kill-switch; `false` disables the floor entirely.
-    // - `high_water_mark` — historical peak at or above which the floor
-    //   applies. Must be within `[MIN_SCORE_FLOOR_HWM, MAX_SCORE_FLOOR_HWM]`
-    //   (50–100).
-    // - `floor_value` — minimum score permitted for a high-risk wallet. Must
-    //   be strictly below `high_water_mark` (i.e. in `[0, high_water_mark - 1]`).
-    //
-    // # Errors
-    // - [`Error::NotInitialized`] if the contract has no admin yet.
-    // - [`Error::InvalidScoreFloorPolicy`] if `high_water_mark` is out of
-    //   range or `floor_value` is not strictly below it.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // client.set_score_floor_policy(&Vec::new(&env), &true, &80, &20);
-    // let policy = client.get_score_floor_policy();
-    // assert!(policy.enabled);
-    // assert_eq!(policy.high_water_mark, 80);
-    // assert_eq!(policy.floor_value, 20);
-    // ```
+    /// Configure the per-wallet score submission floor. Admin only.
+    ///
+    /// When `enabled`, any `(wallet, asset_pair)` whose historical peak score
+    /// has reached `high_water_mark` can no longer receive a submission below
+    /// `floor_value`: such a submission is rejected with
+    /// [`Error::BelowScoreFloor`] (or recorded with that `rejection_code` in a
+    /// batch). Combined with the rate limiter and attestation, this is a
+    /// second line of defence — a compromised or colluding signer cannot
+    /// simply zero out a known high-risk wallet's score to whitewash it.
+    ///
+    /// The policy is **disabled by default**; no floor is enforced until the
+    /// admin opts in via this function.
+    ///
+    /// # Arguments
+    /// - `enabled` — kill-switch; `false` disables the floor entirely.
+    /// - `high_water_mark` — historical peak at or above which the floor
+    ///   applies. Must be within `[MIN_SCORE_FLOOR_HWM, MAX_SCORE_FLOOR_HWM]`
+    ///   (50–100).
+    /// - `floor_value` — minimum score permitted for a high-risk wallet. Must
+    ///   be strictly below `high_water_mark` (i.e. in `[0, high_water_mark - 1]`).
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::InvalidScoreFloorPolicy`] if `high_water_mark` is out of
+    ///   range or `floor_value` is not strictly below it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_score_floor_policy(&Vec::new(&env), &true, &80, &20);
+    /// let policy = client.get_score_floor_policy();
+    /// assert!(policy.enabled);
+    /// assert_eq!(policy.high_water_mark, 80);
+    /// assert_eq!(policy.floor_value, 20);
+    /// ```
     pub fn set_score_floor_policy(
         env: Env,
         admin_signers: Vec<Address>,
@@ -2888,57 +2889,57 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // Returns the current score-floor policy. Defaults to disabled with a
-    // high-water mark of `DEFAULT_SCORE_FLOOR_HWM` (80) and a floor of
-    // `DEFAULT_SCORE_FLOOR_MIN` (20) until the admin configures it.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let policy = client.get_score_floor_policy();
-    // assert!(!policy.enabled);
-    // assert_eq!(policy.high_water_mark, 80);
-    // assert_eq!(policy.floor_value, 20);
-    // ```
+    /// Returns the current score-floor policy. Defaults to disabled with a
+    /// high-water mark of `DEFAULT_SCORE_FLOOR_HWM` (80) and a floor of
+    /// `DEFAULT_SCORE_FLOOR_MIN` (20) until the admin configures it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let policy = client.get_score_floor_policy();
+    /// assert!(!policy.enabled);
+    /// assert_eq!(policy.high_water_mark, 80);
+    /// assert_eq!(policy.floor_value, 20);
+    /// ```
     pub fn get_score_floor_policy(env: Env) -> ScoreFloorPolicy {
         storage::get_score_floor_policy(&env)
     }
 
-    // Returns the highest score ever recorded for `(wallet, asset_pair)`, or
-    // `0` if no score has ever been accepted. This running peak is what the
-    // floor compares against `high_water_mark`. Read-only, callable by any
-    // account or contract.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let wallet = Address::generate(&env);
-    // let pair = symbol_short!("XLM_USDC");
-    // assert_eq!(client.get_historical_max_score(&wallet, &pair), 0);
-    // client.submit_score(&Vec::new(&env), &wallet, &pair, &85, &false, &false, &1, &90, &1, &None);
-    // assert_eq!(client.get_historical_max_score(&wallet, &pair), 85);
-    // ```
+    /// Returns the highest score ever recorded for `(wallet, asset_pair)`, or
+    /// `0` if no score has ever been accepted. This running peak is what the
+    /// floor compares against `high_water_mark`. Read-only, callable by any
+    /// account or contract.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// assert_eq!(client.get_historical_max_score(&wallet, &pair), 0);
+    /// client.submit_score(&Vec::new(&env), &wallet, &pair, &85, &false, &false, &1, &90, &1, &None);
+    /// assert_eq!(client.get_historical_max_score(&wallet, &pair), 85);
+    /// ```
     pub fn get_historical_max_score(env: Env, wallet: Address, asset_pair: Symbol) -> u32 {
         storage::get_historical_max_score(&env, &wallet, &asset_pair)
     }
@@ -2976,33 +2977,33 @@ impl LedgerLensScoreContract {
 
     // ── Score trend ───────────────────────────────────────────────────────────
 
-    // Returns the current trend direction and consecutive-count for
-    // `(wallet, asset_pair)`.  Read-only, callable by any account.
-    //
-    // `ScoreTrend.trend` is `+1` (rising), `0` (flat / no history), or `-1`
-    // (falling). `ScoreTrend.consecutive` is the number of consecutive
-    // submissions in that direction; `0` before any submission or after a flat
-    // one.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
-    // # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
-    // # use soroban_sdk::symbol_short;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // let wallet = Address::generate(&env);
-    // let pair = symbol_short!("XLM_USDC");
-    // let trend = client.get_score_trend(&wallet, &pair);
-    // assert_eq!(trend.trend, 0);
-    // assert_eq!(trend.consecutive, 0);
-    // ```
+    /// Returns the current trend direction and consecutive-count for
+    /// `(wallet, asset_pair)`.  Read-only, callable by any account.
+    ///
+    /// `ScoreTrend.trend` is `+1` (rising), `0` (flat / no history), or `-1`
+    /// (falling). `ScoreTrend.consecutive` is the number of consecutive
+    /// submissions in that direction; `0` before any submission or after a flat
+    /// one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// let trend = client.get_score_trend(&wallet, &pair);
+    /// assert_eq!(trend.trend, 0);
+    /// assert_eq!(trend.consecutive, 0);
+    /// ```
     pub fn get_score_trend(env: Env, wallet: Address, asset_pair: Symbol) -> ScoreTrend {
         storage::get_trend_state(&env, &wallet, &asset_pair)
     }
@@ -3090,23 +3091,23 @@ impl LedgerLensScoreContract {
 
     // ── Read-only admin / service ─────────────────────────────────────────────
 
-    // Returns the current admin address.
-    //
-    // # Examples
-    //
-    // ```
-    // # use ledgerlens_score::LedgerLensScoreContractClient;
-    // # use soroban_sdk::{testutils::Address as _, Env, Address};
-    // # use ledgerlens_score::LedgerLensScoreContract;
-    // let env = Env::default();
-    // env.mock_all_auths();
-    // let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-    // let admin = Address::generate(&env);
-    // let service = Address::generate(&env);
-    // client.initialize(&admin, &service);
-    // assert_eq!(client.get_admin(), admin);
-    // ```
+    /// Returns the current admin address.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Symbol};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_admin(), admin);
+    /// ```
     pub fn get_admin(env: Env) -> Result<Address, Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
