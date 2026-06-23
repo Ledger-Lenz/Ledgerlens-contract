@@ -87,6 +87,14 @@
                     "storage": [
                       {
                         "key": {
+                          "symbol": "cooldown"
+                        },
+                        "val": {
+                          "u64": 86400
+                        }
+                      },
+                      {
+                        "key": {
                           "vec": [
                             {
                               "symbol": "Admin"
@@ -95,18 +103,6 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "CooldownSecs"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u64": 86400
                         }
                       },
                       {

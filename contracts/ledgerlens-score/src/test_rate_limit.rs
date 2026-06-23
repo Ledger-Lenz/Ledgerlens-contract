@@ -350,14 +350,14 @@ fn test_override_rate_limit_before_init_fails() {
 fn test_set_cooldown_below_min_rejected() {
     let (env, client, _admin) = setup();
     let result = client.try_set_cooldown(&Vec::new(&env), &(MIN_COOLDOWN_SECS - 1));
-    assert_eq!(result, Err(Ok(Error::InvalidCooldown)));
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
 }
 
 #[test]
 fn test_set_cooldown_above_max_rejected() {
     let (env, client, _admin) = setup();
     let result = client.try_set_cooldown(&Vec::new(&env), &(MAX_COOLDOWN_SECS + 1));
-    assert_eq!(result, Err(Ok(Error::InvalidCooldown)));
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
 }
 
 #[test]

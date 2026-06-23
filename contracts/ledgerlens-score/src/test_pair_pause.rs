@@ -207,7 +207,7 @@ fn test_global_pause_takes_precedence_over_pair_pause() {
     let pair = symbol_short!("XLM_USDC");
 
     client.set_pair_paused(&pair, &true);
-    client.pause();
+    client.pause(&Vec::new(&env));
 
     let result = client.try_submit_score(
         &Vec::new(&env),

@@ -18,14 +18,16 @@
 //! the off-chain construction in the tests matches on-chain
 //! verification.
 
+extern crate alloc;
+
 use k256::ecdsa::SigningKey;
 use soroban_sdk::{
-    symbol_short, testutils::Address as _, Address, Bytes, BytesN, Env, Symbol, Vec,
+    symbol_short, testutils::{Address as _, Ledger as _}, Address, Bytes, BytesN, Env, Symbol, Vec,
 };
 
 use crate::{
     BatchAttestation, Error, LedgerLensScoreContract, LedgerLensScoreContractClient,
-    ScoreSubmission, ScoreSubmissionWithProof,
+    ScoreSubmission, ScoreSubmissionWithProof, ScoreAttestation,
 };
 
 // `Vec` is shadowed by `soroban_sdk::Vec` (a host-side vector requiring an
@@ -288,7 +290,7 @@ fn make_with_proof(
 fn test_valid_merkle_batch_accepted() {
     let (env, client, _admin, _service) = initialized();
     let key = signing_key(1);
-    client.set_service_pubkey(&pubkey_bytes(&env, &key, true));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &key, true));
 
     let mut submissions_vec: StdVec<ScoreSubmission> = StdVec::new();
     let mut payload_commits: StdVec<[u8; 32]> = StdVec::new();
@@ -312,7 +314,7 @@ fn test_valid_merkle_batch_accepted() {
             submissions_vec.get(0).unwrap(),
         )
         .unwrap();
-        leaf.to_bytes().to_array()
+        leaf.to_array()
     });
     // Note: `leaves[0]` is itself the SHA-256(0x00 || commit_0) hash as
     // produced by the test helper, and `leaf0` is the same byte sequence
@@ -353,7 +355,7 @@ fn test_valid_merkle_batch_accepted() {
 fn test_merkle_root_signature_mismatch_rejects_all() {
     let (env, client, _admin, _service) = initialized();
     let key = signing_key(1);
-    client.set_service_pubkey(&pubkey_bytes(&env, &key, true));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &key, true));
 
     // Set up a valid batch, validation-wise, before tampering.
     let mut submissions_vec: StdVec<ScoreSubmission> = StdVec::new();
@@ -398,7 +400,7 @@ fn test_merkle_root_signature_mismatch_rejects_all() {
 fn test_per_entry_proof_mismatch_rejects_entry() {
     let (env, client, _admin, _service) = initialized();
     let key = signing_key(1);
-    client.set_service_pubkey(&pubkey_bytes(&env, &key, true));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &key, true));
 
     let mut submissions_vec: StdVec<ScoreSubmission> = StdVec::new();
     let mut payload_commits: StdVec<[u8; 32]> = StdVec::new();
@@ -446,7 +448,8 @@ fn test_per_entry_proof_mismatch_rejects_entry() {
         result.results.get(2).unwrap().rejection_code,
         Error::InvalidAttestation as u32
     );
-    for i in 0..3 {
+    // All other entries (0, 1, 3) must have been accepted.
+    for i in [0u32, 1, 3] {
         assert!(result.results.get(i).unwrap().accepted);
         assert_eq!(result.results.get(i).unwrap().rejection_code, 0);
     }
@@ -458,7 +461,7 @@ fn test_per_entry_proof_mismatch_rejects_entry() {
 fn test_single_entry_batch_merkle_works() {
     let (env, client, _admin, _service) = initialized();
     let key = signing_key(1);
-    client.set_service_pubkey(&pubkey_bytes(&env, &key, true));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &key, true));
 
     let (submission, c) = make_entry(&env, &client.address, 67, 1);
     // Single-leaf tree: leaf == root.
@@ -486,7 +489,7 @@ fn test_single_entry_batch_merkle_works() {
 fn test_proof_depth_above_30_rejected() {
     let (env, client, _admin, _service) = initialized();
     let key = signing_key(1);
-    client.set_service_pubkey(&pubkey_bytes(&env, &key, true));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &key, true));
 
     // Build a single-entry Merkle attestation first (correct, accepted).
     let (submission, c) = make_entry(&env, &client.address, 50, 1);
@@ -511,9 +514,18 @@ fn test_proof_depth_above_30_rejected() {
         proof_flags: 0, // flags irrelevant — proof is over-depth
     });
 
+    // An over-deep proof is rejected per-entry (code 27 = InvalidAttestation)
+    // rather than aborting the whole batch — consistent with the graceful
+    // per-entry rejection contract of `submit_scores_batch_attested`.
     let result =
         client.try_submit_scores_batch_attested(&Vec::new(&env), &submissions, &attestation);
-    assert_eq!(result, Err(Ok(Error::InvalidAttestation)));
+    let batch = result.unwrap().unwrap();
+    assert_eq!(batch.accepted_count, 0);
+    assert_eq!(batch.rejected_count, 1);
+    assert_eq!(
+        batch.results.get(0).unwrap().rejection_code,
+        Error::InvalidAttestation as u32
+    );
 }
 
 // ── 6. test_service_pubkey_not_set_rejects ──────────────────────────────────
@@ -682,10 +694,15 @@ fn test_verify_merkle_proof_standalone() {
 fn test_batch_attested_respects_rate_limit() {
     let (env, client, _admin, _service) = initialized();
     let key = signing_key(1);
-    client.set_service_pubkey(&pubkey_bytes(&env, &key, true));
 
-    // Pre-submit one score to the same wallet/pair so that the very
-    // next submission for that pair will hit the cooldown.
+    // Advance the ledger to a non-zero timestamp before pre-submitting.
+    // `write_score_with_rate_limit` records `env.ledger().timestamp()` as
+    // the last-submit clock.  If that value is 0 the cooldown guard
+    // (`last_submit != 0`) never fires, so we need a positive timestamp.
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+
+    // Pre-submit one score to the same wallet/pair BEFORE setting the pubkey,
+    // so the pre-submission doesn't require an attestation signature.
     let pre_wallet = Address::generate(&env);
     let pre_pair = symbol_short!("XLM_USDC");
     client.submit_score(
@@ -700,6 +717,9 @@ fn test_batch_attested_respects_rate_limit() {
         &1,
         &None,
     );
+
+    // Now configure the pubkey so the attested batch endpoint is active.
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &key, true));
 
     // Now build a 2-entry batch:
     //   index 0 — same wallet/pair as the pre-submission (must hit the cooldown)
@@ -800,11 +820,15 @@ fn test_batch_attested_requires_service_auth() {
     // Pre-authorize ONLY the admin. The service address remains unauthorized,
     // so calling `submit_scores_batch_attested` (which calls
     // `service.require_auth()` in the legacy single-service path) will fail.
-    env.authorize_as_signer(&admin);
+    env.mock_all_auths();
     client.initialize(&admin, &service);
 
     let key = signing_key(1);
-    client.set_service_pubkey(&pubkey_bytes(&env, &key, true));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &key, true));
+
+    // Disable mock auth so subsequent require_auth calls enforce real auth checks
+    env.set_auths(&[]);
+
 
     let (submission, c) = make_entry(&env, &client.address, 50, 1);
     let leaf = merkle_leaf(&env, &c);
@@ -827,10 +851,10 @@ fn test_batch_attested_requires_service_auth() {
 fn test_batch_attested_contract_paused_rejected() {
     let (env, client, _admin, _service) = initialized();
     let key = signing_key(1);
-    client.set_service_pubkey(&pubkey_bytes(&env, &key, true));
+    client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &key, true));
 
     // Pause the contract.
-    client.pause();
+    client.pause(&Vec::new(&env));
 
     let (submission, c) = make_entry(&env, &client.address, 50, 1);
     let leaf = merkle_leaf(&env, &c);

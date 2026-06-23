@@ -86,6 +86,14 @@
                     "storage": [
                       {
                         "key": {
+                          "symbol": "pubkey"
+                        },
+                        "val": {
+                          "bytes": "027a9fde3d4bbf403f6297519e9c94eafcd016b8668956ffc9e9746439477a28dd"
+                        }
+                      },
+                      {
+                        "key": {
                           "vec": [
                             {
                               "symbol": "Admin"
@@ -106,18 +114,6 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "ServicePubKey"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "bytes": "027a9fde3d4bbf403f6297519e9c94eafcd016b8668956ffc9e9746439477a28dd"
                         }
                       }
                     ]

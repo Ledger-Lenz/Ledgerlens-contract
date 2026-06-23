@@ -26,7 +26,10 @@ pub const DEFAULT_RISK_THRESHOLD: u32 = 75;
 /// * `3` — `submit_scores_batch_attested` and the `batch_attested`
 ///   `supports_interface` capability were added (see
 ///   `docs/batch-attestation-spec.md`).
-pub const CONTRACT_VERSION: u32 = 3;
+/// * `4` — Registered `emb` and `cons` capabilities, added `get_admin_signer_count`,
+///   `get_score_age`, and `get_embargo_expiry`.
+pub const CONTRACT_VERSION: u32 = 4;
+
 
 /// Hard upper bound on Merkle proof length accepted by
 /// `submit_scores_batch_attested`. Thirty levels of a binary tree can
@@ -195,3 +198,23 @@ pub const DEFAULT_CONSENSUS_THRESHOLD_K: u32 = 2;
 
 /// Default maximum allowed absolute deviation from the provisional median.
 pub const DEFAULT_CONSENSUS_EPSILON: u32 = 5;
+
+// ── Consecutive-breach auto-escalation ────────────────────────────────────────
+
+/// Default escalation threshold: 5 consecutive high-risk submissions before
+/// an `escalation_triggered` event fires.
+pub const DEFAULT_ESCALATION_THRESHOLD: u32 = 5;
+
+/// Minimum allowed escalation threshold (1 means fire on every breach).
+pub const MIN_ESCALATION_THRESHOLD: u32 = 1;
+
+/// Maximum allowed escalation threshold.
+pub const MAX_ESCALATION_THRESHOLD: u32 = 100;
+
+// ── Score jump anomaly detection ───────────────────────────────────────────────
+
+/// Default jump threshold used when no threshold has been configured by admin.
+/// When the absolute delta between consecutive scores exceeds this value, a
+/// `ScoreJumpAnomalyEvent` is emitted in addition to the normal `ScoreDeltaEvent`.
+pub const DEFAULT_JUMP_THRESHOLD: u32 = 30;
+

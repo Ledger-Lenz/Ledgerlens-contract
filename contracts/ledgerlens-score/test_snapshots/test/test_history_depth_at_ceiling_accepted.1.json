@@ -64,6 +64,14 @@
                     "storage": [
                       {
                         "key": {
+                          "symbol": "hist_dep"
+                        },
+                        "val": {
+                          "u32": 50
+                        }
+                      },
+                      {
+                        "key": {
                           "vec": [
                             {
                               "symbol": "Admin"
@@ -72,18 +80,6 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "HistoryMaxDepth"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u32": 50
                         }
                       },
                       {

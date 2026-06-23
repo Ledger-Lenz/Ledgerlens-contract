@@ -1,16 +1,16 @@
-use soroban_sdk::{Env, Address};
-use crate::types::{DataKey, TierBounds};
+use soroban_sdk::{Env, Address, Symbol, Vec, Bytes, BytesN, symbol_short};
+use crate::types::{
+    DataKey, TierBounds, ModelVersionStats, AggregateRiskScore, EmbargoExpiry,
+    RiskScore, ScoreFloorPolicy, ScoreTrend, UpgradeProposal, SnapshotRecord, GateDataKey
+};
 use crate::errors::Error;
 
 use crate::constants::{
     BAND_STATE_TTL_EXTEND_TO, BAND_STATE_TTL_THRESHOLD, DEFAULT_CONSENSUS_EPSILON,
     DEFAULT_CONSENSUS_THRESHOLD_K, DEFAULT_COOLDOWN_SECS, DEFAULT_ESCALATION_THRESHOLD,
     DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS, EMBARGO_TTL_EXTEND_TO,
-    EMBARGO_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO, SCORE_TTL_THRESHOLD,
+    EMBARGO_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO, SCORE_TTL_THRESHOLD, DEFAULT_JUMP_THRESHOLD,
 };
-use crate::types::{AggregateRiskScore, DataKey, EmbargoExpiry, RiskScore, ScoreFloorPolicy, ScoreTrend, UpgradeProposal, SnapshotRecord};
-
-use crate::Error;
 
 // ── Admin / Service ─────────────────────────────────────────────────────────
 
@@ -193,23 +193,23 @@ pub fn set_watchlist(env: &Env, wallet: &Address, flagged: bool) {
 // ── Risk threshold ───────────────────────────────────────────────────────────
 
 pub fn get_risk_threshold(env: &Env) -> u32 {
-    let result: Option<u32> = env.storage().instance().get(&DataKey::RiskThreshold);
+    let result: Option<u32> = env.storage().instance().get(&symbol_short!("r_thresh"));
     result.unwrap_or(DEFAULT_RISK_THRESHOLD)
 }
 
 pub fn set_risk_threshold(env: &Env, threshold: u32) {
-    env.storage().instance().set(&DataKey::RiskThreshold, &threshold);
+    env.storage().instance().set(&symbol_short!("r_thresh"), &threshold);
 }
 
 // ── Score jump anomaly detection ──────────────────────────────────────────────
 
 pub fn get_jump_threshold(env: &Env) -> u32 {
-    let result: Option<u32> = env.storage().instance().get(&DataKey::JumpThreshold);
+    let result: Option<u32> = env.storage().instance().get(&symbol_short!("j_thresh"));
     result.unwrap_or(DEFAULT_JUMP_THRESHOLD)
 }
 
 pub fn set_jump_threshold(env: &Env, threshold: u32) {
-    env.storage().instance().set(&DataKey::JumpThreshold, &threshold);
+    env.storage().instance().set(&symbol_short!("j_thresh"), &threshold);
 }
 
 // ── Score history ring buffer ────────────────────────────────────────────────
@@ -249,20 +249,20 @@ pub fn get_score_history(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Ve
 /// Returns the admin-configured ring-buffer depth, or
 /// [`DEFAULT_HISTORY_MAX_DEPTH`] when no value has been set yet.
 pub fn get_history_max_depth(env: &Env) -> u32 {
-    let result: Option<u32> = env.storage().instance().get(&DataKey::HistoryMaxDepth);
+    let result: Option<u32> = env.storage().instance().get(&symbol_short!("hist_dep"));
     result.unwrap_or(crate::constants::DEFAULT_HISTORY_MAX_DEPTH)
 }
 
 /// Persists `depth` as the ring-buffer cap for all future
 /// `push_score_history` calls.
 pub fn set_history_max_depth(env: &Env, depth: u32) {
-    env.storage().instance().set(&DataKey::HistoryMaxDepth, &depth);
+    env.storage().instance().set(&symbol_short!("hist_dep"), &depth);
 }
 
 // ── Contract version ─────────────────────────────────────────────────────────
 
 pub fn get_contract_version(env: &Env) -> u32 {
-    let result: Option<u32> = env.storage().instance().get(&DataKey::ContractVersion);
+    let result: Option<u32> = env.storage().instance().get(&symbol_short!("version"));
     result.unwrap_or(crate::constants::CONTRACT_VERSION)
 }
 
@@ -374,6 +374,7 @@ pub fn set_service_set(env: &Env, set: &Vec<Address>) {
     env.storage().instance().set(&DataKey::ServiceSet, set);
 }
 
+#[allow(dead_code)]
 pub fn get_signer_tier(env: &Env, signer: &Address) -> TierBounds {
     env.storage()
         .instance()
@@ -429,11 +430,11 @@ pub fn clear_last_submit_time(env: &Env, wallet: &Address, asset_pair: &Symbol) 
 /// Returns the configured submission cooldown (seconds), defaulting to
 /// `DEFAULT_COOLDOWN_SECS` (1 hour) until the admin sets one explicitly.
 pub fn get_cooldown_secs(env: &Env) -> u64 {
-    env.storage().instance().get(&DataKey::CooldownSecs).unwrap_or(DEFAULT_COOLDOWN_SECS)
+    env.storage().instance().get(&symbol_short!("cooldown")).unwrap_or(DEFAULT_COOLDOWN_SECS)
 }
 
 pub fn set_cooldown_secs(env: &Env, secs: u64) {
-    env.storage().instance().set(&DataKey::CooldownSecs, &secs);
+    env.storage().instance().set(&symbol_short!("cooldown"), &secs);
 }
 
 // ── GDPR / data-erasure ───────────────────────────────────────────────────────
@@ -498,9 +499,14 @@ pub fn set_trend_state(env: &Env, wallet: &Address, asset_pair: &Symbol, state: 
 /// Returns the off-chain detection pipeline's secp256k1 public key, or
 /// `None` if `set_service_pubkey` has never been called.
 pub fn get_service_pubkey(env: &Env) -> Option<Bytes> {
-    env.storage().instance().get(&DataKey::ServicePubKey)
+    env.storage().instance().get(&symbol_short!("pubkey"))
 }
 
+pub fn set_service_pubkey(env: &Env, pubkey: &Bytes) {
+    env.storage().instance().set(&symbol_short!("pubkey"), pubkey);
+}
+
+#[allow(dead_code)]
 pub fn set_gate_callers(env: &Env, callers: &Vec<Address>) {
     env.storage().instance().set(&GateDataKey::GateCallers, callers);
 }
@@ -513,64 +519,63 @@ pub fn get_decay_rate(env: &Env) -> (u32, u32) {
     let num = env
         .storage()
         .instance()
-        .get(&DataKey::DecayRateNumerator)
+        .get(&symbol_short!("dec_num"))
         .unwrap_or(crate::constants::DEFAULT_DECAY_LAMBDA_NUM);
     let den = env
         .storage()
         .instance()
-        .get(&DataKey::DecayRateDenominator)
+        .get(&symbol_short!("dec_den"))
         .unwrap_or(crate::constants::DEFAULT_DECAY_LAMBDA_DEN);
     (num, den)
 }
 
 /// Sets the decay rate to numerator/denominator.
 pub fn set_decay_rate(env: &Env, numerator: u32, denominator: u32) {
-    env.storage().instance().set(&DataKey::DecayRateNumerator, &numerator);
-    env.storage().instance().set(&DataKey::DecayRateDenominator, &denominator);
+    env.storage().instance().set(&symbol_short!("dec_num"), &numerator);
+    env.storage().instance().set(&symbol_short!("dec_den"), &denominator);
 }
 
- feat/confidence-gated-risk-gate
 // ── Global minimum confidence floor ──────────────────────────────────────────
 
 /// Returns the admin-configured global minimum confidence floor (0–100).
 /// Defaults to `0` (no floor) when unset.
 ///
 /// This value is combined with the per-call `min_confidence` parameter in
-/// `query_risk_gate_with_confidence` using `max(param, global)` so the admin
+/// `query_gate_with_confidence` using `max(param, global)` so the admin
 /// can enforce a system-wide floor without requiring every integrating protocol
 /// to specify one. Both values are bounded to 0–100, so the `max` cannot
 /// overflow.
 pub fn get_global_min_confidence(env: &Env) -> u32 {
-    let result: Option<u32> = env.storage().instance().get(&DataKey::GlobalMinConfidence);
+    let result: Option<u32> = env.storage().instance().get(&symbol_short!("min_conf"));
     result.unwrap_or(0)
 }
 
 /// Persists `min_confidence` as the global confidence floor.
 /// Caller is responsible for validating the range (0–100) before calling.
 pub fn set_global_min_confidence(env: &Env, min_confidence: u32) {
-    env.storage().instance().set(&DataKey::GlobalMinConfidence, &min_confidence);
+    env.storage().instance().set(&symbol_short!("min_conf"), &min_confidence);
+}
 
 // ── Fee withdrawal ────────────────────────────────────────────────────────────
 
 pub fn get_fee_token(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&DataKey::FeeToken)
+    env.storage().instance().get(&symbol_short!("fee_token"))
 }
 
 pub fn set_fee_token(env: &Env, token: &Address) {
-    env.storage().instance().set(&DataKey::FeeToken, token);
+    env.storage().instance().set(&symbol_short!("fee_token"), token);
 }
 
 pub fn is_withdrawal_locked(env: &Env) -> bool {
-    env.storage().instance().get::<_, bool>(&DataKey::WithdrawalLock).unwrap_or(false)
+    env.storage().instance().get::<_, bool>(&symbol_short!("w_lock")).unwrap_or(false)
 }
 
 pub fn set_withdrawal_lock(env: &Env) {
-    env.storage().instance().set(&DataKey::WithdrawalLock, &true);
+    env.storage().instance().set(&symbol_short!("w_lock"), &true);
 }
 
 pub fn clear_withdrawal_lock(env: &Env) {
-    env.storage().instance().remove(&DataKey::WithdrawalLock);
- main
+    env.storage().instance().remove(&symbol_short!("w_lock"));
 }
 
 // ── Score delegation ──────────────────────────────────────────────────────────
@@ -710,16 +715,16 @@ pub fn get_contagion_depth(env: &Env, wallet: &Address, asset_pair: &Symbol) -> 
 /// Returns the current score-floor policy, falling back to the compiled-in
 /// defaults (disabled, HWM 80, floor 20) for any field the admin has not set.
 pub fn get_score_floor_policy(env: &Env) -> ScoreFloorPolicy {
-    let enabled: bool = env.storage().instance().get(&DataKey::ScoreFloorEnabled).unwrap_or(false);
+    let enabled: bool = env.storage().instance().get(&symbol_short!("sf_en")).unwrap_or(false);
     let high_water_mark: u32 = env
         .storage()
         .instance()
-        .get(&DataKey::ScoreFloorHighWaterMark)
+        .get(&symbol_short!("sf_hwm"))
         .unwrap_or(crate::constants::DEFAULT_SCORE_FLOOR_HWM);
     let floor_value: u32 = env
         .storage()
         .instance()
-        .get(&DataKey::ScoreFloorMinValue)
+        .get(&symbol_short!("sf_min"))
         .unwrap_or(crate::constants::DEFAULT_SCORE_FLOOR_MIN);
     ScoreFloorPolicy { enabled, high_water_mark, floor_value }
 }
@@ -727,9 +732,9 @@ pub fn get_score_floor_policy(env: &Env) -> ScoreFloorPolicy {
 /// Persists the score-floor policy. Validation of the bounds is the caller's
 /// responsibility (see `set_score_floor_policy`).
 pub fn set_score_floor_policy(env: &Env, enabled: bool, high_water_mark: u32, floor_value: u32) {
-    env.storage().instance().set(&DataKey::ScoreFloorEnabled, &enabled);
-    env.storage().instance().set(&DataKey::ScoreFloorHighWaterMark, &high_water_mark);
-    env.storage().instance().set(&DataKey::ScoreFloorMinValue, &floor_value);
+    env.storage().instance().set(&symbol_short!("sf_en"), &enabled);
+    env.storage().instance().set(&symbol_short!("sf_hwm"), &high_water_mark);
+    env.storage().instance().set(&symbol_short!("sf_min"), &floor_value);
 }
 
 /// Returns the highest score ever recorded for `(wallet, asset_pair)`, or `0`
@@ -773,12 +778,12 @@ pub fn clear_historical_max_score(env: &Env, wallet: &Address, asset_pair: &Symb
 /// Returns the admin-configured hysteresis margin, defaulting to 0 (no
 /// hysteresis — entry and exit thresholds are identical).
 pub fn get_hysteresis_margin(env: &Env) -> u32 {
-    let result: Option<u32> = env.storage().instance().get(&DataKey::HysteresisMargin);
+    let result: Option<u32> = env.storage().instance().get(&symbol_short!("hyst_mar"));
     result.unwrap_or(0)
 }
 
 pub fn set_hysteresis_margin(env: &Env, margin: u32) {
-    env.storage().instance().set(&DataKey::HysteresisMargin, &margin);
+    env.storage().instance().set(&symbol_short!("hyst_mar"), &margin);
 }
 
 // ── Per-(wallet, asset_pair) risk band state ──────────────────────────────────
@@ -891,21 +896,218 @@ pub fn set_risk_band_state(env: &Env, wallet: &Address, asset_pair: &Symbol, in_
 pub fn get_consensus_threshold_k(env: &Env) -> u32 {
     env.storage()
         .instance()
-        .get(&DataKey::ConsensusThresholdK)
+        .get(&symbol_short!("cons_k"))
         .unwrap_or(DEFAULT_CONSENSUS_THRESHOLD_K)
 }
 
 pub fn set_consensus_threshold_k(env: &Env, k: u32) {
-    env.storage().instance().set(&DataKey::ConsensusThresholdK, &k);
+    env.storage().instance().set(&symbol_short!("cons_k"), &k);
 }
 
 pub fn get_consensus_epsilon(env: &Env) -> u32 {
     env.storage()
         .instance()
-        .get(&DataKey::ConsensusEpsilon)
+        .get(&symbol_short!("cons_eps"))
         .unwrap_or(DEFAULT_CONSENSUS_EPSILON)
 }
 
 pub fn set_consensus_epsilon(env: &Env, epsilon: u32) {
-    env.storage().instance().set(&DataKey::ConsensusEpsilon, &epsilon);
+    env.storage().instance().set(&symbol_short!("cons_eps"), &epsilon);
 }
+
+// ── Restored Signer Tier / Gate / Merkle functions ───────────────────────────
+
+#[allow(dead_code)]
+pub fn set_signer_tier(env: &Env, signer: &Address, min_score: u32, max_score: u32) -> Result<(), Error> {
+    if min_score > max_score || max_score > 100 {
+        return Err(Error::InvalidSignerTier);
+    }
+    let bounds = TierBounds { min_score, max_score };
+    env.storage().instance().set(&DataKey::SignerTier(signer.clone()), &bounds);
+    Ok(())
+}
+
+#[allow(dead_code)]
+pub fn remove_signer_tier(env: &Env, signer: &Address) {
+    env.storage().instance().remove(&DataKey::SignerTier(signer.clone()));
+}
+
+pub fn get_service_threshold(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::ServiceThreshold).unwrap_or(0)
+}
+
+#[allow(dead_code)]
+pub fn get_gate_open(env: &Env) -> bool {
+    env.storage().instance().get(&GateDataKey::GateOpen).unwrap_or(true)
+}
+
+#[allow(dead_code)]
+pub fn set_gate_open(env: &Env, open: bool) {
+    env.storage().instance().set(&GateDataKey::GateOpen, &open);
+}
+
+#[allow(dead_code)]
+pub fn get_gate_callers(env: &Env) -> Vec<Address> {
+    env.storage().instance().get(&GateDataKey::GateCallers).unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn get_merkle_root(env: &Env) -> Option<BytesN<32>> {
+    env.storage().instance().get(&symbol_short!("m_root"))
+}
+
+pub fn set_merkle_root(env: &Env, root: &BytesN<32>) {
+    env.storage().instance().set(&symbol_short!("m_root"), root);
+}
+
+pub fn get_merkle_leaf_count(env: &Env) -> u64 {
+    env.storage().instance().get(&symbol_short!("m_l_count")).unwrap_or(0)
+}
+
+pub fn set_merkle_leaf_count(env: &Env, count: u64) {
+    env.storage().instance().set(&symbol_short!("m_l_count"), &count);
+}
+
+pub fn is_merkle_enabled(env: &Env) -> bool {
+    env.storage().instance().get(&symbol_short!("m_enabled")).unwrap_or(false)
+}
+
+pub fn set_merkle_enabled(env: &Env, enabled: bool) {
+    env.storage().instance().set(&symbol_short!("m_enabled"), &enabled);
+}
+
+pub fn get_snapshot_history(env: &Env) -> Vec<SnapshotRecord> {
+    env.storage().instance().get(&symbol_short!("s_history")).unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn set_snapshot_history(env: &Env, history: &Vec<SnapshotRecord>) {
+    env.storage().instance().set(&symbol_short!("s_history"), history);
+}
+
+pub fn get_snapshot_history_depth(env: &Env) -> u32 {
+    env.storage().instance().get(&symbol_short!("s_h_depth")).unwrap_or(10)
+}
+
+pub fn set_snapshot_history_depth(env: &Env, depth: u32) {
+    env.storage().instance().set(&symbol_short!("s_h_depth"), &depth);
+}
+
+// ── Consecutive-breach auto-escalation ─────────────────────────────────────────
+
+/// Returns the current consecutive breach count for `(wallet, asset_pair)`.
+/// Starts at 0 (no breaches).
+pub fn get_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 {
+    let key = DataKey::ConsecutiveBreachCount(wallet.clone(), asset_pair.clone());
+    let result: Option<u32> = env.storage().temporary().get(&key);
+    result.unwrap_or(0)
+}
+
+/// Sets the consecutive breach count for `(wallet, asset_pair)`.
+pub fn set_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol, count: u32) {
+    let key = DataKey::ConsecutiveBreachCount(wallet.clone(), asset_pair.clone());
+    env.storage().temporary().set(&key, &count);
+    env.storage()
+        .temporary()
+        .extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+/// Clears (resets to 0) the consecutive breach counter. Used by the admin
+/// emergency override `reset_breach_count`.
+pub fn clear_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    let key = DataKey::ConsecutiveBreachCount(wallet.clone(), asset_pair.clone());
+    env.storage().temporary().remove(&key);
+}
+
+/// Returns the configured escalation threshold, defaulting to
+/// `DEFAULT_ESCALATION_THRESHOLD` (5) until configured.
+pub fn get_escalation_threshold(env: &Env) -> u32 {
+    let result: Option<u32> = env.storage().instance().get(&symbol_short!("esc_thr"));
+    result.unwrap_or(DEFAULT_ESCALATION_THRESHOLD)
+}
+
+/// Persists the escalation threshold.
+pub fn set_escalation_threshold(env: &Env, n: u32) {
+    env.storage().instance().set(&symbol_short!("esc_thr"), &n);
+}
+
+// ── Model-version statistics ────────────────────────────────────────────────
+
+pub fn get_model_stats(env: &Env, model_version: u32) -> Option<ModelVersionStats> {
+    let key = DataKey::ModelVersionStatsKey(model_version);
+    let stats: Option<ModelVersionStats> = env.storage().persistent().get(&key);
+    if stats.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    stats
+}
+
+pub fn get_all_model_versions(env: &Env) -> Vec<u32> {
+    let key = symbol_short!("mv_index");
+    let versions: Vec<u32> =
+        env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+    if !versions.is_empty() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    versions
+}
+
+/// Updates the running performance statistics for `model_version`.
+///
+/// If this is the first time the contract has seen this version, it is
+/// added to the `ModelVersionIndex` (maintaining sort order) and a new
+/// `ModelVersionStats` record is initialized.
+pub fn update_model_stats(env: &Env, model_version: u32, score: u32) {
+    let stats_key = DataKey::ModelVersionStatsKey(model_version);
+    let now = env.ledger().timestamp();
+
+    let mut stats = env.storage().persistent().get(&stats_key).unwrap_or_else(|| {
+        // New version seen: update the index.
+        let index_key = symbol_short!("mv_index");
+        let mut index: Vec<u32> =
+            env.storage().persistent().get(&index_key).unwrap_or_else(|| Vec::new(env));
+
+        if !index.contains(&model_version) {
+            // Maintain sorted order for get_all_model_versions.
+            let mut inserted = false;
+            for i in 0..index.len() {
+                if model_version < index.get(i).unwrap() {
+                    index.insert(i, model_version);
+                    inserted = true;
+                    break;
+                }
+            }
+            if !inserted {
+                index.push_back(model_version);
+            }
+            env.storage().persistent().set(&index_key, &index);
+            env.storage().persistent().extend_ttl(
+                &index_key,
+                SCORE_TTL_THRESHOLD,
+                SCORE_TTL_EXTEND_TO,
+            );
+        }
+
+        ModelVersionStats {
+            model_version,
+            submission_count: 0,
+            score_sum: 0,
+            score_max: 0,
+            score_min: u32::MAX,
+            first_seen: now,
+            last_seen: now,
+        }
+    });
+
+    stats.submission_count = stats.submission_count.saturating_add(1);
+    stats.score_sum = stats.score_sum.saturating_add(score as u64);
+    if score > stats.score_max {
+        stats.score_max = score;
+    }
+    if score < stats.score_min {
+        stats.score_min = score;
+    }
+    stats.last_seen = now;
+
+    env.storage().persistent().set(&stats_key, &stats);
+    env.storage().persistent().extend_ttl(&stats_key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+

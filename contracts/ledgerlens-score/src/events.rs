@@ -392,3 +392,84 @@ pub fn embargo_set(env: &Env, wallet: &Address, expiry: Option<u64>) {
 pub fn embargo_lifted(env: &Env, wallet: &Address) {
     env.events().publish((symbol_short!("emb_lift"), wallet.clone()), ());
 }
+
+// ── Merkle root accumulator ──────────────────────────────────────────────────
+
+/// Emitted by `commit_snapshot` on successful commitment.
+pub fn snapshot_committed(
+    env: &Env,
+    root: &BytesN<32>,
+    leaf_count: u64,
+    committed_at: u64,
+    committed_by: &Address,
+) {
+    env.events().publish(
+        (symbol_short!("snap_com"),),
+        (root.clone(), leaf_count, committed_at, committed_by.clone()),
+    );
+}
+
+// ── Consecutive-breach auto-escalation ─────────────────────────────────────────
+
+/// Emitted when the admin updates the escalation threshold.
+pub fn escalation_threshold_updated(env: &Env, old: u32, new: u32) {
+    env.events().publish(
+        (symbol_short!("esc_thr"),),
+        (old, new),
+    );
+}
+
+/// Emitted when consecutive breaches cross the configured threshold.
+pub fn escalation_triggered(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    count: u32,
+    score: u32,
+    escalation_n: u32,
+) {
+    env.events().publish(
+        (symbol_short!("esc_trig"), wallet.clone(), asset_pair.clone()),
+        (count, score, escalation_n),
+    );
+}
+
+/// Emitted when a wallet's consecutive breaches resolve (new score is below threshold).
+pub fn escalation_resolved(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    count: u32,
+    score: u32,
+) {
+    env.events().publish(
+        (symbol_short!("esc_res"), wallet.clone(), asset_pair.clone()),
+        (count, score),
+    );
+}
+
+// ── Score jump anomaly detection ──────────────────────────────────────────────
+
+/// Emitted after a successful score write when the absolute delta between
+/// the new score and the previous score exceeds the configured jump threshold.
+/// Not emitted on the first submission (no previous score to diff against).
+/// The normal `ScoreDeltaEvent` is still emitted regardless.
+///
+/// `delta` is signed: positive means the score rose, negative means it fell.
+#[allow(clippy::too_many_arguments)]
+pub fn score_jump_anomaly(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    previous_score: u32,
+    new_score: u32,
+    delta: i64,
+    model_version: u32,
+    timestamp: u64,
+) {
+    env.events().publish(
+        (symbol_short!("jmp_ano"), wallet.clone(), asset_pair.clone()),
+        (previous_score, new_score, delta, model_version, timestamp),
+    );
+}
+

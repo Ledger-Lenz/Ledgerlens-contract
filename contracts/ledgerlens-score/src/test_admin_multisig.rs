@@ -115,7 +115,7 @@ fn test_require_admin_auth_insufficient_signers() {
 
     // Supplying only 1 signer when threshold is 2.
     let one_signer = signers_vec(&env, core::slice::from_ref(&s1));
-    let result = client.try_set_risk_threshold(&one_signer, &50);
+    let result = client.try_set_risk_threshold(&Vec::new(&env), &one_signer, &50);
     assert_eq!(result, Err(Ok(Error::InsufficientAdminSigners)));
 }
 
@@ -146,7 +146,7 @@ fn test_require_admin_auth_signer_not_in_set() {
 
     let outsider = Address::generate(&env);
     let bad_signers = signers_vec(&env, &[outsider]);
-    let result = client.try_pause(&bad_signers);
+    let result = client.try_pause(&Vec::new(&env), &bad_signers);
     assert_eq!(result, Err(Ok(Error::AdminSignerNotInSet)));
 }
 
@@ -163,7 +163,7 @@ fn test_remove_admin_signer_auto_adjusts_threshold() {
 
     // Removing s2 leaves set size 1 but threshold was 2 — should auto-reduce.
     let two_signers = signers_vec(&env, &[s1.clone(), s2.clone()]);
-    client.remove_admin_signer(&two_signers, &s2);
+    client.remove_admin_signer(&Vec::new(&env), &two_signers, &s2);
     assert_eq!(client.get_admin_signers().len(), 1);
     assert_eq!(client.get_admin_threshold(), 1); // auto-reduced from 2 to 1
 }
@@ -179,7 +179,7 @@ fn test_remove_admin_signer_not_in_set() {
 
     let outsider = Address::generate(&env);
     let signer_vec = signers_vec(&env, core::slice::from_ref(&s1));
-    let result = client.try_remove_admin_signer(&signer_vec, &outsider);
+    let result = client.try_remove_admin_signer(&Vec::new(&env), &signer_vec, &outsider);
     assert_eq!(result, Err(Ok(Error::AdminSignerNotInSet)));
 }
 
@@ -193,11 +193,11 @@ fn test_set_admin_threshold_validation() {
 
     // 0 is invalid.
     let result = client.try_set_admin_threshold(&Vec::new(&env), &0);
-    assert_eq!(result, Err(Ok(Error::InvalidThreshold)));
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
 
     // Greater than set size (1) is invalid.
     let result = client.try_set_admin_threshold(&Vec::new(&env), &2);
-    assert_eq!(result, Err(Ok(Error::InvalidThreshold)));
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
 
     // Exactly 1 is valid.
     client.set_admin_threshold(&Vec::new(&env), &1);
@@ -217,9 +217,9 @@ fn test_pause_unpause_multisig() {
 
     let both = signers_vec(&env, &[s1.clone(), s2.clone()]);
     assert!(!client.is_paused());
-    client.pause(&both);
+    client.pause(&Vec::new(&env), &both);
     assert!(client.is_paused());
-    client.unpause(&both);
+    client.unpause(&Vec::new(&env), &both);
     assert!(!client.is_paused());
 }
 
@@ -236,7 +236,7 @@ fn test_transfer_admin_multisig() {
 
     let new_admin = Address::generate(&env);
     let both = signers_vec(&env, &[s1.clone(), s2.clone()]);
-    client.transfer_admin(&both, &new_admin);
+    client.transfer_admin(&Vec::new(&env), &both, &new_admin);
     assert!(client.has_pending_admin_transfer());
     // New admin accepts (they just call require_auth on themselves).
     client.accept_admin();

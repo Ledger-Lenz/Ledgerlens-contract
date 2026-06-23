@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-//! Tests for `query_risk_gate_with_confidence` and the admin-configurable
+//! Tests for `query_gate_with_confidence` and the admin-configurable
 //! global minimum confidence floor (`set_global_min_confidence` /
 //! `get_global_min_confidence`).
 //!
@@ -55,8 +55,7 @@ fn submit(
             &confidence,
             &1,
             &None,
-        )
-        .unwrap();
+        );
 }
 
 // ── Core gate semantics ───────────────────────────────────────────────────────
@@ -70,7 +69,7 @@ fn test_confidence_gate_passes_high_confidence_low_score() {
 
     submit(&env, &client, &wallet, 30, 80);
 
-    assert!(client.query_risk_gate_with_confidence(
+    assert!(client.query_gate_with_confidence(
         &wallet,
         &symbol_short!("XLM_USDC"),
         &75,
@@ -87,7 +86,7 @@ fn test_confidence_gate_fails_low_confidence() {
 
     submit(&env, &client, &wallet, 30, 20);
 
-    assert!(!client.query_risk_gate_with_confidence(
+    assert!(!client.query_gate_with_confidence(
         &wallet,
         &symbol_short!("XLM_USDC"),
         &75,
@@ -104,7 +103,7 @@ fn test_confidence_gate_fails_high_score() {
 
     submit(&env, &client, &wallet, 80, 90);
 
-    assert!(!client.query_risk_gate_with_confidence(
+    assert!(!client.query_gate_with_confidence(
         &wallet,
         &symbol_short!("XLM_USDC"),
         &75,
@@ -119,7 +118,7 @@ fn test_confidence_gate_no_score_returns_false() {
     let wallet = Address::generate(&env);
 
     // No submit_score call — wallet is unknown.
-    assert!(!client.query_risk_gate_with_confidence(
+    assert!(!client.query_gate_with_confidence(
         &wallet,
         &symbol_short!("XLM_USDC"),
         &75,
@@ -129,7 +128,7 @@ fn test_confidence_gate_no_score_returns_false() {
 
 // ── Equivalence with query_risk_gate (min_confidence = 0) ────────────────────
 
-/// With min_confidence=0, query_risk_gate_with_confidence must return the
+/// With min_confidence=0, query_gate_with_confidence must return the
 /// same result as query_risk_gate for 10 distinct (score, threshold) cases.
 #[test]
 fn test_confidence_gate_zero_min_confidence_equals_risk_gate() {
@@ -156,12 +155,12 @@ fn test_confidence_gate_zero_min_confidence_equals_risk_gate() {
 
         let gate_result = client.query_risk_gate(&wallet, &pair, &threshold);
         let cgate_result =
-            client.query_risk_gate_with_confidence(&wallet, &pair, &threshold, &0);
+            client.query_gate_with_confidence(&wallet, &pair, &threshold, &0);
 
         assert_eq!(
             gate_result, cgate_result,
             "Mismatch for score={score}, confidence={confidence}, threshold={threshold}: \
-             query_risk_gate={gate_result}, query_risk_gate_with_confidence(min_conf=0)={cgate_result}"
+             query_risk_gate={gate_result}, query_gate_with_confidence(min_conf=0)={cgate_result}"
         );
     }
 }
@@ -180,14 +179,14 @@ fn test_confidence_gate_gate_threshold_above_100_returns_false() {
     submit(&env, &client, &wallet, 0, 100); // lowest possible risk score
 
     // gate_threshold=101: short-circuits to false regardless of stored score.
-    assert!(!client.query_risk_gate_with_confidence(&wallet, &pair, &101, &0));
+    assert!(!client.query_gate_with_confidence(&wallet, &pair, &101, &0));
 
     // Also verify u32::MAX doesn't panic.
-    assert!(!client.query_risk_gate_with_confidence(&wallet, &pair, &u32::MAX, &0));
+    assert!(!client.query_gate_with_confidence(&wallet, &pair, &u32::MAX, &0));
 
     // Unknown wallet also returns false.
     let unknown = Address::generate(&env);
-    assert!(!client.query_risk_gate_with_confidence(&unknown, &pair, &101, &0));
+    assert!(!client.query_gate_with_confidence(&unknown, &pair, &101, &0));
 }
 
 /// min_confidence=200 → always false (no score can have confidence > 100).
@@ -202,10 +201,10 @@ fn test_confidence_gate_min_confidence_above_100_returns_false() {
     submit(&env, &client, &wallet, 0, 100);
 
     // min_confidence=200: short-circuits to false — no score can satisfy ≥ 200.
-    assert!(!client.query_risk_gate_with_confidence(&wallet, &pair, &75, &200));
+    assert!(!client.query_gate_with_confidence(&wallet, &pair, &75, &200));
 
     // u32::MAX must not panic.
-    assert!(!client.query_risk_gate_with_confidence(&wallet, &pair, &75, &u32::MAX));
+    assert!(!client.query_gate_with_confidence(&wallet, &pair, &75, &u32::MAX));
 }
 
 // ── Exact boundary values ─────────────────────────────────────────────────────
@@ -219,7 +218,7 @@ fn test_confidence_gate_exactly_at_thresholds() {
 
     submit(&env, &client, &wallet, 74, 50);
 
-    assert!(client.query_risk_gate_with_confidence(
+    assert!(client.query_gate_with_confidence(
         &wallet,
         &symbol_short!("XLM_USDC"),
         &75,
@@ -236,7 +235,7 @@ fn test_confidence_gate_exactly_at_thresholds_inverted() {
 
     submit(&env, &client, &wallet, 75, 50);
 
-    assert!(!client.query_risk_gate_with_confidence(
+    assert!(!client.query_gate_with_confidence(
         &wallet,
         &symbol_short!("XLM_USDC"),
         &75,
@@ -256,7 +255,7 @@ fn test_global_min_confidence_applies() {
     let pair = symbol_short!("XLM_USDC");
 
     // Admin sets global floor to 70.
-    client.set_global_min_confidence(&70).unwrap();
+    client.set_global_min_confidence(&70);
     assert_eq!(client.get_global_min_confidence(), 70);
 
     // Score: low risk (30), confidence 60 — would pass with floor=30 alone.
@@ -264,12 +263,12 @@ fn test_global_min_confidence_applies() {
 
     // Caller asks for floor=30, but global floor=70 overrides → effective=70.
     // confidence(60) < effective_floor(70) → false.
-    assert!(!client.query_risk_gate_with_confidence(&wallet, &pair, &75, &30));
+    assert!(!client.query_gate_with_confidence(&wallet, &pair, &75, &30));
 
     // With confidence=80 (>= 70) it should pass.
     let wallet2 = Address::generate(&env);
     submit(&env, &client, &wallet2, 30, 80);
-    assert!(client.query_risk_gate_with_confidence(&wallet2, &pair, &75, &30));
+    assert!(client.query_gate_with_confidence(&wallet2, &pair, &75, &30));
 
     let _ = admin; // suppress unused warning
 }
@@ -283,19 +282,19 @@ fn test_global_min_confidence_takes_max_with_param() {
     let pair = symbol_short!("XLM_USDC");
 
     // Admin sets global floor to 50.
-    client.set_global_min_confidence(&50).unwrap();
+    client.set_global_min_confidence(&50);
 
     // Score with confidence=70 — passes floor=50 but not floor=80.
     submit(&env, &client, &wallet, 30, 70);
 
     // Caller param=80 > global=50 → effective floor = 80.
     // confidence(70) < 80 → false.
-    assert!(!client.query_risk_gate_with_confidence(&wallet, &pair, &75, &80));
+    assert!(!client.query_gate_with_confidence(&wallet, &pair, &75, &80));
 
     // With confidence=85 (>= 80) it passes.
     let wallet2 = Address::generate(&env);
     submit(&env, &client, &wallet2, 30, 85);
-    assert!(client.query_risk_gate_with_confidence(&wallet2, &pair, &75, &80));
+    assert!(client.query_gate_with_confidence(&wallet2, &pair, &75, &80));
 }
 
 /// set_global_min_confidence(101) must return an error — out of valid range.
@@ -353,7 +352,7 @@ fn test_supports_interface_cgate() {
 // ── Delegation equivalence ────────────────────────────────────────────────────
 
 /// query_risk_gate must return the same result as
-/// query_risk_gate_with_confidence(..., 0) for 5 distinct score values,
+/// query_gate_with_confidence(..., 0) for 5 distinct score values,
 /// proving the refactored delegation path is correct.
 #[test]
 fn test_query_risk_gate_delegates_to_confidence_gate() {
@@ -374,12 +373,12 @@ fn test_query_risk_gate_delegates_to_confidence_gate() {
         submit(&env, &client, &wallet, score, confidence);
 
         let gate = client.query_risk_gate(&wallet, &pair, &threshold);
-        let cgate = client.query_risk_gate_with_confidence(&wallet, &pair, &threshold, &0);
+        let cgate = client.query_gate_with_confidence(&wallet, &pair, &threshold, &0);
 
         assert_eq!(
             gate, cgate,
             "Delegation mismatch: score={score}, confidence={confidence}, threshold={threshold} \
-             → query_risk_gate={gate}, query_risk_gate_with_confidence(0)={cgate}"
+             → query_risk_gate={gate}, query_gate_with_confidence(0)={cgate}"
         );
     }
 }

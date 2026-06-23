@@ -1,7 +1,7 @@
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Events as _, Ledger as _},
-    Address, Env, IntoVal, Symbol, Vec,
+    testutils::{Address as _, Ledger as _},
+    Address, Env, Symbol, Vec,
 };
 
 use crate::{
@@ -725,7 +725,7 @@ fn test_set_history_max_depth_decreases_ring_on_next_write() {
 fn test_history_depth_zero_rejected() {
     let (env, client, _admin, _service) = initialized();
     let result = client.try_set_history_max_depth(&Vec::new(&env), &0);
-    assert_eq!(result, Err(Ok(Error::InvalidHistoryDepth)));
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
 }
 
 #[test]
@@ -733,7 +733,7 @@ fn test_history_depth_above_ceiling_rejected() {
     let (env, client, _admin, _service) = initialized();
     // MAX_HISTORY_DEPTH is 50; 51 must be rejected.
     let result = client.try_set_history_max_depth(&Vec::new(&env), &51);
-    assert_eq!(result, Err(Ok(Error::InvalidHistoryDepth)));
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
 }
 
 #[test]
@@ -1179,9 +1179,9 @@ fn test_batch_result_vec_length_matches_input() {
 // ── Contract version ──────────────────────────────────────────────────────────
 
 #[test]
-fn test_get_version_returns_three() {
+fn test_get_version_returns_four() {
     let (_env, client, _admin, _service) = initialized();
-    assert_eq!(client.get_version(), 3);
+    assert_eq!(client.get_version(), 4);
 }
 
 // ── Not-initialized guards ────────────────────────────────────────────────────
@@ -1567,7 +1567,7 @@ fn test_threshold_zero_rejected() {
     client.add_service_signer(&Vec::new(&env), &Address::generate(&env));
 
     let result = client.try_set_service_threshold(&Vec::new(&env), &0);
-    assert_eq!(result, Err(Ok(Error::InvalidThreshold)));
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
 }
 
 #[test]
@@ -1579,7 +1579,7 @@ fn test_threshold_above_set_size_rejected() {
     client.add_service_signer(&Vec::new(&env), &Address::generate(&env));
 
     let result = client.try_set_service_threshold(&Vec::new(&env), &3);
-    assert_eq!(result, Err(Ok(Error::InvalidThreshold)));
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
 }
 
 #[test]
@@ -1686,7 +1686,7 @@ fn test_is_score_stale_exactly_at_window() {
 fn test_set_staleness_window_zero_rejected() {
     let (env, client, _admin, _service) = initialized();
     let result = client.try_set_staleness_window(&Vec::new(&env), &0);
-    assert_eq!(result, Err(Ok(Error::InvalidStalenessWindow)));
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
 }
 
 #[test]

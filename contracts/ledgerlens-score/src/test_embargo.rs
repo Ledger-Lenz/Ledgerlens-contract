@@ -44,8 +44,7 @@ fn submit(
             &80,
             &1,
             &None,
-        )
-        .unwrap();
+        );
     env.ledger().with_mut(|l| l.timestamp += 3_601);
 }
 
@@ -64,7 +63,7 @@ fn test_is_embargoed_false_by_default() {
 fn test_set_indefinite_embargo() {
     let (env, client, _admin, _service) = setup();
     let wallet = Address::generate(&env);
-    client.set_score_embargo(&wallet, &None).unwrap();
+    client.set_score_embargo(&wallet, &None);
     assert!(client.is_embargoed(&wallet));
 }
 
@@ -73,7 +72,7 @@ fn test_set_timed_embargo_active_within_window() {
     let (env, client, _admin, _service) = setup();
     let wallet = Address::generate(&env);
     // Embargo expires at ledger_ts = 10_000; current ts = 1.
-    client.set_score_embargo(&wallet, &Some(10_000)).unwrap();
+    client.set_score_embargo(&wallet, &Some(10_000));
     assert!(client.is_embargoed(&wallet));
 }
 
@@ -83,7 +82,7 @@ fn test_set_timed_embargo_expired() {
     let wallet = Address::generate(&env);
     // Embargo already expired at the time of creation (expiry in the past).
     env.ledger().with_mut(|l| l.timestamp = 5_000);
-    client.set_score_embargo(&wallet, &Some(4_999)).unwrap();
+    client.set_score_embargo(&wallet, &Some(4_999));
     assert!(!client.is_embargoed(&wallet));
 }
 
@@ -91,7 +90,7 @@ fn test_set_timed_embargo_expired() {
 fn test_timed_embargo_auto_expires() {
     let (env, client, _admin, _service) = setup();
     let wallet = Address::generate(&env);
-    client.set_score_embargo(&wallet, &Some(500)).unwrap();
+    client.set_score_embargo(&wallet, &Some(500));
     // Before expiry.
     env.ledger().with_mut(|l| l.timestamp = 500);
     assert!(client.is_embargoed(&wallet));
@@ -104,9 +103,9 @@ fn test_timed_embargo_auto_expires() {
 fn test_lift_embargo_removes_it() {
     let (env, client, _admin, _service) = setup();
     let wallet = Address::generate(&env);
-    client.set_score_embargo(&wallet, &None).unwrap();
+    client.set_score_embargo(&wallet, &None);
     assert!(client.is_embargoed(&wallet));
-    client.lift_score_embargo(&wallet).unwrap();
+    client.lift_score_embargo(&wallet);
     assert!(!client.is_embargoed(&wallet));
 }
 
@@ -115,7 +114,7 @@ fn test_lift_embargo_noop_when_not_embargoed() {
     let (env, client, _admin, _service) = setup();
     let wallet = Address::generate(&env);
     // lift on a wallet that has no embargo — should not panic or error.
-    client.lift_score_embargo(&wallet).unwrap();
+    client.lift_score_embargo(&wallet);
     assert!(!client.is_embargoed(&wallet));
 }
 
@@ -124,9 +123,9 @@ fn test_replacing_embargo_updates_expiry() {
     let (env, client, _admin, _service) = setup();
     let wallet = Address::generate(&env);
     // Start with a timed embargo that would expire at ts=100.
-    client.set_score_embargo(&wallet, &Some(100)).unwrap();
+    client.set_score_embargo(&wallet, &Some(100));
     // Replace with an indefinite embargo.
-    client.set_score_embargo(&wallet, &None).unwrap();
+    client.set_score_embargo(&wallet, &None);
     // Now advance past the original expiry; embargo must still be active.
     env.ledger().with_mut(|l| l.timestamp = 200);
     assert!(client.is_embargoed(&wallet));
@@ -140,7 +139,7 @@ fn test_get_score_embargoed_returns_error() {
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
     submit(&env, &client, &wallet, &pair, 42);
-    client.set_score_embargo(&wallet, &None).unwrap();
+    client.set_score_embargo(&wallet, &None);
     let result = client.try_get_score(&wallet, &pair);
     assert_eq!(result, Err(Ok(Error::ScoreEmbargoed)));
 }
@@ -151,7 +150,7 @@ fn test_get_score_not_found_when_no_score_and_embargoed() {
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
     // No score submitted — embargo still returns ScoreEmbargoed, not ScoreNotFound.
-    client.set_score_embargo(&wallet, &None).unwrap();
+    client.set_score_embargo(&wallet, &None);
     let result = client.try_get_score(&wallet, &pair);
     assert_eq!(result, Err(Ok(Error::ScoreEmbargoed)));
 }
@@ -162,8 +161,8 @@ fn test_get_score_available_after_lift() {
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
     submit(&env, &client, &wallet, &pair, 42);
-    client.set_score_embargo(&wallet, &None).unwrap();
-    client.lift_score_embargo(&wallet).unwrap();
+    client.set_score_embargo(&wallet, &None);
+    client.lift_score_embargo(&wallet);
     let score = client.get_score(&wallet, &pair);
     assert_eq!(score.score, 42);
 }
@@ -174,7 +173,7 @@ fn test_get_score_available_after_timed_expiry() {
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
     submit(&env, &client, &wallet, &pair, 77);
-    client.set_score_embargo(&wallet, &Some(10_000)).unwrap();
+    client.set_score_embargo(&wallet, &Some(10_000));
     // Score is blocked while embargo is active.
     assert_eq!(
         client.try_get_score(&wallet, &pair),
@@ -194,7 +193,7 @@ fn test_get_aggregate_score_embargoed() {
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
     submit(&env, &client, &wallet, &pair, 50);
-    client.set_score_embargo(&wallet, &None).unwrap();
+    client.set_score_embargo(&wallet, &None);
     let result = client.try_get_aggregate_score(&wallet);
     assert_eq!(result, Err(Ok(Error::ScoreEmbargoed)));
 }
@@ -205,9 +204,9 @@ fn test_get_aggregate_score_available_after_lift() {
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
     submit(&env, &client, &wallet, &pair, 50);
-    client.set_score_embargo(&wallet, &None).unwrap();
-    client.lift_score_embargo(&wallet).unwrap();
-    let agg = client.get_aggregate_score(&wallet).unwrap();
+    client.set_score_embargo(&wallet, &None);
+    client.lift_score_embargo(&wallet);
+    let agg = client.get_aggregate_score(&wallet);
     assert_eq!(agg.aggregate_score, 50);
 }
 
@@ -220,7 +219,7 @@ fn test_get_score_history_empty_when_embargoed() {
     let pair = symbol_short!("XLM_USDC");
     submit(&env, &client, &wallet, &pair, 10);
     submit(&env, &client, &wallet, &pair, 20);
-    client.set_score_embargo(&wallet, &None).unwrap();
+    client.set_score_embargo(&wallet, &None);
     let history = client.get_score_history(&wallet, &pair);
     assert_eq!(history.len(), 0);
 }
@@ -231,8 +230,8 @@ fn test_get_score_history_restored_after_lift() {
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
     submit(&env, &client, &wallet, &pair, 10);
-    client.set_score_embargo(&wallet, &None).unwrap();
-    client.lift_score_embargo(&wallet).unwrap();
+    client.set_score_embargo(&wallet, &None);
+    client.lift_score_embargo(&wallet);
     let history = client.get_score_history(&wallet, &pair);
     assert_eq!(history.len(), 1);
     assert_eq!(history.get(0).unwrap().score, 10);
@@ -249,7 +248,7 @@ fn test_query_risk_gate_false_when_embargoed() {
     submit(&env, &client, &wallet, &pair, 5);
     assert!(client.query_risk_gate(&wallet, &pair, &75));
     // Place embargo — gate must now return false regardless of score.
-    client.set_score_embargo(&wallet, &None).unwrap();
+    client.set_score_embargo(&wallet, &None);
     assert!(!client.query_risk_gate(&wallet, &pair, &75));
 }
 
@@ -259,9 +258,9 @@ fn test_query_risk_gate_restored_after_lift() {
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
     submit(&env, &client, &wallet, &pair, 5);
-    client.set_score_embargo(&wallet, &None).unwrap();
+    client.set_score_embargo(&wallet, &None);
     assert!(!client.query_risk_gate(&wallet, &pair, &75));
-    client.lift_score_embargo(&wallet).unwrap();
+    client.lift_score_embargo(&wallet);
     assert!(client.query_risk_gate(&wallet, &pair, &75));
 }
 
@@ -271,7 +270,7 @@ fn test_query_risk_gate_false_when_embargoed_and_no_score() {
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
     // No score at all, embargo placed.
-    client.set_score_embargo(&wallet, &None).unwrap();
+    client.set_score_embargo(&wallet, &None);
     assert!(!client.query_risk_gate(&wallet, &pair, &75));
 }
 
@@ -282,7 +281,7 @@ fn test_submit_score_unaffected_by_embargo() {
     let (env, client, _admin, _service) = setup();
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
-    client.set_score_embargo(&wallet, &None).unwrap();
+    client.set_score_embargo(&wallet, &None);
     // Ingestion must still succeed even while embargoed.
     client
         .submit_score(
@@ -296,8 +295,7 @@ fn test_submit_score_unaffected_by_embargo() {
             &80,
             &1,
             &None,
-        )
-        .unwrap();
+        );
 }
 
 #[test]
@@ -305,7 +303,7 @@ fn test_submit_scores_batch_unaffected_by_embargo() {
     let (env, client, _admin, _service) = setup();
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
-    client.set_score_embargo(&wallet, &None).unwrap();
+    client.set_score_embargo(&wallet, &None);
     let ts = env.ledger().timestamp().max(1);
     let mut entries = Vec::new(&env);
     entries.push_back(ScoreSubmission {
@@ -333,7 +331,7 @@ fn test_embargo_is_per_wallet() {
     submit(&env, &client, &wallet_a, &pair, 30);
     submit(&env, &client, &wallet_b, &pair, 40);
     // Only embargo wallet_a.
-    client.set_score_embargo(&wallet_a, &None).unwrap();
+    client.set_score_embargo(&wallet_a, &None);
     assert!(client.is_embargoed(&wallet_a));
     assert!(!client.is_embargoed(&wallet_b));
     // wallet_b score access unaffected.
@@ -384,7 +382,7 @@ fn test_full_embargo_lifecycle() {
     assert!(!client.is_embargoed(&wallet));
 
     // 2. Set indefinite embargo — score blocked.
-    client.set_score_embargo(&wallet, &None).unwrap();
+    client.set_score_embargo(&wallet, &None);
     assert!(client.is_embargoed(&wallet));
     assert_eq!(
         client.try_get_score(&wallet, &pair),
@@ -397,7 +395,7 @@ fn test_full_embargo_lifecycle() {
     submit(&env, &client, &wallet, &pair, 55);
 
     // 4. Lift embargo — access restored, updated score visible.
-    client.lift_score_embargo(&wallet).unwrap();
+    client.lift_score_embargo(&wallet);
     assert!(!client.is_embargoed(&wallet));
     let score = client.get_score(&wallet, &pair);
     assert_eq!(score.score, 55);

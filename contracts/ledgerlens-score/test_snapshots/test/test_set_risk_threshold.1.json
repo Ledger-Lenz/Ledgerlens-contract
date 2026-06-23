@@ -64,6 +64,14 @@
                     "storage": [
                       {
                         "key": {
+                          "symbol": "r_thresh"
+                        },
+                        "val": {
+                          "u32": 80
+                        }
+                      },
+                      {
+                        "key": {
                           "vec": [
                             {
                               "symbol": "Admin"
@@ -72,18 +80,6 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "RiskThreshold"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u32": 80
                         }
                       },
                       {

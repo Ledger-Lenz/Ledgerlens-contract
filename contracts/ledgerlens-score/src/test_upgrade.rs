@@ -211,11 +211,11 @@ fn test_upgrade_delay_below_min_rejected() {
     let (env, client, _admin) = setup();
     assert_eq!(
         client.try_set_upgrade_delay(&Vec::new(&env), &0),
-        Err(Ok(Error::InvalidUpgradeDelay))
+        Err(Ok(Error::InvalidConfigValue))
     );
     assert_eq!(
         client.try_set_upgrade_delay(&Vec::new(&env), &(MIN_UPGRADE_DELAY_SECS - 1)),
-        Err(Ok(Error::InvalidUpgradeDelay))
+        Err(Ok(Error::InvalidConfigValue))
     );
 }
 
@@ -224,7 +224,7 @@ fn test_upgrade_delay_above_max_rejected() {
     let (env, client, _admin) = setup();
     assert_eq!(
         client.try_set_upgrade_delay(&Vec::new(&env), &(MAX_UPGRADE_DELAY_SECS + 1)),
-        Err(Ok(Error::InvalidUpgradeDelay))
+        Err(Ok(Error::InvalidConfigValue))
     );
 }
 
