@@ -639,6 +639,24 @@ impl LedgerLensScoreContract {
             consensus_indices.len(),
             epsilon,
         );
+
+        // ── Bayesian posterior update ──────────────────────────────────────
+        // For each consensus model, update its posterior weight by penalising
+        // squared deviation from the accepted median:
+        //   new_weight = max(1, prior_weight - k * (median - score)^2)
+        // where k = 1 (fixed) and all weights are scaled by BAYESIAN_WEIGHT_SCALE.
+        for i in 0..consensus_indices.len() {
+            let idx = consensus_indices.get(i).unwrap();
+            let sub = submissions.get(idx).unwrap();
+            let version = sub.model_version;
+            let prior = storage::get_model_posterior_weight(&env, version);
+            let diff = (median_score as i64) - (sub.score as i64);
+            let penalty = (diff * diff) as u64; // squared error, unscaled
+            // Scale penalty by 1 (k=1) — subtract from weight directly
+            let new_weight = prior.saturating_sub(penalty).max(1);
+            storage::set_model_posterior_weight(&env, version, new_weight);
+        }
+
         Ok(())
     }
 
