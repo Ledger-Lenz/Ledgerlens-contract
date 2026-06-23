@@ -1,0 +1,20 @@
+[package]
+name = "mock-amm"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Minimal mock AMM that gates swaps on LedgerLens's query_risk_gate, used by the cross-contract composability integration suite"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = "21.0.0"
+ledgerlens-score = { path = "../ledgerlens-score" }
+
+[dev-dependencies]
+soroban-sdk = { version = "21.0.0", features = ["testutils"] }
+
+[features]
+testutils = ["soroban-sdk/testutils"]

@@ -1,0 +1,12 @@
+[package]
+name = "composability-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Cross-contract composability integration tests (issue #121): deploys mock-amm and mock-lending alongside ledgerlens-score in the same Soroban test environment"
+
+[dev-dependencies]
+soroban-sdk = { version = "21.0.0", features = ["testutils"] }
+ledgerlens-score = { path = "../../contracts/ledgerlens-score" }
+mock-amm = { path = "../../contracts/mock-amm" }
+mock-lending = { path = "../../contracts/mock-lending" }
