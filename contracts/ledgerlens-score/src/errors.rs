@@ -9,8 +9,9 @@ pub enum Error {
     Unauthorized = 3,
     InvalidScore = 4,
     InvalidConfidence = 5,
-   SignerTierViolation = 26,
-    InvalidSignerTier = 27, ScoreNotFound = 6,
+    InvalidSignerTier = 48,
+    SignerTierViolation = 54,
+    ScoreNotFound = 6,
     /// Returned when any state-mutating call is attempted while the
     /// contract is paused by the admin.
     ContractPaused = 7,
@@ -83,10 +84,10 @@ pub enum Error {
     /// Returned when `set_history_max_depth` is called with `0` or a value
     /// above `MAX_HISTORY_DEPTH`.
     InvalidHistoryDepth = 29,
+
     /// Returned when `set_global_min_confidence` is called with a value
     /// above 100 (confidence is bounded to 0–100).
-    InvalidMinConfidence = 30,
-
+    InvalidMinConfidence = 49,
 
     // ── Fee withdrawal ─────────────────────────────────────────────────────
     /// Returned by `get_fee_token` and `withdraw_fees` when `set_fee_token`
@@ -145,6 +146,12 @@ pub enum Error {
     /// Returned when `add_counterparty_link` is called with the same wallet twice.
     SelfLink = 45,
 
+    // ── Velocity Cap ───────────────────────────────────────────────────────
+    /// Returned when the requested score change exceeds the allowed points per hour.
+    ScoreVelocityExceeded = 46,
+
+    InvalidEscalation = 50,
+    InvalidJump = 51,
     // ── Score submission floor ─────────────────────────────────────────────
     /// Returned by `submit_score` (and recorded as a `rejection_code` in
     /// `submit_scores_batch`) when the score-floor policy is enabled, the
@@ -167,14 +174,45 @@ pub enum Error {
     /// Fewer than the configured consensus threshold of models agreed on a
     /// score within the configured epsilon window.
     InsufficientConsensus = 49,
-    /// `submit_consensus_score` was called with zero model submissions.
+    /// `reveal_consensus` was called with zero model submissions.
     ConsensusInputEmpty = 50,
     /// `set_consensus_config` was called with `k == 0` or `epsilon > 100`.
-InvalidConsensusConfig = 51,
+    InvalidConsensusConfig = 51,
+    /// `reveal_consensus` was called after the commitment's TTL expired.
+    RevealWindowExpired = 52,
+    /// `reveal_consensus` was called but the score and nonce do not match the commitment.
+    CommitmentMismatch = 53,
+
+    // ── Score dispute mechanism ────────────────────────────────────────────
+    /// Returned by `open_score_dispute` when a dispute already exists for the
+    /// given `(wallet, asset_pair)`.
+    DisputeAlreadyOpen = 55,
+    /// Returned by `resolve_dispute_timeout` when the dispute deadline has not
+    /// yet elapsed.
+    DisputeNotYetTimedOut = 56,
+    /// Returned when attempting to resolve a dispute that does not exist.
+    DisputeNotFound = 57,
+    /// Returned by `open_score_dispute` when the staked bond is zero or
+    /// negative.
+    InvalidDisputeBond = 58,
+    /// Returned by `open_score_dispute` when the open-dispute index is already
+    /// at `MAX_OPEN_DISPUTES`.
+    DisputeIndexFull = 59,
+
+    // ── Finality buffer (pending score commit window) ──────────────────────
+    /// `set_finality_buffer` was called with a value above
+    /// `MAX_FINALITY_BUFFER_SECS`.
+    InvalidFinalityBuffer = 60,
+    /// `commit_pending_score`, `cancel_pending_score`, or any function
+    /// expecting a pending entry was called for a `(wallet, asset_pair)`
+    /// with no pending score.
+    NoPendingScore = 61,
+    /// `commit_pending_score` was called before `commit_after` elapsed.
+    FinalityWindowNotElapsed = 62,
 
     // ── Model version governance ─────────────────────────────────────────
     /// Returned when submitting a score with a model version that has been deprecated.
-    ModelVersionDeprecated = 52,
+    ModelVersionDeprecated = 63,
 }
 
 // Gate caller tracking error variants for structural protection

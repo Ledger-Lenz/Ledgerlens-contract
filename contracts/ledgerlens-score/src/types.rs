@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address};
+use soroban_sdk::{contracttype, Address, BytesN, Symbol};
 
 /// Embargo expiry configuration stored per wallet in temporary storage.
 ///
@@ -11,6 +11,26 @@ use soroban_sdk::{contracttype, Address};
 pub enum EmbargoExpiry {
     Indefinite,
     Until(u64),
+}
+
+/// On-chain record of an open score dispute, tracking the challenger's staked
+/// bond, the deadline by which the admin must resubmit a corrected score, and
+/// the score that was being challenged when the dispute was opened.
+///
+/// Stored in temporary TTL-bounded storage keyed by `(wallet, asset_pair)`;
+/// removed once the dispute is resolved by admin correction or by timeout.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScoreDispute {
+    /// Wallet operator that opened the dispute and staked the bond.
+    pub challenger: Address,
+    /// Fee-token amount staked to open the dispute (escrowed in the contract).
+    pub bond: i128,
+    /// Ledger timestamp after which the dispute may be settled by timeout.
+    pub deadline: u64,
+    /// The disputed score at the time the dispute was opened, recorded for
+    /// audit purposes.
+    pub challenged_score: u32,
 }
 
 /// On-chain record of the latest LedgerLens risk assessment for a
@@ -100,8 +120,31 @@ pub struct ScoreAttestation {
 /// A single model's contribution to an ensemble consensus submission.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+
+/// Pending, time-locked risk score submission.
+///
+/// Written by `submit_score` when the admin has configured
+/// `FinalityBufferSecs > 0`. The score is held in this pending state
+/// (invisible to `get_score` / `query_risk_gate`) until
+/// `commit_pending_score` observes that `env.ledger().timestamp() >=
+/// commit_after`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingScoreEntry {
+    pub score: u32,
+    pub benford_flag: bool,
+    pub ml_flag: bool,
+    pub submitted_at: u64,
+    pub confidence: u32,
+    pub model_version: u32,
+    pub timestamp: u64,
+    pub commit_after: u64,
+    pub submitted_by: Address,
+}
+
 pub struct ModelSubmission {
     pub model_version: u32,
+    pub model: Address,
     pub score: u32,
     pub confidence: u32,
     pub benford_flag: bool,
@@ -281,9 +324,42 @@ pub struct ScoreFloorPolicy {
 pub struct SnapshotRecord {
     pub root: BytesN<32>,
     pub leaf_count: u64,
-    pub committed_at: u64,      // ledger timestamp
-    pub committed_by: Address,  // who called commit_snapshot
+    pub committed_at: u64,     // ledger timestamp
+    pub committed_by: Address, // who called commit_snapshot
 }
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScoreVelocityCap {
+    pub enabled: bool,
+    pub points_per_hour: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EffectiveRiskScore {
+    pub effective_score: u32,
+    pub original_score: u32,
+    pub original_confidence: u32,
+    pub confidence_floor: u32,
+    pub delegated_to: Option<Address>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelVersionStats {
+    pub model_version: u32,
+    pub total_submissions: u64,
+    pub average_score: u32,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub enum GateDataKey {
+    GateCallers,
+}
+
+pub const MAX_GATE_CALLERS: u32 = 100;
 
 #[contracttype]
 #[derive(Clone)]
@@ -395,6 +471,15 @@ pub enum DataKey {
     /// List of counterparty addresses for a wallet on a specific asset pair.
     /// Key: Counterparties(wallet, asset_pair) -> Vec<Address>
     Counterparties(Address, Symbol),
+    /// Global boolean kill-switch for score velocity checks.
+    ScoreVelocityCapEnabled,
+    /// Maximum points a score can change per hour when the cap is enabled.
+    ScoreVelocityCapPointsPerHour,
+    /// One-time bypass flag set by the admin to allow a single submission
+    /// for a specific (wallet, asset_pair) to bypass the velocity cap.
+    VelocityCapOverride(Address, Symbol),
+    SignerTier(Address),
+    GlobalMinConfidence,
     /// Score-floor policy: historical peak (high-water mark) at or above which
     /// the floor applies. Global config, `u32`, defaults to
     /// `DEFAULT_SCORE_FLOOR_HWM` (80) when unset.
@@ -427,6 +512,34 @@ pub enum DataKey {
     /// Maximum allowed score deviation from the provisional median when
     /// building the consensus set.
     ConsensusEpsilon,
+    /// Open dispute record for a (wallet, asset_pair) pair. Absent key means
+    /// no active dispute. Stored in temporary TTL-bounded storage.
+    ScoreDispute(Address, Symbol),
+    /// Index of all currently open disputes: `Vec<(Address, Symbol)>`.
+    /// Incrementally maintained so `get_open_disputes` is a single read.
+    DisputeIndex,
+    /// A single model's commitment (sha256(score || nonce)) for consensus.
+    /// Key: ConsensusCommitment(model_address, wallet, asset_pair) -> BytesN<32>
+    ConsensusCommitment(Address, Address, Symbol),
+    /// Configurable window for reveal in seconds.
+    RevealWindowSecs,
+    /// Admin-configured finality buffer in seconds.
+    FinalityBufferSecs,
+    /// Pending score entry held before commit. Invisible to get_score/query_risk_gate.
+    PendingScore(Address, Symbol),
+    /// u64, ledger timestamp of the most recent accepted submission
+    /// (`submit_score` / `submit_scores_batch`) or `ping_heartbeat` call.
+    /// `0` means the service has never been active. See `is_service_alive`.
+    LastServiceActivityAt,
+    /// u64, admin-configurable number of seconds of silence before the
+    /// off-chain service is considered unresponsive. Defaults to
+    /// `DEFAULT_HEARTBEAT_ALERT_THRESHOLD_SECS` (1 hour) when unset.
+    ServiceHeartbeatAlertThreshold,
+    /// bool, `true` once a `ServiceSilenceAlertEvent` has been emitted for
+    /// the current silence window. Cleared (and a `ServiceResumedEvent`
+    /// emitted) the next time a submission or `ping_heartbeat` is accepted —
+    /// see `submit_score` / `ping_heartbeat`.
+    ServiceSilentAlertEmitted,
 }
 
 #[contracttype]

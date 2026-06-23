@@ -480,3 +480,158 @@ fn test_cooldown_is_per_wallet() {
     );
     assert!(result.is_ok());
 }
+
+// ── Per-pair cooldown overrides ────────────────────────────────────────────────
+
+#[test]
+fn test_pair_cooldown_defaults_to_global() {
+    let (env, client, _admin) = setup();
+    let pair = symbol_short!("XLM_USDC");
+
+    assert_eq!(client.get_pair_cooldown(&pair), DEFAULT_COOLDOWN_SECS);
+
+    client.set_cooldown(&Vec::new(&env), &MIN_COOLDOWN_SECS);
+    assert_eq!(client.get_pair_cooldown(&pair), MIN_COOLDOWN_SECS);
+}
+
+#[test]
+fn test_pair_cooldown_override_takes_precedence() {
+    let (env, client, _admin) = setup();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    client.set_cooldown(&Vec::new(&env), &MAX_COOLDOWN_SECS);
+    client.set_pair_cooldown(&Vec::new(&env), &pair, &MIN_COOLDOWN_SECS);
+    assert_eq!(client.get_pair_cooldown(&pair), MIN_COOLDOWN_SECS);
+
+    client
+        .submit_score(
+            &Vec::new(&env),
+            &wallet,
+            &pair,
+            &50,
+            &false,
+            &false,
+            &START_TS,
+            &90,
+            &1,
+            &None,
+        )
+        .unwrap();
+
+    advance_to(&env, START_TS + MIN_COOLDOWN_SECS);
+    assert!(client
+        .try_submit_score(
+            &Vec::new(&env),
+            &wallet,
+            &pair,
+            &51,
+            &false,
+            &false,
+            &(START_TS + MIN_COOLDOWN_SECS),
+            &90,
+            &1,
+            &None,
+        )
+        .is_ok());
+}
+
+#[test]
+fn test_clear_pair_cooldown_resets_to_global() {
+    let (env, client, _admin) = setup();
+    let pair = symbol_short!("XLM_USDC");
+
+    client.set_cooldown(&Vec::new(&env), &MAX_COOLDOWN_SECS);
+    client.set_pair_cooldown(&Vec::new(&env), &pair, &MIN_COOLDOWN_SECS);
+    assert_eq!(client.get_pair_cooldown(&pair), MIN_COOLDOWN_SECS);
+
+    client.clear_pair_cooldown(&Vec::new(&env), &pair);
+    assert_eq!(client.get_pair_cooldown(&pair), MAX_COOLDOWN_SECS);
+}
+
+#[test]
+fn test_batch_override_rate_limit_single_entry() {
+    let (env, client, _admin) = setup();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    client
+        .submit_score(
+            &Vec::new(&env),
+            &wallet,
+            &pair,
+            &50,
+            &false,
+            &false,
+            &START_TS,
+            &90,
+            &1,
+            &None,
+        )
+        .unwrap();
+
+    let mut entries: Vec<(Address, soroban_sdk::Symbol)> = Vec::new(&env);
+    entries.push_back((wallet.clone(), pair.clone()));
+    assert_eq!(client.batch_override_rate_limit(&Vec::new(&env), &entries), 1);
+    assert_eq!(client.get_last_submit_time(&wallet, &pair), 0);
+}
+
+#[test]
+fn test_batch_override_rate_limit_multiple_entries() {
+    let (env, client, _admin) = setup();
+    let wallet1 = Address::generate(&env);
+    let wallet2 = Address::generate(&env);
+    let pair1 = symbol_short!("XLM_USDC");
+    let pair2 = symbol_short!("BTC_USDC");
+
+    client
+        .submit_score(
+            &Vec::new(&env),
+            &wallet1,
+            &pair1,
+            &50,
+            &false,
+            &false,
+            &START_TS,
+            &90,
+            &1,
+            &None,
+        )
+        .unwrap();
+    client
+        .submit_score(
+            &Vec::new(&env),
+            &wallet2,
+            &pair2,
+            &60,
+            &false,
+            &false,
+            &START_TS,
+            &90,
+            &1,
+            &None,
+        )
+        .unwrap();
+
+    let mut entries: Vec<(Address, soroban_sdk::Symbol)> = Vec::new(&env);
+    entries.push_back((wallet1.clone(), pair1.clone()));
+    entries.push_back((wallet2.clone(), pair2.clone()));
+
+    assert_eq!(client.batch_override_rate_limit(&Vec::new(&env), &entries), 2);
+    assert_eq!(client.get_last_submit_time(&wallet1, &pair1), 0);
+    assert_eq!(client.get_last_submit_time(&wallet2, &pair2), 0);
+}
+
+#[test]
+fn test_batch_override_rate_limit_oversized_batch_rejected() {
+    let (env, client, _admin) = setup();
+    let pair = symbol_short!("XLM_USDC");
+    let mut entries: Vec<(Address, soroban_sdk::Symbol)> = Vec::new(&env);
+
+    for _ in 0..=crate::constants::MAX_BATCH_SIZE {
+        entries.push_back((Address::generate(&env), pair.clone()));
+    }
+
+    let result = client.try_batch_override_rate_limit(&Vec::new(&env), &entries);
+    assert_eq!(result, Err(Ok(Error::BatchTooLarge)));
+}
