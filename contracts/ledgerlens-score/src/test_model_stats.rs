@@ -4,9 +4,7 @@ use soroban_sdk::{
     Address, Env, Vec,
 };
 
-use crate::{
-    Error, LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreSubmission,
-};
+use crate::{Error, LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreSubmission};
 
 fn setup<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address, Address) {
     let env = Env::default();
@@ -66,13 +64,35 @@ fn test_subsequent_submissions_update_stats() {
     let model_version = 1;
 
     // First submission
-    client.submit_score(&Vec::new(&env), &wallet1, &pair, &40, &false, &false, &1, &90, &model_version, &None);
+    client.submit_score(
+        &Vec::new(&env),
+        &wallet1,
+        &pair,
+        &40,
+        &false,
+        &false,
+        &1,
+        &90,
+        &model_version,
+        &None,
+    );
 
     // Advance time
     env.ledger().with_mut(|l| l.timestamp += 3600);
 
     // Second submission
-    client.submit_score(&Vec::new(&env), &wallet2, &pair, &60, &false, &false, &2, &90, &model_version, &None);
+    client.submit_score(
+        &Vec::new(&env),
+        &wallet2,
+        &pair,
+        &60,
+        &false,
+        &false,
+        &2,
+        &90,
+        &model_version,
+        &None,
+    );
 
     let stats = client.get_model_version_stats(&model_version);
     assert_eq!(stats.submission_count, 2);

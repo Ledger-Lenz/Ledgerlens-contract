@@ -32,6 +32,7 @@ use crate::{
 // `Env` reference), but the off-chain test helpers below need the
 // allocation-side Rust Vec with `.push(…)`, direct indexing, and
 // `slice.to_vec()`-style conversions. Use this alias to disambiguate.
+extern crate alloc;
 use alloc::vec::Vec as StdVec;
 
 // ── Test infrastructure ─────────────────────────────────────────────────────
@@ -83,29 +84,19 @@ fn merkle_leaf(env: &Env, commitment_bytes: &[u8; 32]) -> [u8; 32] {
     let mut preimage = [0u8; 33];
     preimage[0] = 0x00;
     preimage[1..33].copy_from_slice(commitment_bytes);
-    env.crypto()
-        .sha256(&Bytes::from_array(env, &preimage))
-        .to_bytes()
-        .to_array()
+    env.crypto().sha256(&Bytes::from_array(env, &preimage)).to_bytes().to_array()
 }
 
 /// Hash two 32-byte siblings into their parent with the **internal-node**
 /// domain separator (`0x01`). Used both directly (when the caller knows
 /// which side each input is on) and via `build_merkle_root` (which
 /// hashes level-by-level in left-to-right order).
-fn merkle_internal(
-    env: &Env,
-    left: &[u8; 32],
-    right: &[u8; 32],
-) -> [u8; 32] {
+fn merkle_internal(env: &Env, left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     let mut preimage = [0u8; 65];
     preimage[0] = 0x01;
     preimage[1..33].copy_from_slice(left);
     preimage[33..65].copy_from_slice(right);
-    env.crypto()
-        .sha256(&Bytes::from_array(env, &preimage))
-        .to_bytes()
-        .to_array()
+    env.crypto().sha256(&Bytes::from_array(env, &preimage)).to_bytes().to_array()
 }
 
 /// Compute the underlying SHA-256 commitment for a `ScoreSubmission`'s
@@ -205,11 +196,7 @@ fn build_merkle_proof(env: &Env, leaves: &[[u8; 32]], index: u32) -> (StdVec<[u8
 /// soroban-sdk's `Hash<32>` is opaque and can only be constructed via
 /// host crypto functions.
 fn attest(env: &Env, key: &SigningKey, root: &[u8; 32]) -> BatchAttestation {
-    let verified_digest = env
-        .crypto()
-        .sha256(&Bytes::from_array(env, root))
-        .to_bytes()
-        .to_array();
+    let verified_digest = env.crypto().sha256(&Bytes::from_array(env, root)).to_bytes().to_array();
     let (sig, recid) = key.sign_prehash_recoverable(&verified_digest).unwrap();
     let mut sig_bytes = [0u8; 65];
     sig_bytes[..64].copy_from_slice(&sig.to_bytes());
@@ -234,18 +221,7 @@ fn make_entry(
 ) -> (ScoreSubmission, [u8; 32]) {
     let wallet = Address::generate(env);
     let pair = symbol_short!("XLM_USDC");
-    let c = payload_commitment(
-        env,
-        client_addr,
-        &wallet,
-        &pair,
-        score,
-        false,
-        false,
-        ts,
-        80,
-        1,
-    );
+    let c = payload_commitment(env, client_addr, &wallet, &pair, score, false, false, ts, 80, 1);
     (
         ScoreSubmission {
             wallet,
@@ -275,11 +251,7 @@ fn make_with_proof(
     for p in proof_bytes {
         proof.push_back(BytesN::from_array(env, &p));
     }
-    ScoreSubmissionWithProof {
-        submission,
-        proof,
-        proof_flags: flags,
-    }
+    ScoreSubmissionWithProof { submission, proof, proof_flags: flags }
 }
 
 // ── 1. test_valid_merkle_batch_accepted ──────────────────────────────────────
@@ -300,18 +272,15 @@ fn test_valid_merkle_batch_accepted() {
     }
 
     // Build leaves from payload commitments.
-    let leaves: StdVec<[u8; 32]> =
-        payload_commits.iter().map(|c| merkle_leaf(&env, c)).collect();
+    let leaves: StdVec<[u8; 32]> = payload_commits.iter().map(|c| merkle_leaf(&env, c)).collect();
     // Build the merkle root.
     let root = build_merkle_root(&env, &leaves);
 
     // Sanity-check that the contract agrees with our construction.
     let leaf0 = env.as_contract(&client.address, || {
-        let leaf = LedgerLensScoreContract::compute_merkle_leaf(
-            &env,
-            submissions_vec.get(0).unwrap(),
-        )
-        .unwrap();
+        let leaf =
+            LedgerLensScoreContract::compute_merkle_leaf(&env, submissions_vec.get(0).unwrap())
+                .unwrap();
         leaf.to_bytes().to_array()
     });
     // Note: `leaves[0]` is itself the SHA-256(0x00 || commit_0) hash as
@@ -329,8 +298,7 @@ fn test_valid_merkle_batch_accepted() {
         submissions.push_back(make_with_proof(&env, sub.clone(), &leaves, i as u32));
     }
 
-    let result =
-        client.submit_scores_batch_attested(&Vec::new(&env), &submissions, &attestation);
+    let result = client.submit_scores_batch_attested(&Vec::new(&env), &submissions, &attestation);
     assert_eq!(result.accepted_count, 4);
     assert_eq!(result.rejected_count, 0);
     assert_eq!(result.results.len(), 4);
@@ -363,8 +331,7 @@ fn test_merkle_root_signature_mismatch_rejects_all() {
         submissions_vec.push(sub);
         payload_commits.push(c);
     }
-    let leaves: StdVec<[u8; 32]> =
-        payload_commits.iter().map(|c| merkle_leaf(&env, c)).collect();
+    let leaves: StdVec<[u8; 32]> = payload_commits.iter().map(|c| merkle_leaf(&env, c)).collect();
     let root = build_merkle_root(&env, &leaves);
 
     let mut attestation = attest(&env, &key, &root);
@@ -385,10 +352,7 @@ fn test_merkle_root_signature_mismatch_rejects_all() {
     // No entry should have been written.
     let pair = symbol_short!("XLM_USDC");
     for sub in &submissions_vec {
-        assert_eq!(
-            client.try_get_score(&sub.wallet, &pair),
-            Err(Ok(Error::ScoreNotFound))
-        );
+        assert_eq!(client.try_get_score(&sub.wallet, &pair), Err(Ok(Error::ScoreNotFound)));
     }
 }
 
@@ -407,8 +371,7 @@ fn test_per_entry_proof_mismatch_rejects_entry() {
         submissions_vec.push(sub);
         payload_commits.push(c);
     }
-    let leaves: StdVec<[u8; 32]> =
-        payload_commits.iter().map(|c| merkle_leaf(&env, c)).collect();
+    let leaves: StdVec<[u8; 32]> = payload_commits.iter().map(|c| merkle_leaf(&env, c)).collect();
     let root = build_merkle_root(&env, &leaves);
 
     // Valid root signature.
@@ -435,17 +398,13 @@ fn test_per_entry_proof_mismatch_rejects_entry() {
         }
     }
 
-    let result =
-        client.submit_scores_batch_attested(&Vec::new(&env), &submissions, &attestation);
+    let result = client.submit_scores_batch_attested(&Vec::new(&env), &submissions, &attestation);
     assert_eq!(result.accepted_count, 3);
     assert_eq!(result.rejected_count, 1);
 
     // Entry #2 is the only failure, and it must be InvalidAttestation.
     assert!(result.results.get(2).unwrap().accepted == false);
-    assert_eq!(
-        result.results.get(2).unwrap().rejection_code,
-        Error::InvalidAttestation as u32
-    );
+    assert_eq!(result.results.get(2).unwrap().rejection_code, Error::InvalidAttestation as u32);
     for i in 0..3 {
         assert!(result.results.get(i).unwrap().accepted);
         assert_eq!(result.results.get(i).unwrap().rejection_code, 0);
@@ -473,8 +432,7 @@ fn test_single_entry_batch_merkle_works() {
         proof_flags: 0,
     });
 
-    let result =
-        client.submit_scores_batch_attested(&Vec::new(&env), &submissions, &attestation);
+    let result = client.submit_scores_batch_attested(&Vec::new(&env), &submissions, &attestation);
     assert_eq!(result.accepted_count, 1);
     assert_eq!(result.rejected_count, 0);
     assert!(result.results.get(0).unwrap().accepted);
@@ -570,11 +528,8 @@ fn test_domain_prefix_hash_correctness() {
     let mut leaf_preimage = [0u8; 33];
     leaf_preimage[0] = 0x00;
     leaf_preimage[1..33].copy_from_slice(&commitment_bytes);
-    let expected_leaf = env
-        .crypto()
-        .sha256(&Bytes::from_array(&env, &leaf_preimage))
-        .to_bytes()
-        .to_array();
+    let expected_leaf =
+        env.crypto().sha256(&Bytes::from_array(&env, &leaf_preimage)).to_bytes().to_array();
     let actual_leaf = merkle_leaf(&env, &commitment_bytes);
     assert_eq!(actual_leaf, expected_leaf, "leaf hash must be deterministic");
 
@@ -585,16 +540,10 @@ fn test_domain_prefix_hash_correctness() {
     internal_preimage[0] = 0x01;
     internal_preimage[1..33].copy_from_slice(&left);
     internal_preimage[33..65].copy_from_slice(&right);
-    let expected_internal = env
-        .crypto()
-        .sha256(&Bytes::from_array(&env, &internal_preimage))
-        .to_bytes()
-        .to_array();
+    let expected_internal =
+        env.crypto().sha256(&Bytes::from_array(&env, &internal_preimage)).to_bytes().to_array();
     let actual_internal = merkle_internal(&env, &left, &right);
-    assert_eq!(
-        actual_internal, expected_internal,
-        "internal-node hash must be deterministic"
-    );
+    assert_eq!(actual_internal, expected_internal, "internal-node hash must be deterministic");
 
     // Symmetry check: leaf and internal preimages differ in BOTH length
     // (33 vs 65 bytes) AND their first byte (0x00 vs 0x01), so neither
@@ -627,11 +576,9 @@ fn test_verify_merkle_proof_standalone() {
     // 8-Leaf (3-level) tree: hand-built off-chain with the same
     // hash helpers the contract uses. Each leaf commitment is a
     // distinct 32-byte value for clarity.
-    let commits: [[u8; 32]; 8] = [
-        [1u8; 32], [2u8; 32], [3u8; 32], [4u8; 32], [5u8; 32], [6u8; 32], [7u8; 32], [8u8; 32],
-    ];
-    let leaves: StdVec<[u8; 32]> =
-        commits.iter().map(|c| merkle_leaf(&env, c)).collect();
+    let commits: [[u8; 32]; 8] =
+        [[1u8; 32], [2u8; 32], [3u8; 32], [4u8; 32], [5u8; 32], [6u8; 32], [7u8; 32], [8u8; 32]];
+    let leaves: StdVec<[u8; 32]> = commits.iter().map(|c| merkle_leaf(&env, c)).collect();
     let root = build_merkle_root(&env, &leaves);
 
     // For every index in the tree, the proof we generate must verify
@@ -655,23 +602,13 @@ fn test_verify_merkle_proof_standalone() {
                 flags,
                 &wrong_root,
             );
-            assert!(
-                !result,
-                "proof should not verify against a different root"
-            );
+            assert!(!result, "proof should not verify against a different root");
 
             // Correct root: proof MUST verify.
             let result = LedgerLensScoreContract::verify_merkle_proof(
-                &env,
-                &leaf_bn,
-                &proof,
-                flags,
-                &root_bn,
+                &env, &leaf_bn, &proof, flags, &root_bn,
             );
-            assert!(
-                result,
-                "proof must verify against the canonical root for index {index}"
-            );
+            assert!(result, "proof must verify against the canonical root for index {index}");
         });
     }
 }
@@ -709,18 +646,8 @@ fn test_batch_attested_respects_rate_limit() {
 
     // Entry 0: re-use pre_wallet (so cooldown applies).
     let pair = symbol_short!("XLM_USDC");
-    let c0 = payload_commitment(
-        &env,
-        &client.address,
-        &pre_wallet,
-        &pair,
-        80,
-        false,
-        false,
-        200,
-        90,
-        1,
-    );
+    let c0 =
+        payload_commitment(&env, &client.address, &pre_wallet, &pair, 80, false, false, 200, 90, 1);
     submissions_vec.push(ScoreSubmission {
         wallet: pre_wallet.clone(),
         asset_pair: pair.clone(),
@@ -738,8 +665,7 @@ fn test_batch_attested_respects_rate_limit() {
     submissions_vec.push(sub1);
     payload_commits.push(c1);
 
-    let leaves: StdVec<[u8; 32]> =
-        payload_commits.iter().map(|c| merkle_leaf(&env, c)).collect();
+    let leaves: StdVec<[u8; 32]> = payload_commits.iter().map(|c| merkle_leaf(&env, c)).collect();
     let root = build_merkle_root(&env, &leaves);
     let attestation = attest(&env, &key, &root);
 
@@ -748,17 +674,13 @@ fn test_batch_attested_respects_rate_limit() {
         submissions.push_back(make_with_proof(&env, sub.clone(), &leaves, i as u32));
     }
 
-    let result =
-        client.submit_scores_batch_attested(&Vec::new(&env), &submissions, &attestation);
+    let result = client.submit_scores_batch_attested(&Vec::new(&env), &submissions, &attestation);
     assert_eq!(result.accepted_count, 1);
     assert_eq!(result.rejected_count, 1);
 
     // Entry 0 is rate-limited.
     assert!(!result.results.get(0).unwrap().accepted);
-    assert_eq!(
-        result.results.get(0).unwrap().rejection_code,
-        Error::RateLimitExceeded as u32
-    );
+    assert_eq!(result.results.get(0).unwrap().rejection_code, Error::RateLimitExceeded as u32);
     // Entry 1 succeeds.
     assert!(result.results.get(1).unwrap().accepted);
     assert_eq!(result.results.get(1).unwrap().rejection_code, 0);
@@ -780,9 +702,9 @@ fn test_supports_interface_batch_attested() {
 
 #[test]
 #[should_panic] // service.require_auth() raises a HostError::Auth panic
-                  // because the service address is *not* in the authorized
-                  // signer set (admin was pre-authorized via
-                  // `env.authorize_as_signer`, service was deliberately not).
+                // because the service address is *not* in the authorized
+                // signer set (admin was pre-authorized via
+                // `env.authorize_as_signer`, service was deliberately not).
 fn test_batch_attested_requires_service_auth() {
     let env = Env::default();
     // Intentionally NOT calling env.mock_all_auths() — service.require_auth
@@ -852,4 +774,4 @@ fn test_batch_attested_contract_paused_rejected() {
 // (kept for symmetry with test_attestation.rs and in case future helpers
 // want to construct a per-entry attestation for cross-checks). ────────────
 #[allow(dead_code)]
-type _Attest = ScoreAttestation;
+type _Attest = BatchAttestation;
