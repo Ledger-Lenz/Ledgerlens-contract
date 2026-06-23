@@ -1,0 +1,15 @@
+[package]
+name = "replay"
+version = "0.1.0"
+edition = "2021"
+description = "Replay harness to feed Horizon NDJSON into the LedgerLens contract (scaffold)"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+soroban-sdk = { version = "21.0.0", features = ["testutils"] }
+ledgerlens-score = { path = "../../contracts/ledgerlens-score" }
+
+[package.metadata]
+# scaffold-only for now

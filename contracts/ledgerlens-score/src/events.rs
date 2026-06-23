@@ -1,4 +1,4 @@
-use soroban_sdk::{symbol_short, Address, Bytes, BytesN, Env, Symbol};
+use soroban_sdk::{contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol};
 
 use crate::types::RiskScore;
 
@@ -148,6 +148,17 @@ pub fn rate_limit_overridden(env: &Env, by: &Address, wallet: &Address, asset_pa
 }
 
 // ── Score attestation ──────────────────────────────────────────────────────
+
+// ── Score Velocity Cap ────────────────────────────────────────────────────────
+
+pub fn score_velocity_cap_set(env: &Env, enabled: bool, points_per_hour: u32) {
+    env.events().publish((symbol_short!("vel_set"),), (enabled, points_per_hour));
+}
+
+pub fn velocity_cap_overridden(env: &Env, admin: &Address, wallet: &Address, asset_pair: &Symbol) {
+    env.events()
+        .publish((symbol_short!("vel_ovr"), wallet.clone(), asset_pair.clone()), admin.clone());
+}
 
 /// Emitted when the admin sets/rotates the off-chain attestation pubkey via
 /// `set_service_pubkey`.
@@ -312,6 +323,40 @@ pub fn contagion_propagated(
     );
 }
 
+// ── Stubs for broken branch ───────────────────────────────────────────────
+
+pub fn score_jump_anomaly(
+    _env: &Env,
+    _wallet: &Address,
+    _asset_pair: &Symbol,
+    _previous_score: u32,
+    _new_score: u32,
+    _delta: i64,
+    _model_version: u32,
+    _timestamp: u64,
+) {
+}
+
+pub fn escalation_triggered(
+    _env: &Env,
+    _wallet: &Address,
+    _asset_pair: &Symbol,
+    _count: u32,
+    _score: u32,
+    _escalation_n: u32,
+) {
+}
+
+pub fn escalation_resolved(
+    _env: &Env,
+    _wallet: &Address,
+    _asset_pair: &Symbol,
+    _count: u32,
+    _score: u32,
+) {
+}
+
+pub fn escalation_threshold_updated(_env: &Env, _old: u32, _new: u32) {}
 // ── Score submission floor ────────────────────────────────────────────────────
 
 /// Emitted when the admin configures the score-floor policy via
@@ -384,4 +429,123 @@ pub fn embargo_set(env: &Env, wallet: &Address, expiry: Option<u64>) {
 /// Emitted when an embargo is explicitly lifted via `lift_score_embargo`.
 pub fn embargo_lifted(env: &Env, wallet: &Address) {
     env.events().publish((symbol_short!("emb_lift"), wallet.clone()), ());
+}
+
+// ── Score dispute mechanism ─────────────────────────────────────────────────────
+
+/// Emitted when a wallet opens a dispute via `open_score_dispute`.
+/// Topic carries the challenger; data carries `(asset_pair, bond, deadline)`.
+pub fn dispute_opened(
+    env: &Env,
+    challenger: &Address,
+    asset_pair: &Symbol,
+    bond: i128,
+    deadline: u64,
+) {
+    env.events().publish(
+        (symbol_short!("disp_open"), challenger.clone()),
+        (asset_pair.clone(), bond, deadline),
+    );
+}
+
+/// Emitted when the admin resolves a dispute by resubmitting a corrected score
+/// via `resolve_dispute_admin`. The escrowed bond is returned to the challenger.
+pub fn dispute_resolved(
+    env: &Env,
+    challenger: &Address,
+    asset_pair: &Symbol,
+    corrected_score: u32,
+    bond_returned: i128,
+) {
+    env.events().publish(
+        (symbol_short!("disp_res"), challenger.clone()),
+        (asset_pair.clone(), corrected_score, bond_returned),
+    );
+}
+
+/// Emitted when a dispute is settled by timeout via `resolve_dispute_timeout`.
+/// The challenger receives the bond plus the fee-reserve bonus.
+pub fn dispute_timed_out(
+    env: &Env,
+    challenger: &Address,
+    asset_pair: &Symbol,
+    bond: i128,
+    bonus: i128,
+) {
+    env.events().publish(
+        (symbol_short!("disp_to"), challenger.clone()),
+        (asset_pair.clone(), bond, bonus),
+    );
+}
+
+// ── Finality buffer (pending score commit window) ────────────────────────────
+
+/// Emitted when the admin changes the finality buffer via
+/// `set_finality_buffer`.
+pub fn finality_buffer_updated(env: &Env, secs: u64) {
+    env.events().publish((symbol_short!("fb_upd"),), secs);
+}
+
+/// Emitted by `submit_score` when `FinalityBufferSecs > 0` and the score is
+/// written to `PendingScore` instead of taking effect immediately.
+pub fn score_pending(env: &Env, wallet: &Address, asset_pair: &Symbol, commit_after: u64) {
+    env.events()
+        .publish((symbol_short!("scr_pend"), wallet.clone(), asset_pair.clone()), commit_after);
+}
+
+/// Emitted by `commit_pending_score` after a pending score is moved to live
+/// storage.
+pub fn score_committed(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    env.events().publish((symbol_short!("scr_comm"), wallet.clone()), asset_pair.clone());
+}
+
+/// Emitted by `cancel_pending_score` after the admin removes a pending score
+/// before it could take effect.
+pub fn score_pending_cancelled(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    cancelled_by: &Address,
+) {
+    env.events().publish(
+        (symbol_short!("scr_canc"), wallet.clone(), asset_pair.clone()),
+        cancelled_by.clone(),
+    );
+}
+
+// ── Service heartbeat monitor ────────────────────────────────────────────
+
+/// Emitted (by the `get_score` read path) the first time the off-chain
+/// service has been silent for longer than `ServiceHeartbeatAlertThreshold`
+/// since `LastServiceActivityAt`. Fires only once per silence window — see
+/// `ServiceSilentAlertEmitted` and `service_resumed`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServiceSilenceAlertEvent {
+    pub last_active_at: u64,
+    pub silent_secs: u64,
+    pub threshold_secs: u64,
+}
+
+/// Emitted by `submit_score` / `submit_scores_batch` / `ping_heartbeat` when
+/// service activity resumes after a previously alerted silence window.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServiceResumedEvent {
+    pub last_active_at: u64,
+    pub gap_secs: u64,
+}
+
+pub fn service_silence_alert(env: &Env, event: &ServiceSilenceAlertEvent) {
+    env.events().publish((symbol_short!("svc_sil"),), event.clone());
+}
+
+pub fn service_resumed(env: &Env, event: &ServiceResumedEvent) {
+    env.events().publish((symbol_short!("svc_res"),), event.clone());
+}
+
+/// Emitted when the admin changes the heartbeat alert threshold via
+/// `set_heartbeat_alert_threshold`.
+pub fn heartbeat_threshold_updated(env: &Env, secs: u64) {
+    env.events().publish((symbol_short!("hb_upd"),), secs);
 }

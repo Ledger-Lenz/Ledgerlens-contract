@@ -9,8 +9,8 @@ pub enum Error {
     Unauthorized = 3,
     InvalidScore = 4,
     InvalidConfidence = 5,
-    SignerTierViolation = 26,
-    InvalidSignerTier = 27,
+    InvalidSignerTier = 48,
+    SignerTierViolation = 54,
     ScoreNotFound = 6,
     /// Returned when any state-mutating call is attempted while the
     /// contract is paused by the admin.
@@ -84,63 +84,74 @@ pub enum Error {
     /// Returned when `set_history_max_depth` is called with `0` or a value
     /// above `MAX_HISTORY_DEPTH`.
     InvalidHistoryDepth = 29,
+
+    /// Returned when `set_global_min_confidence` is called with a value
+    /// above 100 (confidence is bounded to 0–100).
+    InvalidMinConfidence = 49,
+
     // ── Fee withdrawal ─────────────────────────────────────────────────────
     /// Returned by `get_fee_token` and `withdraw_fees` when `set_fee_token`
     /// has not been called.
     FeeTokenNotSet = 30,
     /// Returned by `withdraw_fees` when `amount` is zero.
-    InvalidWithdrawalAmount = 30,
+    InvalidWithdrawalAmount = 31,
     /// Returned by `withdraw_fees` when another withdrawal call is already
     /// in-flight (concurrency lock held).
-    WithdrawalInProgress = 30,
+    WithdrawalInProgress = 32,
 
     // ── Per-pair circuit breaker ───────────────────────────────────────────
     /// Returned by `submit_score` / `submit_scores_batch` when the target
     /// `asset_pair` has been individually paused via `set_pair_paused`.
-    PairPaused = 30,
+    PairPaused = 33,
     /// Returned by `set_pair_paused` when trying to pause a new pair but the
     /// `PausedPairIndex` already holds `MAX_PAUSED_PAIRS` entries.
-    PausedPairIndexFull = 30,
+    PausedPairIndexFull = 34,
 
     // ── Admin M-of-N multi-sig ─────────────────────────────────────────────
     /// `add_admin_signer` called when the admin set is already at
     /// `MAX_ADMIN_SIGNERS`.
-    AdminSetFull = 30,
+    AdminSetFull = 35,
     /// A signer in `admin_signers` is not a member of the admin set.
-    AdminSignerNotInSet = 30,
+    AdminSignerNotInSet = 36,
     /// Fewer than the configured threshold of admin signers were supplied.
-    InsufficientAdminSigners = 30,
+    InsufficientAdminSigners = 37,
 
     // ── Wallet-score delegation ────────────────────────────────────────────
     /// `set_score_delegate` would create a cycle (wallet → custodian →
     /// wallet).
-    CyclicDelegation = 30,
+    CyclicDelegation = 38,
     /// `remove_score_delegate` called for a wallet that has no delegate.
-    DelegateNotFound = 30,
+    DelegateNotFound = 39,
 
     // ── Cross-contract gate ────────────────────────────────────────────────
     /// Returned by an integrating contract (e.g. AMM) when `query_risk_gate`
     /// returns `false`. Not returned by the LedgerLens contract itself.
-    HighRiskWallet = 30,
+    HighRiskWallet = 40,
 
     // ── Time-weighted exponential decay ───────────────────────────────────
     /// `set_decay_rate` called with a denominator of 0, or with a
     /// numerator/denominator ratio exceeding `MAX_DECAY_LAMBDA`.
-    InvalidDecayRate = 30,
+    InvalidDecayRate = 41,
 
     // ── Score embargo ──────────────────────────────────────────────────────
     /// Returned by read-path functions (`get_score`, `get_aggregate_score`)
     /// when the requested wallet is under an active regulatory embargo.
-    ScoreEmbargoed = 30,
+    ScoreEmbargoed = 42,
 
     // ── Wallet Relationship Graph ──────────────────────────────────────────
     /// Returned when `add_counterparty_link` would exceed the max links per wallet.
-    CounterpartyLinkFull = 30,
+    CounterpartyLinkFull = 43,
     /// Returned when `remove_counterparty_link` is called for a non-existent link.
-    CounterpartyNotFound = 30,
+    CounterpartyNotFound = 44,
     /// Returned when `add_counterparty_link` is called with the same wallet twice.
-    SelfLink = 30,
+    SelfLink = 45,
 
+    // ── Velocity Cap ───────────────────────────────────────────────────────
+    /// Returned when the requested score change exceeds the allowed points per hour.
+    ScoreVelocityExceeded = 46,
+
+    InvalidEscalation = 50,
+    InvalidJump = 51,
     // ── Score submission floor ─────────────────────────────────────────────
     /// Returned by `submit_score` (and recorded as a `rejection_code` in
     /// `submit_scores_batch`) when the score-floor policy is enabled, the
@@ -148,25 +159,56 @@ pub enum Error {
     /// configured high-water mark, and the submitted score is below the
     /// configured floor value — blocking an attempt to launder a known
     /// high-risk wallet's reputation by zeroing its score.
-    BelowScoreFloor = 30,
+    BelowScoreFloor = 46,
     /// Returned by `set_score_floor_policy` when `high_water_mark` is outside
     /// `[MIN_SCORE_FLOOR_HWM, MAX_SCORE_FLOOR_HWM]` (50–100), or when
     /// `floor_value` is not strictly below `high_water_mark`.
-    InvalidScoreFloorPolicy = 30,
+    InvalidScoreFloorPolicy = 47,
 
     // ── Hysteresis layer ───────────────────────────────────────────────────
     /// Returned when `set_hysteresis_margin` is called with a value above
     /// `MAX_HYSTERESIS_MARGIN` (50).
-    InvalidHysteresisMargin = 30,
+    InvalidHysteresisMargin = 48,
 
     // ── Multi-model consensus scoring ──────────────────────────────────────
     /// Fewer than the configured consensus threshold of models agreed on a
     /// score within the configured epsilon window.
-    InsufficientConsensus = 30,
-    /// `submit_consensus_score` was called with zero model submissions.
-    ConsensusInputEmpty = 30,
+    InsufficientConsensus = 49,
+    /// `reveal_consensus` was called with zero model submissions.
+    ConsensusInputEmpty = 50,
     /// `set_consensus_config` was called with `k == 0` or `epsilon > 100`.
-    InvalidConsensusConfig = 30,
+    InvalidConsensusConfig = 51,
+    /// `reveal_consensus` was called after the commitment's TTL expired.
+    RevealWindowExpired = 52,
+    /// `reveal_consensus` was called but the score and nonce do not match the commitment.
+    CommitmentMismatch = 53,
+
+    // ── Score dispute mechanism ────────────────────────────────────────────
+    /// Returned by `open_score_dispute` when a dispute already exists for the
+    /// given `(wallet, asset_pair)`.
+    DisputeAlreadyOpen = 55,
+    /// Returned by `resolve_dispute_timeout` when the dispute deadline has not
+    /// yet elapsed.
+    DisputeNotYetTimedOut = 56,
+    /// Returned when attempting to resolve a dispute that does not exist.
+    DisputeNotFound = 57,
+    /// Returned by `open_score_dispute` when the staked bond is zero or
+    /// negative.
+    InvalidDisputeBond = 58,
+    /// Returned by `open_score_dispute` when the open-dispute index is already
+    /// at `MAX_OPEN_DISPUTES`.
+    DisputeIndexFull = 59,
+
+    // ── Finality buffer (pending score commit window) ──────────────────────
+    /// `set_finality_buffer` was called with a value above
+    /// `MAX_FINALITY_BUFFER_SECS`.
+    InvalidFinalityBuffer = 60,
+    /// `commit_pending_score`, `cancel_pending_score`, or any function
+    /// expecting a pending entry was called for a `(wallet, asset_pair)`
+    /// with no pending score.
+    NoPendingScore = 61,
+    /// `commit_pending_score` was called before `commit_after` elapsed.
+    FinalityWindowNotElapsed = 62,
 }
 
 // Gate caller tracking error variants for structural protection

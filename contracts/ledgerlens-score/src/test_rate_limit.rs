@@ -481,8 +481,10 @@ fn test_cooldown_is_per_wallet() {
     assert!(result.is_ok());
 }
 
+// ── Per-pair cooldown overrides ────────────────────────────────────────────────
+
 #[test]
-fn test_pair_cooldown_uses_global_by_default() {
+fn test_pair_cooldown_defaults_to_global() {
     let (env, client, _admin) = setup();
     let pair = symbol_short!("XLM_USDC");
 
