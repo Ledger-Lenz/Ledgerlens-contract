@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "contracts/ledgerlens-score",
+    "tools/replay",
 ]
 
 [profile.release]

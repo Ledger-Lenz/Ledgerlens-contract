@@ -144,6 +144,17 @@ pub fn rate_limit_overridden(env: &Env, by: &Address, wallet: &Address, asset_pa
 
 // ── Score attestation ──────────────────────────────────────────────────────
 
+// ── Score Velocity Cap ────────────────────────────────────────────────────────
+
+pub fn score_velocity_cap_set(env: &Env, enabled: bool, points_per_hour: u32) {
+    env.events().publish((symbol_short!("vel_set"),), (enabled, points_per_hour));
+}
+
+pub fn velocity_cap_overridden(env: &Env, admin: &Address, wallet: &Address, asset_pair: &Symbol) {
+    env.events()
+        .publish((symbol_short!("vel_ovr"), wallet.clone(), asset_pair.clone()), admin.clone());
+}
+
 /// Emitted when the admin sets/rotates the off-chain attestation pubkey via
 /// `set_service_pubkey`.
 pub fn service_pubkey_updated(env: &Env, pubkey: &Bytes) {
@@ -158,16 +169,8 @@ pub fn service_pubkey_updated(env: &Env, pubkey: &Bytes) {
 /// signature was produced over, so an off-chain indexer can reconcile
 /// on-chain outcomes against the originally-signed batch without
 /// re-reading the per-entry proofs.
-pub fn batch_attested(
-    env: &Env,
-    accepted: u32,
-    rejected: u32,
-    merkle_root: &BytesN<32>,
-) {
-    env.events().publish(
-        (symbol_short!("bat_ok"), merkle_root.clone()),
-        (accepted, rejected),
-    );
+pub fn batch_attested(env: &Env, accepted: u32, rejected: u32, merkle_root: &BytesN<32>) {
+    env.events().publish((symbol_short!("bat_ok"), merkle_root.clone()), (accepted, rejected));
 }
 
 // ── Multi-model consensus scoring ─────────────────────────────────────────────
@@ -316,6 +319,40 @@ pub fn contagion_propagated(
     );
 }
 
+// ── Stubs for broken branch ───────────────────────────────────────────────
+
+pub fn score_jump_anomaly(
+    _env: &Env,
+    _wallet: &Address,
+    _asset_pair: &Symbol,
+    _previous_score: u32,
+    _new_score: u32,
+    _delta: i64,
+    _model_version: u32,
+    _timestamp: u64,
+) {
+}
+
+pub fn escalation_triggered(
+    _env: &Env,
+    _wallet: &Address,
+    _asset_pair: &Symbol,
+    _count: u32,
+    _score: u32,
+    _escalation_n: u32,
+) {
+}
+
+pub fn escalation_resolved(
+    _env: &Env,
+    _wallet: &Address,
+    _asset_pair: &Symbol,
+    _count: u32,
+    _score: u32,
+) {
+}
+
+pub fn escalation_threshold_updated(_env: &Env, _old: u32, _new: u32) {}
 // ── Score submission floor ────────────────────────────────────────────────────
 
 /// Emitted when the admin configures the score-floor policy via

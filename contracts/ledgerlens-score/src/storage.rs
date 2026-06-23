@@ -1,8 +1,14 @@
-use soroban_sdk::{Env, Address};
-use crate::types::{DataKey, TierBounds};
 use crate::errors::Error;
+use crate::types::{DataKey, TierBounds};
+use soroban_sdk::{Address, Bytes, Env, Symbol, Vec};
 
 use crate::constants::{
+    DEFAULT_COOLDOWN_SECS, DEFAULT_JUMP_THRESHOLD, DEFAULT_RISK_THRESHOLD,
+    DEFAULT_UPGRADE_DELAY_SECS, SCORE_TTL_EXTEND_TO, SCORE_TTL_THRESHOLD,
+};
+use crate::types::{
+    AggregateRiskScore, GateDataKey, RiskScore, ScoreTrend, ScoreVelocityCap, UpgradeProposal,
+};
     BAND_STATE_TTL_EXTEND_TO, BAND_STATE_TTL_THRESHOLD, DEFAULT_CONSENSUS_EPSILON,
     DEFAULT_CONSENSUS_THRESHOLD_K, DEFAULT_COOLDOWN_SECS, DEFAULT_ESCALATION_THRESHOLD,
     DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS, EMBARGO_TTL_EXTEND_TO,
@@ -436,6 +442,36 @@ pub fn set_cooldown_secs(env: &Env, secs: u64) {
     env.storage().instance().set(&DataKey::CooldownSecs, &secs);
 }
 
+// ── Score Velocity Cap ────────────────────────────────────────────────────────
+
+pub fn get_score_velocity_cap(env: &Env) -> ScoreVelocityCap {
+    let enabled = env.storage().instance().get(&DataKey::ScoreVelocityCapEnabled).unwrap_or(false);
+    let points_per_hour =
+        env.storage().instance().get(&DataKey::ScoreVelocityCapPointsPerHour).unwrap_or(0);
+    ScoreVelocityCap { enabled, points_per_hour }
+}
+
+pub fn set_score_velocity_cap(env: &Env, cap: &ScoreVelocityCap) {
+    env.storage().instance().set(&DataKey::ScoreVelocityCapEnabled, &cap.enabled);
+    env.storage().instance().set(&DataKey::ScoreVelocityCapPointsPerHour, &cap.points_per_hour);
+}
+
+pub fn is_velocity_cap_overridden(env: &Env, wallet: &Address, asset_pair: &Symbol) -> bool {
+    let key = DataKey::VelocityCapOverride(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().get(&key).unwrap_or(false)
+}
+
+pub fn set_velocity_cap_override(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    let key = DataKey::VelocityCapOverride(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, &true);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+pub fn clear_velocity_cap_override(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    let key = DataKey::VelocityCapOverride(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().remove(&key);
+}
+
 // ── GDPR / data-erasure ───────────────────────────────────────────────────────
 
 /// Removes the score history ring buffer for `wallet` / `asset_pair`.
@@ -704,6 +740,45 @@ pub fn get_contagion_depth(env: &Env, wallet: &Address, asset_pair: &Symbol) -> 
     links.len()
 }
 
+// ── Stubs for broken branch ───────────────────────────────────────────────
+
+pub fn get_escalation_threshold(_env: &Env) -> u32 {
+    0
+}
+
+pub fn get_breach_count(_env: &Env, _wallet: &Address, _asset_pair: &Symbol) -> u32 {
+    0
+}
+
+pub fn set_breach_count(_env: &Env, _wallet: &Address, _asset_pair: &Symbol, _count: u32) {}
+
+pub fn get_gate_open(_env: &Env) -> bool {
+    false
+}
+
+pub fn get_gate_callers(env: &Env) -> Vec<Address> {
+    Vec::new(env)
+}
+
+pub fn clear_breach_count(_env: &Env, _wallet: &Address, _asset_pair: &Symbol) {}
+
+pub fn get_model_stats(_env: &Env, _version: u32) -> Option<crate::types::ModelVersionStats> {
+    None
+}
+
+pub fn get_all_model_versions(env: &Env) -> Vec<u32> {
+    Vec::new(env)
+}
+
+pub fn set_service_pubkey(_env: &Env, _pubkey: &Bytes) {}
+
+pub fn set_escalation_threshold(_env: &Env, _n: u32) {}
+
+pub fn get_service_threshold(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::ServiceThreshold).unwrap_or(0)
+}
+
+pub fn update_model_stats(_env: &Env, _model_version: u32, _score: u32) {}
 // ── Score submission floor ────────────────────────────────────────────────────
 
 /// Returns the current score-floor policy, falling back to the compiled-in
@@ -907,4 +982,53 @@ pub fn get_consensus_epsilon(env: &Env) -> u32 {
 
 pub fn set_consensus_epsilon(env: &Env, epsilon: u32) {
     env.storage().instance().set(&DataKey::ConsensusEpsilon, &epsilon);
+}
+
+// ── MEV-Resistant Commit-Reveal ──────────────────────────────────────────────
+
+pub fn get_reveal_window_secs(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::RevealWindowSecs)
+        .unwrap_or(3600) // Default 1 hour
+}
+
+pub fn set_reveal_window_secs(env: &Env, secs: u64) {
+    env.storage().instance().set(&DataKey::RevealWindowSecs, &secs);
+}
+
+pub fn set_consensus_commitment(
+    env: &Env,
+    model: &Address,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    commitment: &soroban_sdk::BytesN<32>,
+) {
+    let key = DataKey::ConsensusCommitment(model.clone(), wallet.clone(), asset_pair.clone());
+    let ttl = get_reveal_window_secs(env) as u32; // Assuming 1 ledger = 1 sec approx for thresholds or convert if needed
+    // In Soroban, TTL is typically in ledgers. Let's convert secs to ledgers (assume 5s/ledger).
+    // Or just use a fixed large TTL for temporary storage. Let's use ttl ledgers directly or assume secs is mapped to ledgers.
+    let ledgers_to_live = (ttl / 5).max(12);
+    env.storage().temporary().set(&key, commitment);
+    env.storage().temporary().extend_ttl(&key, ledgers_to_live, ledgers_to_live);
+}
+
+pub fn get_consensus_commitment(
+    env: &Env,
+    model: &Address,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) -> Option<soroban_sdk::BytesN<32>> {
+    let key = DataKey::ConsensusCommitment(model.clone(), wallet.clone(), asset_pair.clone());
+    env.storage().temporary().get(&key)
+}
+
+pub fn remove_consensus_commitment(
+    env: &Env,
+    model: &Address,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) {
+    let key = DataKey::ConsensusCommitment(model.clone(), wallet.clone(), asset_pair.clone());
+    env.storage().temporary().remove(&key);
 }

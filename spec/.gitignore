@@ -1,0 +1,11 @@
+# Ignore Java JDK and archives
+jdk.tar.gz
+jdk-21.jdk/
+
+# Ignore TLA+ Model Checker state and output files
+states/
+*.st
+*.fp
+
+# Ignore downloaded TLC tools jar (should be downloaded in CI, not committed)
+tla2tools.jar
