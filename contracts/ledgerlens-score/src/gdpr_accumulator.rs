@@ -17,7 +17,7 @@
 
 use soroban_sdk::{BytesN, Env, Symbol, Address};
 
-use crate::{types::RiskScore, Error};
+use crate::errors::Error;
 
 /// Fixed-size deletion proof returned by `get_deletion_proof`.
 ///
@@ -58,15 +58,12 @@ pub fn generate_deletion_witness(
     accumulator_value: &u64,
 ) -> Result<DeletionProofBytes, Error> {
     // Deterministic placeholder proof.
-    // We'll embed: (1) truncated accumulator, (2) a hash of wallet/pair and deleted digests.
+    // We'll embed: (1) truncated accumulator, (2) a placeholder hash.
     let mut out = [0u8; 256];
     out[0..8].copy_from_slice(&accumulator_value.to_le_bytes());
 
-    let mut tag_preimage = [0u8; 64];
-    let wallet_bytes = wallet.to_string().as_bytes();
-    let pair_bytes = asset_pair.to_string().as_bytes();
-    for i in 0..wallet_bytes.len().min(32) { tag_preimage[i] = wallet_bytes[i]; }
-    for i in 0..pair_bytes.len().min(32) { tag_preimage[32 + i] = pair_bytes[i]; }
+    let tag_preimage = [0u8; 64];
+    // NOTE: wallet/pair identification omitted in scaffold (Soroban String lacks as_bytes).
 
     let mut digest_seed: [u8; 32] = [0u8; 32];
     // Soroban doesn't expose SHA here in scaffold. Keep deterministic by XOR.
@@ -75,6 +72,7 @@ pub fn generate_deletion_witness(
             digest_seed[i] ^= d[i];
         }
     }
+    let _ = tag_preimage;
     out[8..40].copy_from_slice(&digest_seed);
 
     // remaining bytes reserved.

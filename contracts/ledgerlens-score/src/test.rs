@@ -1,6 +1,7 @@
 use soroban_sdk::{
+    symbol_short,
     testutils::{Address as _, Ledger as _},
-    Address, Env,
+    Address, Env, Symbol, Vec,
 };
 
 use crate::{
@@ -129,7 +130,7 @@ fn test_get_scores_batch_single_entry() {
     let entry = results.get(0).unwrap();
     assert_eq!(entry.index, 0);
     assert!(entry.found);
-    assert_eq!(entry.score.unwrap().score, 64);
+    assert_eq!(entry.score.score, 64);
 }
 
 #[test]
@@ -162,7 +163,7 @@ fn test_get_scores_batch_max_batch() {
         let entry = results.get(i).unwrap();
         assert_eq!(entry.index, i);
         assert!(entry.found);
-        assert_eq!(entry.score.unwrap().score, i % 100);
+        assert_eq!(entry.score.score, i % 100);
     }
 }
 
@@ -211,7 +212,7 @@ fn test_get_scores_batch_partial_hit_miss() {
 
     let results = client.get_scores_batch(&queries);
     assert!(results.get(0).unwrap().found);
-    assert_eq!(results.get(0).unwrap().score.unwrap().score, 71);
+    assert_eq!(results.get(0).unwrap().score.score, 71);
     assert!(!results.get(1).unwrap().found);
     assert_eq!(results.get(1).unwrap().score, None);
 }
@@ -275,7 +276,7 @@ fn test_get_scores_batch_delegated_wallet() {
     let results = client.get_scores_batch(&queries);
     let entry = results.get(0).unwrap();
     assert!(entry.found);
-    assert_eq!(entry.score.unwrap().score, 82);
+    assert_eq!(entry.score.score, 82);
 }
 
 #[test]
@@ -2878,6 +2879,6 @@ fn test_get_score_variance_embargoed() {
     client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &20, &false, &false, &2, &80, &1, &None);
     let admin = client.get_admin();
     env.ledger().with_mut(|l| l.timestamp += 1);
-    client.set_score_embargo(&wallet, &None).unwrap();
+    client.set_score_embargo(&wallet, &None);
     assert_eq!(client.get_score_variance(&wallet, &asset_pair), 0);
 }

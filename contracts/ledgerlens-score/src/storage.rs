@@ -1,14 +1,13 @@
 use crate::constants::{
     BAND_STATE_TTL_EXTEND_TO, BAND_STATE_TTL_THRESHOLD, DEFAULT_CONSENSUS_EPSILON,
-    DEFAULT_CONSENSUS_THRESHOLD_K, DEFAULT_COOLDOWN_SECS, DEFAULT_ESCALATION_THRESHOLD,
-    DEFAULT_JUMP_THRESHOLD, DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS,
+    DEFAULT_CONSENSUS_THRESHOLD_K, DEFAULT_COOLDOWN_SECS, DEFAULT_JUMP_THRESHOLD,
+    DEFAULT_QUORUM_FAILURE_WINDOW_SECS, DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS,
     EMBARGO_TTL_EXTEND_TO, EMBARGO_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO, SCORE_TTL_THRESHOLD,
 };
 use crate::errors::Error;
 use crate::types::{
-    AggregateRiskScore, DataKey, EmbargoExpiry, GateDataKey, PendingScoreEntry, RiskScore,
-    ScoreDispute, ScoreFloorPolicy, ScoreTrend, ScoreVelocityCap, SnapshotRecord, TierBounds,
-    UpgradeProposal,
+    AggregateRiskScore, DataKey, ExtDataKey, EmbargoExpiry, ModelVersionStats, PendingScoreEntry,
+    RiskScore, ScoreDispute, ScoreFloorPolicy, ScoreTrend, ScoreVelocityCap, UpgradeProposal,
 };
 use soroban_sdk::{Address, Bytes, Env, Symbol, Vec};
 
@@ -395,48 +394,60 @@ pub fn get_service_threshold(env: &Env) -> u32 {
 // ── Escalation / breach count ─────────────────────────────────────────────────
 
 pub fn get_escalation_threshold(env: &Env) -> u32 {
-    env.storage().instance().get(&DataKey::EscalationThreshold).unwrap_or(3)
+    env.storage().instance().get(&ExtDataKey::EscalationThreshold).unwrap_or(3)
 }
 
 pub fn set_escalation_threshold(env: &Env, n: u32) {
-    env.storage().instance().set(&DataKey::EscalationThreshold, &n);
+    env.storage().instance().set(&ExtDataKey::EscalationThreshold, &n);
 }
 
 pub fn get_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 {
-    let key = DataKey::BreachCount(wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::BreachCount(wallet.clone(), asset_pair.clone());
     env.storage().temporary().get(&key).unwrap_or(0)
 }
 
 pub fn set_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol, count: u32) {
-    let key = DataKey::BreachCount(wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::BreachCount(wallet.clone(), asset_pair.clone());
     env.storage().temporary().set(&key, &count);
 }
 
 pub fn clear_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) {
-    let key = DataKey::BreachCount(wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::BreachCount(wallet.clone(), asset_pair.clone());
     env.storage().temporary().remove(&key);
 }
 
 // ── Model stats ───────────────────────────────────────────────────────────────
 
 pub fn update_model_stats(env: &Env, model_version: u32, score: u32) {
-    let key = DataKey::ModelStats(model_version);
+    let key = ExtDataKey::ModelStats(model_version);
     let mut stats: ModelVersionStats = env
         .storage()
         .instance()
         .get(&key)
-        .unwrap_or(ModelVersionStats { model_version, submission_count: 0, score_sum: 0 });
+        .unwrap_or(ModelVersionStats {
+            model_version,
+            submission_count: 0,
+            score_sum: 0,
+            total_submissions: 0,
+            average_score: 0,
+        });
     stats.submission_count += 1;
-    stats.score_sum += score;
+    stats.score_sum += score as u64;
+    stats.total_submissions += 1;
+    stats.average_score = if stats.total_submissions > 0 {
+        (stats.score_sum / stats.total_submissions) as u32
+    } else {
+        0
+    };
     env.storage().instance().set(&key, &stats);
 }
 
 pub fn get_model_stats(env: &Env, model_version: u32) -> Option<ModelVersionStats> {
-    env.storage().instance().get(&DataKey::ModelStats(model_version))
+    env.storage().instance().get(&ExtDataKey::ModelStats(model_version))
 }
 
 pub fn get_all_model_versions(env: &Env) -> Vec<u32> {
-    env.storage().instance().get(&DataKey::AllModelVersions).unwrap_or_else(|| Vec::new(env))
+    env.storage().instance().get(&ExtDataKey::AllModelVersions).unwrap_or_else(|| Vec::new(env))
 }
 
 // ── Staleness window ──────────────────────────────────────────────────────────
@@ -485,16 +496,16 @@ pub fn set_cooldown_secs(env: &Env, secs: u64) {
 pub fn get_pair_cooldown_secs(env: &Env, asset_pair: &Symbol) -> u64 {
     env.storage()
         .instance()
-        .get(&DataKey::PairCooldown(asset_pair.clone()))
+        .get(&ExtDataKey::PairCooldown(asset_pair.clone()))
         .unwrap_or_else(|| get_cooldown_secs(env))
 }
 
 pub fn set_pair_cooldown_secs(env: &Env, asset_pair: &Symbol, secs: u64) {
-    env.storage().instance().set(&DataKey::PairCooldown(asset_pair.clone()), &secs);
+    env.storage().instance().set(&ExtDataKey::PairCooldown(asset_pair.clone()), &secs);
 }
 
 pub fn clear_pair_cooldown_secs(env: &Env, asset_pair: &Symbol) {
-    env.storage().instance().remove(&DataKey::PairCooldown(asset_pair.clone()));
+    env.storage().instance().remove(&ExtDataKey::PairCooldown(asset_pair.clone()));
 }
 
 // ── Score Velocity Cap ────────────────────────────────────────────────────────
@@ -583,19 +594,19 @@ pub fn set_service_pubkey(env: &Env, pubkey: &Bytes) {
 }
 
 pub fn set_gate_callers(env: &Env, callers: &Vec<Address>) {
-    env.storage().instance().set(&DataKey::GateCallers, callers);
+    env.storage().instance().set(&ExtDataKey::GateCallers, callers);
 }
 
 pub fn get_gate_callers(env: &Env) -> Vec<Address> {
-    env.storage().instance().get(&GateDataKey::GateCallers).unwrap_or_else(|| Vec::new(env))
+    env.storage().instance().get(&ExtDataKey::GateCallers).unwrap_or_else(|| Vec::new(env))
 }
 
 pub fn set_gate_open(env: &Env, open: bool) {
-    env.storage().instance().set(&GateDataKey::GateOpen, &open);
+    env.storage().instance().set(&ExtDataKey::GateOpen, &open);
 }
 
 pub fn get_gate_open(env: &Env) -> bool {
-    env.storage().instance().get(&GateDataKey::GateOpen).unwrap_or(true)
+    env.storage().instance().get(&ExtDataKey::GateOpen).unwrap_or(true)
 }
 
 // ── Time-weighted exponential decay ──────────────────────────────────────────
@@ -761,61 +772,7 @@ pub fn get_contagion_depth(env: &Env, wallet: &Address, asset_pair: &Symbol) -> 
     links.len()
 }
 
-// ── Stubs for broken branch ───────────────────────────────────────────────
 
-pub fn get_escalation_threshold(_env: &Env) -> u32 {
-    0
-}
-
-pub fn get_breach_count(_env: &Env, _wallet: &Address, _asset_pair: &Symbol) -> u32 {
-    0
-}
-
-pub fn set_breach_count(_env: &Env, _wallet: &Address, _asset_pair: &Symbol, _count: u32) {}
-
-pub fn get_gate_open(_env: &Env) -> bool {
-    false
-}
-
-pub fn get_gate_callers(env: &Env) -> Vec<Address> {
-    Vec::new(env)
-}
-
-pub fn clear_breach_count(_env: &Env, _wallet: &Address, _asset_pair: &Symbol) {}
-
-pub fn get_model_stats(_env: &Env, _version: u32) -> Option<crate::types::ModelVersionStats> {
-    None
-}
-
-pub fn get_all_model_versions(env: &Env) -> Vec<u32> {
-    env.storage()
-        .instance()
-        .get(&DataKey::ModelVersionIndex)
-        .unwrap_or_else(|| Vec::new(env))
-}
-
-pub fn set_service_pubkey(_env: &Env, _pubkey: &Bytes) {}
-
-pub fn set_escalation_threshold(_env: &Env, _n: u32) {}
-
-pub fn get_service_threshold(env: &Env) -> u32 {
-    env.storage().instance().get(&DataKey::ServiceThreshold).unwrap_or(0)
-}
-
-pub fn update_model_stats(env: &Env, model_version: u32, _score: u32) {
-    let key = DataKey::ModelVersionIndex;
-    let mut versions: Vec<u32> = env
-        .storage()
-        .instance()
-        .get(&key)
-        .unwrap_or_else(|| Vec::new(env));
-    if !versions.contains(&model_version)
-        && versions.len() < crate::constants::MAX_MODEL_VERSIONS as u32
-    {
-        versions.push_back(model_version);
-        env.storage().instance().set(&key, &versions);
-    }
-}
 // ── Score submission floor ────────────────────────────────────────────────────
 
 pub fn get_score_floor_policy(env: &Env) -> ScoreFloorPolicy {
@@ -956,24 +913,6 @@ pub fn peek_is_embargoed(env: &Env, wallet: &Address) -> bool {
     }
 }
 
-/// Sets the risk band state for `(wallet, asset_pair)`. Passing `true`
-/// records that the wallet has entered the high-risk band; passing `false`
-/// removes the entry (equivalent to `false`, the default) so storage is not
-/// wasted on cleared state.
-pub fn set_risk_band_state(env: &Env, wallet: &Address, asset_pair: &Symbol, in_band: bool) {
-    let key = DataKey::RiskBandState(wallet.clone(), asset_pair.clone());
-    if in_band {
-        env.storage().temporary().set(&key, &true);
-        env.storage().temporary().extend_ttl(
-            &key,
-            BAND_STATE_TTL_THRESHOLD,
-            BAND_STATE_TTL_EXTEND_TO,
-        );
-    } else {
-        env.storage().temporary().remove(&key);
-    }
-}
-
 // ── Band entry timestamp ──────────────────────────────────────────────────────
 
 /// Returns the ledger timestamp at which `wallet` first entered the high-risk
@@ -981,7 +920,7 @@ pub fn set_risk_band_state(env: &Env, wallet: &Address, asset_pair: &Symbol, in_
 /// band (never entered, or the entry time has been cleared on exit). Extends
 /// TTL on read so active band memberships keep their entry time alive.
 pub fn get_band_entry_time(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<u64> {
-    let key = DataKey::BandEntryTime(wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::BandEntryTime(wallet.clone(), asset_pair.clone());
     let result: Option<u64> = env.storage().temporary().get(&key);
     if result.is_some() {
         env.storage()
@@ -995,7 +934,7 @@ pub fn get_band_entry_time(env: &Env, wallet: &Address, asset_pair: &Symbol) -> 
 /// band for `asset_pair`. Uses the same TTL constants as `RiskBandState` so
 /// both keys expire together if they go cold.
 pub fn set_band_entry_time(env: &Env, wallet: &Address, asset_pair: &Symbol, timestamp: u64) {
-    let key = DataKey::BandEntryTime(wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::BandEntryTime(wallet.clone(), asset_pair.clone());
     env.storage().temporary().set(&key, &timestamp);
     env.storage()
         .temporary()
@@ -1006,7 +945,7 @@ pub fn set_band_entry_time(env: &Env, wallet: &Address, asset_pair: &Symbol, tim
 /// the wallet exits the high-risk band so the key is absent whenever the
 /// wallet is not in the band.
 pub fn clear_band_entry_time(env: &Env, wallet: &Address, asset_pair: &Symbol) {
-    let key = DataKey::BandEntryTime(wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::BandEntryTime(wallet.clone(), asset_pair.clone());
     env.storage().temporary().remove(&key);
 }
 
@@ -1119,22 +1058,22 @@ pub fn remove_from_dispute_index(env: &Env, wallet: &Address, asset_pair: &Symbo
 // ── MEV-Resistant Commit-Reveal ──────────────────────────────────────────────
 
 pub fn get_last_global_submission_time(env: &Env) -> u64 {
-    env.storage().instance().get(&DataKey::LastGlobalSubmissionTime).unwrap_or(0)
+    env.storage().instance().get(&ExtDataKey::LastGlobalSubmissionTime).unwrap_or(0)
 }
 
 pub fn set_last_global_submission_time(env: &Env, timestamp: u64) {
-    env.storage().instance().set(&DataKey::LastGlobalSubmissionTime, &timestamp);
+    env.storage().instance().set(&ExtDataKey::LastGlobalSubmissionTime, &timestamp);
 }
 
 pub fn get_quorum_failure_window(env: &Env) -> u64 {
     env.storage()
         .instance()
-        .get(&DataKey::QuorumFailureWindow)
+        .get(&ExtDataKey::QuorumFailureWindow)
         .unwrap_or(DEFAULT_QUORUM_FAILURE_WINDOW_SECS)
 }
 
 pub fn set_quorum_failure_window(env: &Env, window_secs: u64) {
-    env.storage().instance().set(&DataKey::QuorumFailureWindow, &window_secs);
+    env.storage().instance().set(&ExtDataKey::QuorumFailureWindow, &window_secs);
 }
 
 pub fn set_consensus_commitment(
@@ -1144,7 +1083,7 @@ pub fn set_consensus_commitment(
     asset_pair: &Symbol,
     commitment: &soroban_sdk::BytesN<32>,
 ) {
-    let key = DataKey::ConsensusCommitment(model.clone(), wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::ConsensusCommitment(model.clone(), wallet.clone(), asset_pair.clone());
     let ttl = get_reveal_window_secs(env) as u32;
     let ledgers_to_live = (ttl / 5).max(12);
     env.storage().temporary().set(&key, commitment);
@@ -1157,20 +1096,16 @@ pub fn get_consensus_commitment(
     wallet: &Address,
     asset_pair: &Symbol,
 ) -> Option<soroban_sdk::BytesN<32>> {
-    let key = DataKey::ConsensusCommitment(model.clone(), wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::ConsensusCommitment(model.clone(), wallet.clone(), asset_pair.clone());
     env.storage().temporary().get(&key)
 }
 
 pub fn set_original_service_threshold(env: &Env, threshold: u32) {
-    env.storage().instance().set(&DataKey::OriginalServiceThreshold, &threshold);
+    env.storage().instance().set(&ExtDataKey::OriginalServiceThreshold, &threshold);
 }
 
 pub fn clear_original_service_threshold(env: &Env) {
-    env.storage().instance().remove(&DataKey::OriginalServiceThreshold);
-}
-
-pub fn get_service_threshold(env: &Env) -> u32 {
-    env.storage().instance().get(&DataKey::ServiceThreshold).unwrap_or(0)
+    env.storage().instance().remove(&ExtDataKey::OriginalServiceThreshold);
 }
 
 // ── Finality buffer (pending score commit window) ────────────────────────────
@@ -1178,11 +1113,11 @@ pub fn get_service_threshold(env: &Env) -> u32 {
 /// Returns the admin-configured finality buffer in seconds, defaulting to `0`
 /// (disabled) until `set_finality_buffer` is called.
 pub fn get_finality_buffer_secs(env: &Env) -> u64 {
-    env.storage().instance().get(&DataKey::FinalityBufferSecs).unwrap_or(0)
+    env.storage().instance().get(&ExtDataKey::FinalityBufferSecs).unwrap_or(0)
 }
 
 pub fn set_finality_buffer_secs(env: &Env, secs: u64) {
-    env.storage().instance().set(&DataKey::FinalityBufferSecs, &secs);
+    env.storage().instance().set(&ExtDataKey::FinalityBufferSecs, &secs);
 }
 
 /// Returns the pending score held for `(wallet, asset_pair)`, if any.
@@ -1239,24 +1174,222 @@ pub fn set_last_service_activity(env: &Env, timestamp: u64) {
 pub fn get_heartbeat_alert_threshold(env: &Env) -> u64 {
     env.storage()
         .instance()
-        .get(&DataKey::ServiceHeartbeatAlertThreshold)
+        .get(&ExtDataKey::ServiceHeartbeatAlertThreshold)
         .unwrap_or(crate::constants::DEFAULT_HEARTBEAT_ALERT_THRESHOLD_SECS)
 }
 
 pub fn set_heartbeat_alert_threshold(env: &Env, secs: u64) {
-    env.storage().instance().set(&DataKey::ServiceHeartbeatAlertThreshold, &secs);
+    env.storage().instance().set(&ExtDataKey::ServiceHeartbeatAlertThreshold, &secs);
 }
 
 /// Returns `true` once a `ServiceSilenceAlertEvent` has been emitted for the
 /// current silence window and not yet cleared by a resumed submission.
 pub fn is_silent_alert_emitted(env: &Env) -> bool {
-    env.storage().instance().get(&DataKey::ServiceSilentAlertEmitted).unwrap_or(false)
+    env.storage().instance().get(&ExtDataKey::ServiceSilentAlertEmitted).unwrap_or(false)
 }
 
 pub fn set_silent_alert_emitted(env: &Env) {
-    env.storage().instance().set(&DataKey::ServiceSilentAlertEmitted, &true);
+    env.storage().instance().set(&ExtDataKey::ServiceSilentAlertEmitted, &true);
 }
 
 pub fn clear_silent_alert_emitted(env: &Env) {
-    env.storage().instance().remove(&DataKey::ServiceSilentAlertEmitted);
+    env.storage().instance().remove(&ExtDataKey::ServiceSilentAlertEmitted);
+}
+
+// ── Failover contract ────────────────────────────────────────────────────────
+
+pub fn set_failover_contract(env: &Env, contract_id: &Address) {
+    env.storage().instance().set(&DataKey::FailoverContract, contract_id);
+}
+
+pub fn get_failover_contract(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::FailoverContract)
+}
+
+// ── Aggregate service pubkey ──────────────────────────────────────────────────
+
+pub fn get_aggregate_service_pubkey(env: &Env) -> Option<soroban_sdk::Bytes> {
+    env.storage().instance().get(&ExtDataKey::AggregatePubKey)
+}
+
+pub fn set_aggregate_service_pubkey(env: &Env, pubkey: &Bytes) {
+    env.storage().instance().set(&ExtDataKey::AggregatePubKey, pubkey);
+}
+
+// ── Reveal window ─────────────────────────────────────────────────────────────
+
+pub fn get_reveal_window_secs(env: &Env) -> u64 {
+    env.storage().instance().get(&ExtDataKey::RevealWindowSecs).unwrap_or(3600)
+}
+
+pub fn set_reveal_window_secs(env: &Env, secs: u64) {
+    env.storage().instance().set(&ExtDataKey::RevealWindowSecs, &secs);
+}
+
+pub fn remove_consensus_commitment(
+    env: &Env,
+    model: &Address,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) {
+    let key = ExtDataKey::ConsensusCommitment(model.clone(), wallet.clone(), asset_pair.clone());
+    env.storage().temporary().remove(&key);
+}
+
+// ── Model version set ─────────────────────────────────────────────────────────
+
+pub fn get_model_version_set(env: &Env) -> soroban_sdk::Vec<u32> {
+    env.storage().instance().get(&ExtDataKey::ModelVersionSet).unwrap_or_else(|| soroban_sdk::Vec::new(env))
+}
+
+pub fn set_model_version_set(env: &Env, set: &soroban_sdk::Vec<u32>) {
+    env.storage().instance().set(&ExtDataKey::ModelVersionSet, set);
+}
+
+pub fn is_model_version_registered(env: &Env, version: u32) -> bool {
+    get_model_version_set(env).contains(&version)
+}
+
+pub fn is_model_version_deprecated(env: &Env, version: u32) -> bool {
+    let key = ExtDataKey::ModelVersionDeprecated(version);
+    env.storage().instance().get::<_, bool>(&key).unwrap_or(false)
+}
+
+pub fn set_model_version_deprecated(env: &Env, version: u32) {
+    let key = ExtDataKey::ModelVersionDeprecated(version);
+    env.storage().instance().set(&key, &true);
+}
+
+// ── Model posterior weight ────────────────────────────────────────────────────
+
+pub fn get_model_posterior_weight(env: &Env, version: u32) -> u64 {
+    let key = ExtDataKey::ModelPosteriorWeight(version);
+    env.storage().instance().get(&key).unwrap_or(1)
+}
+
+pub fn set_model_posterior_weight(env: &Env, version: u32, weight: u64) {
+    let key = ExtDataKey::ModelPosteriorWeight(version);
+    env.storage().instance().set(&key, &weight);
+}
+
+// ── Signer rotation ───────────────────────────────────────────────────────────
+
+pub fn get_signer_rotation_ttl(env: &Env) -> u64 {
+    env.storage().instance().get(&ExtDataKey::SignerRotationTtl).unwrap_or(0)
+}
+
+pub fn set_signer_rotation_ttl(env: &Env, secs: u64) {
+    env.storage().instance().set(&ExtDataKey::SignerRotationTtl, &secs);
+}
+
+pub fn set_signer_rotation_grace(env: &Env, secs: u64) {
+    env.storage().instance().set(&ExtDataKey::SignerRotationGrace, &secs);
+}
+
+pub fn set_signer_added_at(env: &Env, signer: &Address, timestamp: u64) {
+    let key = ExtDataKey::SignerAddedAt(signer.clone());
+    env.storage().instance().set(&key, &timestamp);
+}
+
+pub fn remove_signer_added_at(env: &Env, signer: &Address) {
+    let key = ExtDataKey::SignerAddedAt(signer.clone());
+    env.storage().instance().remove(&key);
+}
+
+pub fn get_signer_age(env: &Env, signer: &Address) -> u64 {
+    let key = ExtDataKey::SignerAddedAt(signer.clone());
+    let added_at: Option<u64> = env.storage().instance().get(&key);
+    match added_at {
+        Some(t) => env.ledger().timestamp().saturating_sub(t),
+        None => u64::MAX,
+    }
+}
+
+pub fn check_signer_expired(env: &Env, signer: &Address) -> bool {
+    let ttl = get_signer_rotation_ttl(env);
+    if ttl == 0 {
+        return false;
+    }
+    get_signer_age(env, signer) > ttl
+}
+
+// ── Score histogram ───────────────────────────────────────────────────────────
+
+pub fn get_histogram_bucket(env: &Env, bucket: u32) -> u32 {
+    env.storage().instance().get(&ExtDataKey::ScoreHistogramBucket(bucket)).unwrap_or(0)
+}
+
+pub fn get_histogram_total(env: &Env) -> u64 {
+    env.storage().instance().get(&ExtDataKey::ScoreHistogramTotal).unwrap_or(0)
+}
+
+pub fn update_histogram_on_write(env: &Env, previous_score: Option<u32>, new_score: u32) {
+    if let Some(prev) = previous_score {
+        let old_bucket = prev / 10;
+        let key = ExtDataKey::ScoreHistogramBucket(old_bucket);
+        let count: u32 = env.storage().instance().get(&key).unwrap_or(0);
+        if count > 0 { env.storage().instance().set(&key, &(count - 1)); }
+        let total: u64 = env.storage().instance().get(&ExtDataKey::ScoreHistogramTotal).unwrap_or(0);
+        if total > 0 { env.storage().instance().set(&ExtDataKey::ScoreHistogramTotal, &(total - 1)); }
+    }
+    let bucket = new_score / 10;
+    let key = ExtDataKey::ScoreHistogramBucket(bucket);
+    let count: u32 = env.storage().instance().get(&key).unwrap_or(0);
+    env.storage().instance().set(&key, &(count + 1));
+    let total: u64 = env.storage().instance().get(&ExtDataKey::ScoreHistogramTotal).unwrap_or(0);
+    env.storage().instance().set(&ExtDataKey::ScoreHistogramTotal, &(total + 1));
+}
+
+pub fn update_histogram_on_clear(env: &Env, score: u32) {
+    let bucket = score / 10;
+    let key = ExtDataKey::ScoreHistogramBucket(bucket);
+    let count: u32 = env.storage().instance().get(&key).unwrap_or(0);
+    if count > 0 {
+        env.storage().instance().set(&key, &(count - 1));
+    }
+    let total: u64 = env.storage().instance().get(&ExtDataKey::ScoreHistogramTotal).unwrap_or(0);
+    if total > 0 {
+        env.storage().instance().set(&ExtDataKey::ScoreHistogramTotal, &(total - 1));
+    }
+}
+
+pub fn get_score_histogram(env: &Env) -> crate::types::ScoreHistogram {
+    let mut buckets = soroban_sdk::Vec::new(env);
+    for i in 0..=10u32 {
+        buckets.push_back(get_histogram_bucket(env, i));
+    }
+    crate::types::ScoreHistogram { buckets, total: get_histogram_total(env) }
+}
+
+// ── Verkle commitment ─────────────────────────────────────────────────────────
+
+pub fn get_verkle_commitment_raw(env: &Env) -> Option<[u8; 32]> {
+    let b: Option<soroban_sdk::Bytes> = env.storage().instance().get(&ExtDataKey::VerkleCommitmentRaw);
+    b.map(|bytes| {
+        let mut arr = [0u8; 32];
+        for (i, byte) in bytes.iter().enumerate().take(32) { arr[i] = byte; }
+        arr
+    })
+}
+
+pub fn set_verkle_commitment_raw(env: &Env, commitment: &[u8; 32]) {
+    let bytes = soroban_sdk::Bytes::from_array(env, commitment);
+    env.storage().instance().set(&ExtDataKey::VerkleCommitmentRaw, &bytes);
+}
+
+pub fn get_verkle_leaf(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<[u8; 32]> {
+    let key = ExtDataKey::VerkleLeaf(wallet.clone(), asset_pair.clone());
+    let b: Option<soroban_sdk::Bytes> = env.storage().persistent().get(&key);
+    b.map(|bytes| {
+        let mut arr = [0u8; 32];
+        for (i, byte) in bytes.iter().enumerate().take(32) { arr[i] = byte; }
+        arr
+    })
+}
+
+pub fn set_verkle_leaf(env: &Env, wallet: &Address, asset_pair: &Symbol, leaf: &[u8; 32]) {
+    let key = ExtDataKey::VerkleLeaf(wallet.clone(), asset_pair.clone());
+    let bytes = soroban_sdk::Bytes::from_array(env, leaf);
+    env.storage().persistent().set(&key, &bytes);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
 }

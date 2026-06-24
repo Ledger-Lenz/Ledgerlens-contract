@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, Symbol};
+use soroban_sdk::{contracttype, Address, BytesN, Symbol, Vec};
 
 /// Embargo expiry configuration stored per wallet in temporary storage.
 #[contracttype]
@@ -8,23 +8,13 @@ pub enum EmbargoExpiry {
     Until(u64),
 }
 
-/// On-chain record of an open score dispute, tracking the challenger's staked
-/// bond, the deadline by which the admin must resubmit a corrected score, and
-/// the score that was being challenged when the dispute was opened.
-///
-/// Stored in temporary TTL-bounded storage keyed by `(wallet, asset_pair)`;
-/// removed once the dispute is resolved by admin correction or by timeout.
+/// On-chain record of an open score dispute.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScoreDispute {
-    /// Wallet operator that opened the dispute and staked the bond.
     pub challenger: Address,
-    /// Fee-token amount staked to open the dispute (escrowed in the contract).
     pub bond: i128,
-    /// Ledger timestamp after which the dispute may be settled by timeout.
     pub deadline: u64,
-    /// The disputed score at the time the dispute was opened, recorded for
-    /// audit purposes.
     pub challenged_score: u32,
 }
 
@@ -50,15 +40,23 @@ pub struct ScoreQuery {
 }
 
 /// Per-entry result returned by `get_scores_batch`.
+///
+/// When `found` is `false`, the `score` field contains zero-valued sentinel
+/// data and must not be used. Check `found` before accessing `score`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BatchScoreResult {
     pub index: u32,
     pub found: bool,
-    pub score: Option<RiskScore>,
+    pub score: RiskScore,
 }
 
-/// Read-only decay-adjusted view of a stored risk score.
+/// Decay-adjusted view of a stored risk score, returned by `get_effective_score`.
+///
+/// This is the canonical definition. Fields cover both the decay path
+/// (`raw_score`, `effective_score`, `decay_applied`, `elapsed_secs`) and the
+/// delegation path (`original_score`, `original_confidence`, `confidence_floor`,
+/// `delegated_to`).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EffectiveRiskScore {
@@ -71,6 +69,10 @@ pub struct EffectiveRiskScore {
     pub model_version: u32,
     pub benford_flag: bool,
     pub ml_flag: bool,
+    pub original_score: u32,
+    pub original_confidence: u32,
+    pub confidence_floor: u32,
+    pub delegated_to: Option<Address>,
 }
 
 /// A single entry in a batch score submission.
@@ -110,18 +112,15 @@ pub struct ScoreAttestation {
 }
 
 /// Threshold-signature attestation: t-of-n signers produce one 65-byte proof.
-/// See `docs/threshold-attestation-spec.md`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ThresholdAttestation {
     pub commitment: BytesN<32>,
     pub threshold_sig: BytesN<65>,
-    pub participating_signers: soroban_sdk::Vec<Address>,
+    pub participating_signers: Vec<Address>,
 }
 
 /// Unified attestation input for `submit_score`.
-/// Wraps both attestation variants so the function stays within
-/// Soroban's 10-parameter limit.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ScoreAttestationInput {
@@ -129,40 +128,21 @@ pub enum ScoreAttestationInput {
     Threshold(ThresholdAttestation),
 }
 
-/// Decay-adjusted view of a score, returned by `get_effective_score`.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EffectiveRiskScore {
-    pub raw_score: u32,
-    pub effective_score: u32,
-    pub decay_applied: bool,
-    pub elapsed_secs: u64,
-    pub timestamp: u64,
-    pub confidence: u32,
-    pub model_version: u32,
-    pub benford_flag: bool,
-    pub ml_flag: bool,
-}
-
 /// Per-model-version aggregate stats, returned by `get_model_version_stats`.
+///
+/// Canonical definition — includes both the compact form (`submission_count`,
+/// `score_sum`) and the summary form (`total_submissions`, `average_score`).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelVersionStats {
     pub model_version: u32,
     pub submission_count: u32,
     pub score_sum: u64,
+    pub total_submissions: u64,
+    pub average_score: u32,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-
 /// Pending, time-locked risk score submission.
-///
-/// Written by `submit_score` when the admin has configured
-/// `FinalityBufferSecs > 0`. The score is held in this pending state
-/// (invisible to `get_score` / `query_risk_gate`) until
-/// `commit_pending_score` observes that `env.ledger().timestamp() >=
-/// commit_after`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PendingScoreEntry {
@@ -177,6 +157,9 @@ pub struct PendingScoreEntry {
     pub submitted_by: Address,
 }
 
+/// A model's score submission for consensus reveal.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelSubmission {
     pub model_version: u32,
     pub model: Address,
@@ -202,7 +185,7 @@ pub struct BatchEntryResult {
 pub struct BatchResult {
     pub accepted_count: u32,
     pub rejected_count: u32,
-    pub results: soroban_sdk::Vec<BatchEntryResult>,
+    pub results: Vec<BatchEntryResult>,
 }
 
 /// Merkle-root attestation for an entire `submit_scores_batch_attested` call.
@@ -218,7 +201,7 @@ pub struct BatchAttestation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScoreSubmissionWithProof {
     pub submission: ScoreSubmission,
-    pub proof: soroban_sdk::Vec<BytesN<32>>,
+    pub proof: Vec<BytesN<32>>,
     pub proof_flags: u32,
 }
 
@@ -254,8 +237,8 @@ pub struct ScoreFloorPolicy {
 pub struct SnapshotRecord {
     pub root: BytesN<32>,
     pub leaf_count: u64,
-    pub committed_at: u64,     // ledger timestamp
-    pub committed_by: Address, // who called commit_snapshot
+    pub committed_at: u64,
+    pub committed_by: Address,
 }
 
 #[contracttype]
@@ -265,47 +248,26 @@ pub struct ScoreVelocityCap {
     pub points_per_hour: u32,
 }
 
+/// Score histogram returned by `get_score_histogram`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EffectiveRiskScore {
-    pub effective_score: u32,
-    pub original_score: u32,
-    pub original_confidence: u32,
-    pub confidence_floor: u32,
-    pub delegated_to: Option<Address>,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ModelVersionStats {
-    pub model_version: u32,
-    pub total_submissions: u64,
-    pub average_score: u32,
+pub struct ScoreHistogram {
+    pub buckets: Vec<u32>,
+    pub total: u64,
 }
 
 #[contracttype]
 #[derive(Clone)]
 pub enum GateDataKey {
     GateCallers,
+    GateOpen,
 }
-
-pub const MAX_GATE_CALLERS: u32 = 100;
 
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
-    /// Model version registry status.
-    /// Encoded as a `u32` discriminant (see `ModelVersionStatus`).
-    ModelVersionStatus(u32),
-    /// When a model version is `Proposed`, this holds `proposed_at + upgrade_delay`.
-    ModelVersionExecutableAfter(u32),
-    /// Optional description committed at proposal time (for auditability).
-    ModelVersionDescription(u32),
     Admin,
     Service,
-    SignerTier(Address),
-
-    /// Latest risk score for a (wallet, asset_pair) pair.
     Score(Address, Symbol),
     Paused,
     PendingAdmin,
@@ -319,10 +281,7 @@ pub enum DataKey {
     AggregateScore(Address),
     PendingUpgrade,
     UpgradeDelay,
-    /// Per-signer score range restriction. Maps a service signer address to
-    /// its allowed `TierBounds`.
     SignerTier(Address),
-    /// Ordered set of N addresses authorised to co-sign score submissions.
     ServiceSet,
     ServiceThreshold,
     StalenessWindow,
@@ -331,14 +290,8 @@ pub enum DataKey {
     ScoreCount(Address, Symbol),
     ServicePubKey,
     HistoryMaxDepth,
-    DecayRateNumerator,
-    DecayRateDenominator,
-    /// Global minimum confidence floor (0–100) enforced by
-    /// `query_risk_gate_with_confidence`. The effective floor is
-    /// `max(caller_param, global_floor)`. Defaults to 0 (no floor) when unset.
+    DecayRate,
     GlobalMinConfidence,
-    /// The SEP-41 token contract address from which fees are withdrawn.
-    /// Unset until `set_fee_token` is called.
     FeeToken,
     WithdrawalLock,
     PairPaused(Symbol),
@@ -348,55 +301,54 @@ pub enum DataKey {
     ScoreDelegate(Address),
     TrendState(Address, Symbol),
     Counterparties(Address, Symbol),
-    /// Global boolean kill-switch for score velocity checks.
     ScoreVelocityCapEnabled,
-    /// Maximum points a score can change per hour when the cap is enabled.
     ScoreVelocityCapPointsPerHour,
-    /// One-time bypass flag set by the admin to allow a single submission
-    /// for a specific (wallet, asset_pair) to bypass the velocity cap.
     VelocityCapOverride(Address, Symbol),
-    SignerTier(Address),
-    GlobalMinConfidence,
-    /// Score-floor policy: historical peak (high-water mark) at or above which
-    /// the floor applies. Global config, `u32`, defaults to
-    /// `DEFAULT_SCORE_FLOOR_HWM` (80) when unset.
-    ScoreFloorHighWaterMark,
-    ScoreFloorMinValue,
-    ScoreFloorEnabled,
+    ScoreFloorConfig,
     HistoricalMaxScore(Address, Symbol),
     HysteresisMargin,
     RiskBandState(Address, Symbol),
     ScoreEmbargo(Address),
     ConsensusThresholdK,
     ConsensusEpsilon,
-    /// Open dispute record for a (wallet, asset_pair) pair. Absent key means
-    /// no active dispute. Stored in temporary TTL-bounded storage.
     ScoreDispute(Address, Symbol),
-    /// Index of all currently open disputes: `Vec<(Address, Symbol)>`.
-    /// Incrementally maintained so `get_open_disputes` is a single read.
     DisputeIndex,
-    /// A single model's commitment (sha256(score || nonce)) for consensus.
-    /// Key: ConsensusCommitment(model_address, wallet, asset_pair) -> BytesN<32>
-    ConsensusCommitment(Address, Address, Symbol),
-    /// Configurable window for reveal in seconds.
-    RevealWindowSecs,
-    /// Admin-configured finality buffer in seconds.
-    FinalityBufferSecs,
-    /// Pending score entry held before commit. Invisible to get_score/query_risk_gate.
     PendingScore(Address, Symbol),
-    /// u64, ledger timestamp of the most recent accepted submission
-    /// (`submit_score` / `submit_scores_batch`) or `ping_heartbeat` call.
-    /// `0` means the service has never been active. See `is_service_alive`.
     LastServiceActivityAt,
-    /// u64, admin-configurable number of seconds of silence before the
-    /// off-chain service is considered unresponsive. Defaults to
-    /// `DEFAULT_HEARTBEAT_ALERT_THRESHOLD_SECS` (1 hour) when unset.
+    FailoverContract,
+}
+
+/// Extended storage keys for less-frequently-accessed features.
+#[contracttype]
+#[derive(Clone)]
+pub enum ExtDataKey {
+    AllModelVersions,
+    ModelStats(u32),
+    ModelVersionSet,
+    ModelVersionDeprecated(u32),
+    ModelPosteriorWeight(u32),
+    SignerAddedAt(Address),
+    SignerRotationTtl,
+    SignerRotationGrace,
+    ScoreHistogramBucket(u32),
+    ScoreHistogramTotal,
+    VerkleLeaf(Address, Symbol),
+    VerkleCommitmentRaw,
+    AggregatePubKey,
+    OriginalServiceThreshold,
+    PairCooldown(Symbol),
+    GateCallers,
+    GateOpen,
+    BandEntryTime(Address, Symbol),
+    BreachCount(Address, Symbol),
+    EscalationThreshold,
+    RevealWindowSecs,
+    FinalityBufferSecs,
     ServiceHeartbeatAlertThreshold,
-    /// bool, `true` once a `ServiceSilenceAlertEvent` has been emitted for
-    /// the current silence window. Cleared (and a `ServiceResumedEvent`
-    /// emitted) the next time a submission or `ping_heartbeat` is accepted —
-    /// see `submit_score` / `ping_heartbeat`.
     ServiceSilentAlertEmitted,
+    LastGlobalSubmissionTime,
+    QuorumFailureWindow,
+    ConsensusCommitment(Address, Address, Symbol),
 }
 
 #[contracttype]

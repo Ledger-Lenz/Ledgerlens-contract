@@ -72,7 +72,8 @@ fn test_first_submit_always_accepted() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
     assert!(result.is_ok());
     assert_eq!(client.get_last_submit_time(&wallet, &pair), START_TS);
 }
@@ -93,7 +94,8 @@ fn test_second_submit_within_cooldown_rejected() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
 
     advance_to(&env, START_TS + DEFAULT_COOLDOWN_SECS - 1);
     let result = client.try_submit_score(
@@ -106,7 +108,8 @@ fn test_second_submit_within_cooldown_rejected() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
     assert_eq!(result, Err(Ok(Error::RateLimitExceeded)));
 
     // The rejected submission must not have overwritten the stored score.
@@ -129,7 +132,8 @@ fn test_second_submit_after_cooldown_accepted() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
 
     advance_to(&env, START_TS + DEFAULT_COOLDOWN_SECS + 1);
     client.submit_score(
@@ -142,7 +146,8 @@ fn test_second_submit_after_cooldown_accepted() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
     assert_eq!(client.get_score(&wallet, &pair).score, 60);
 }
 
@@ -162,7 +167,8 @@ fn test_cooldown_exactly_at_boundary() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
 
     // now == last_submit + cooldown exactly — must be accepted (strict `<` rejects).
     advance_to(&env, START_TS + DEFAULT_COOLDOWN_SECS);
@@ -176,7 +182,8 @@ fn test_cooldown_exactly_at_boundary() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
     assert!(result.is_ok());
     assert_eq!(client.get_score(&wallet, &pair).score, 60);
 }
@@ -200,7 +207,8 @@ fn test_batch_rate_limited_entry_skipped() {
         &START_TS,
         &50,
         &1,
-        &None`n    );
+        &None
+    );
 
     advance_to(&env, START_TS + 10); // still well within the default cooldown
 
@@ -301,7 +309,8 @@ fn test_admin_override_clears_cooldown() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
 
     client.override_rate_limit(&Vec::new(&env), &wallet, &pair);
     assert_eq!(client.get_last_submit_time(&wallet, &pair), 0);
@@ -317,7 +326,8 @@ fn test_admin_override_clears_cooldown() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
     assert_eq!(client.get_score(&wallet, &pair).score, 70);
 }
 
@@ -368,7 +378,8 @@ fn test_set_cooldown_within_bounds_applied() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
 
     advance_to(&env, START_TS + MIN_COOLDOWN_SECS);
     client.submit_score(
@@ -381,7 +392,8 @@ fn test_set_cooldown_within_bounds_applied() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
     assert_eq!(client.get_score(&wallet, &pair).score, 60);
 }
 
@@ -415,7 +427,8 @@ fn test_cooldown_is_per_pair() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
 
     // Still within pair_a's cooldown, but pair_b has never been submitted.
     let result = client.try_submit_score(
@@ -428,7 +441,8 @@ fn test_cooldown_is_per_pair() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
     assert!(result.is_ok());
 }
 
@@ -449,7 +463,8 @@ fn test_cooldown_is_per_wallet() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
 
     let result = client.try_submit_score(
         &Vec::new(&env),
@@ -461,7 +476,8 @@ fn test_cooldown_is_per_wallet() {
         &START_TS,
         &90,
         &1,
-        &None`n    );
+        &None
+    );
     assert!(result.is_ok());
 }
 

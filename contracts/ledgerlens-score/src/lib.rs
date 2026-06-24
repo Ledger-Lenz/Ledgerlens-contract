@@ -77,18 +77,22 @@ mod test_model_version;
 #[cfg(test)]
 mod test_histogram;
 
+#[cfg(test)]
+mod test_failover;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN,
-    Env, Symbol, SymbolStr, TryFromVal, Vec,
+    Env, IntoVal, Symbol, SymbolStr, TryFromVal, Vec,
 };
 
 pub use errors::Error;
 pub use events::{ServiceResumedEvent, ServiceSilenceAlertEvent};
 pub use types::{
     AggregateRiskScore, BatchAttestation, BatchEntryResult, BatchResult, BatchScoreResult,
-    EffectiveRiskScore, EmbargoExpiry, ModelSubmission, ModelVersionStats, PendingScoreEntry,
-    RiskScore, ScoreAttestation, ScoreDispute, ScoreFloorPolicy, ScoreQuery, ScoreSubmission,
-    ScoreSubmissionWithProof, ScoreTrend, ScoreVelocityCap, UpgradeProposal,
+    EffectiveRiskScore, EmbargoExpiry, ExtDataKey, ModelSubmission, ModelVersionStats,
+    PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput, ScoreDispute,
+    ScoreFloorPolicy, ScoreHistogram, ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof,
+    ScoreTrend, ScoreVelocityCap, ThresholdAttestation, UpgradeProposal,
 };
 /// The 32-byte all-zeros field element used as the value in non-membership proofs.
 pub use verkle::NON_MEMBER_SENTINEL;
@@ -291,8 +295,6 @@ impl LedgerLensScoreContract {
                         timestamp, confidence, model_version, single_att,
                     )?;
                 }
-                storage::check_signer_expired(&env, &signer)?;
-                signer.require_auth();
             }
         }
 
@@ -546,7 +548,7 @@ impl LedgerLensScoreContract {
             buf[4..12].copy_from_slice(&nonce.to_be_bytes());
             let computed_hash = env.crypto().sha256(&soroban_sdk::Bytes::from_array(&env, &buf));
 
-            if computed_hash != commitment {
+            if soroban_sdk::BytesN::from(computed_hash) != commitment {
                 return Err(Error::CommitmentMismatch);
             }
 
@@ -581,43 +583,6 @@ impl LedgerLensScoreContract {
             return Err(Error::InsufficientConsensus);
         }
 
-        if let Some(prev) = previous_score {
-            let cap = storage::get_score_velocity_cap(&env);
-            if cap.enabled {
-                if storage::is_velocity_cap_overridden(&env, &wallet, &asset_pair) {
-                    storage::clear_velocity_cap_override(&env, &wallet, &asset_pair);
-                } else if last_submit != 0 {
-                    let elapsed_secs = now.saturating_sub(last_submit);
-                    let allowed_delta = core::cmp::max(
-                        1,
-                        (cap.points_per_hour as u64).saturating_mul(elapsed_secs) / 3600,
-                    );
-                    let diff = score.abs_diff(prev);
-                    if diff as u64 > allowed_delta {
-                        return Err(Error::ScoreVelocityExceeded);
-                    }
-                }
-            }
-        }
-
-        let risk_score =
-            RiskScore { score, benford_flag, ml_flag, timestamp, confidence, model_version };
-
-        storage::set_score(&env, &wallet, &asset_pair, &risk_score);
-        storage::push_score_history(&env, &wallet, &asset_pair, &risk_score);
-        storage::register_pair_for_wallet(&env, &wallet, &asset_pair);
-        storage::increment_score_count(&env, &wallet, &asset_pair);
-        storage::update_model_stats(&env, model_version, score);
-        Self::refresh_aggregate_cache(&env, &wallet);
-        // Self::update_merkle_accumulator(
-        //     &env,
-        //     &wallet,
-        //     &asset_pair,
-        //     score,
-        //     timestamp,
-        //     confidence,
-        //     model_version,
-        // );
         let provisional_median =
             Self::median_score_for_indices(&submissions, &valid_indices).ok_or(Error::InsufficientConsensus)?;
         let epsilon = storage::get_consensus_epsilon(&env);
@@ -1053,7 +1018,9 @@ impl LedgerLensScoreContract {
                 if !service_set.contains(&signer) {
                     return Err(Error::UnauthorizedSigner);
                 }
-                storage::check_signer_expired(&env, &signer)?;
+                if storage::check_signer_expired(&env, &signer) {
+                    return Err(Error::UnauthorizedSigner);
+                }
                 signer.require_auth();
             }
         } else {
@@ -1256,7 +1223,7 @@ impl LedgerLensScoreContract {
     /// assert_eq!(c.len(), 48);
     /// ```
     pub fn get_state_commitment(env: Env) -> BytesN<48> {
-        let raw = storage::get_verkle_commitment_raw(&env);
+        let raw = storage::get_verkle_commitment_raw(&env).unwrap_or([0u8; 32]);
         verkle::commitment_to_bytes48(&env, &raw)
     }
 
@@ -1317,7 +1284,7 @@ impl LedgerLensScoreContract {
         let z = verkle::derive_evaluation_point(&env, &wallet_buf, &pair_buf);
 
         // Load the current commitment root.
-        let commit = storage::get_verkle_commitment_raw(&env);
+        let commit = storage::get_verkle_commitment_raw(&env).unwrap_or([0u8; 32]);
 
         // Check whether this key has a live score.
         match storage::peek_score(&env, &wallet, &asset_pair) {
@@ -1471,6 +1438,13 @@ impl LedgerLensScoreContract {
         Self::lookup_score(&env, &wallet, &asset_pair)?.ok_or(Error::ScoreNotFound)
     }
 
+    /// Infallible variant of [`get_score`] — returns `None` when no score
+    /// exists for `(wallet, asset_pair)` instead of an error. Designed for
+    /// cross-contract calls where the caller must remain infallible.
+    pub fn get_score_opt(env: Env, wallet: Address, asset_pair: Symbol) -> Option<RiskScore> {
+        storage::peek_score(&env, &wallet, &asset_pair)
+    }
+
     /// Reads the latest score for each requested wallet / asset-pair pair.
     ///
     /// This is the batch equivalent of [`get_score`]. Each result preserves
@@ -1515,10 +1489,18 @@ impl LedgerLensScoreContract {
             return Err(Error::BatchTooLarge);
         }
 
+        let sentinel = RiskScore {
+            score: 0,
+            benford_flag: false,
+            ml_flag: false,
+            timestamp: 0,
+            confidence: 0,
+            model_version: 0,
+        };
         let mut results = Vec::new(&env);
         for i in 0..queries.len() {
             let Some(query) = queries.get(i) else {
-                results.push_back(BatchScoreResult { index: i, found: false, score: None });
+                results.push_back(BatchScoreResult { index: i, found: false, score: sentinel.clone() });
                 continue;
             };
             let score = match Self::lookup_score(&env, &query.wallet, &query.asset_pair) {
@@ -1526,7 +1508,11 @@ impl LedgerLensScoreContract {
                 Err(Error::ScoreEmbargoed) => None,
                 Err(err) => return Err(err),
             };
-            results.push_back(BatchScoreResult { index: i, found: score.is_some(), score });
+            let (found, flat_score) = match score {
+                Some(s) => (true, s),
+                None => (false, sentinel.clone()),
+            };
+            results.push_back(BatchScoreResult { index: i, found, score: flat_score });
         }
         Ok(results)
     }
@@ -1600,8 +1586,16 @@ impl LedgerLensScoreContract {
         };
 
         Ok(EffectiveRiskScore {
-            original_score: score.score,
+            raw_score: score.score,
             effective_score,
+            decay_applied: effective_score != score.score,
+            elapsed_secs: env.ledger().timestamp().saturating_sub(score.timestamp),
+            timestamp: score.timestamp,
+            confidence: score.confidence,
+            model_version: score.model_version,
+            benford_flag: score.benford_flag,
+            ml_flag: score.ml_flag,
+            original_score: score.score,
             original_confidence: score.confidence,
             confidence_floor: 0,
             delegated_to: None,
@@ -1642,6 +1636,36 @@ impl LedgerLensScoreContract {
             return Vec::new(&env);
         }
         storage::get_score_history(&env, &wallet, &asset_pair)
+    }
+
+    /// Returns the population variance of the historical scores for
+    /// `wallet` / `asset_pair`, scaled by 100 (i.e. `variance * 100`).
+    ///
+    /// Returns `0` when there are fewer than 2 history entries, when the wallet
+    /// is embargoed, or when no history exists.
+    pub fn get_score_variance(env: Env, wallet: Address, asset_pair: Symbol) -> u64 {
+        if storage::is_embargoed(&env, &wallet) {
+            return 0;
+        }
+        let history = storage::get_score_history(&env, &wallet, &asset_pair);
+        let n = history.len() as u64;
+        if n < 2 {
+            return 0;
+        }
+        let sum: u64 = (0..history.len())
+            .filter_map(|i| history.get(i))
+            .map(|r| r.score as u64)
+            .sum();
+        let mean = sum / n;
+        let sq_sum: u64 = (0..history.len())
+            .filter_map(|i| history.get(i))
+            .map(|r| {
+                let s = r.score as u64;
+                let diff = if s >= mean { s - mean } else { mean - s };
+                diff * diff
+            })
+            .sum();
+        (sq_sum * 100) / n
     }
 
     /// Returns a windowed slice of the score history for `wallet` / `asset_pair`
@@ -2236,6 +2260,32 @@ impl LedgerLensScoreContract {
         if gate_threshold > 100 || min_confidence > 100 {
             return false;
         }
+
+        // When the primary is paused, attempt failover to the secondary.
+        if storage::is_paused(&env) {
+            if let Some(secondary_id) = storage::get_failover_contract(&env) {
+                let func = Symbol::new(&env, "get_score_opt");
+                let args = (wallet.clone(), asset_pair.clone()).into_val(&env);
+                let secondary_score: Option<RiskScore> =
+                    env.invoke_contract(&secondary_id, &func, args);
+                if let Some(score) = secondary_score {
+                    let now = env.ledger().timestamp();
+                    let age = now.saturating_sub(score.timestamp);
+                    if age <= constants::FAILOVER_STALENESS_WINDOW {
+                        events::failover_triggered(&env, &wallet, &asset_pair);
+                        let effective_floor = core::cmp::max(
+                            min_confidence,
+                            storage::get_global_min_confidence(&env),
+                        );
+                        return score.score < gate_threshold
+                            && score.confidence >= effective_floor;
+                    }
+                }
+            }
+            // No secondary, secondary score is stale, or no score on secondary — fail closed.
+            return false;
+        }
+
         // Embargoed wallets: conservative false — treat as "no signal available".
         // Uses peek (no TTL extension) to remain side-effect free.
         if storage::peek_is_embargoed(&env, &wallet) {
@@ -2351,7 +2401,7 @@ impl LedgerLensScoreContract {
         for i in 0..bucket {
             cumulative = cumulative.saturating_add(storage::get_histogram_bucket(&env, i));
         }
-        Ok(cumulative.saturating_mul(100) / total)
+        Ok(cumulative.saturating_mul(100) / (total as u32).max(1))
     }
 
     /// Relative-risk gate: returns `true` (risky) if the wallet's score is in
@@ -2569,7 +2619,7 @@ impl LedgerLensScoreContract {
 
     /// Returns the age of `signer` in seconds since it was added to the
     /// service set, or `None` if no activation time is recorded.
-    pub fn get_signer_age(env: Env, signer: Address) -> Option<u64> {
+    pub fn get_signer_age(env: Env, signer: Address) -> u64 {
         storage::get_signer_age(&env, &signer)
     }
 
@@ -2984,6 +3034,38 @@ impl LedgerLensScoreContract {
     /// ```
     pub fn is_paused(env: Env) -> bool {
         storage::is_paused(&env)
+    }
+
+    // ── Failover (hot-standby) contract ───────────────────────────────────────
+
+    /// Register a secondary LedgerLens contract to serve as a hot standby.
+    ///
+    /// When the primary contract is paused, [`query_risk_gate`] and
+    /// [`query_risk_gate_with_confidence`] will transparently invoke the
+    /// secondary contract via cross-contract call. A secondary score is only
+    /// accepted if its timestamp is within [`FAILOVER_STALENESS_WINDOW`]
+    /// seconds of `now`; a stale score causes the gate to return `false`
+    /// (fail-closed). Admin only.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    pub fn set_failover_contract(
+        env: Env,
+        admin_signers: Vec<Address>,
+        contract_id: Address,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_failover_contract(&env, &contract_id);
+        Ok(())
+    }
+
+    /// Returns the registered hot-standby contract address, or `None` if none
+    /// has been configured.
+    pub fn get_failover_contract(env: Env) -> Option<Address> {
+        storage::get_failover_contract(&env)
     }
 
     // ── Per-asset-pair circuit breaker ────────────────────────────────────────
@@ -5252,7 +5334,9 @@ impl LedgerLensScoreContract {
                 if !service_set.contains(&signer) {
                     return Err(Error::UnauthorizedSigner);
                 }
-                storage::check_signer_expired(env, &signer)?;
+                if storage::check_signer_expired(env, &signer) {
+                    return Err(Error::UnauthorizedSigner);
+                }
                 signer.require_auth();
             }
         } else {
@@ -5924,7 +6008,7 @@ impl LedgerLensScoreContract {
         let v_new = verkle::derive_value_element(env, risk_score.score, risk_score.timestamp, &z);
         let leaf_new = verkle::hash_leaf(env, &z, &v_new);
 
-        let mut commit = storage::get_verkle_commitment_raw(env);
+        let mut commit: [u8; 32] = storage::get_verkle_commitment_raw(env).unwrap_or([0u8; 32]);
 
         // Remove old leaf contribution (XOR is its own inverse).
         if let Some(old_leaf) = storage::get_verkle_leaf(env, wallet, asset_pair) {
@@ -5935,7 +6019,7 @@ impl LedgerLensScoreContract {
             let mut buf = [0u8; 33];
             buf[0] = 0x06; // DOMAIN_COMMIT — same as in update_commitment
             buf[1..33].copy_from_slice(&commit);
-            commit = env.crypto().sha256(&Bytes::from_array(env, &buf)).to_bytes().to_array();
+            commit = soroban_sdk::BytesN::from(env.crypto().sha256(&Bytes::from_array(env, &buf))).to_array();
         }
 
         // Add new leaf contribution.

@@ -42,7 +42,8 @@ fn submit(
         &env.ledger().timestamp(),
         &90,
         &1,
-        &None`n    );
+        &None
+    );
 }
 
 /// Returns the last `score_delta` event data tuple for `(wallet, pair)`.
