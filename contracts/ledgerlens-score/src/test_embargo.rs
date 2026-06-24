@@ -133,6 +133,59 @@ fn test_replacing_embargo_updates_expiry() {
     assert!(client.is_embargoed(&wallet));
 }
 
+// ── get_embargo_expiry ────────────────────────────────────────────────────────
+
+#[test]
+fn test_get_embargo_expiry_none_when_not_embargoed() {
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    assert_eq!(client.get_embargo_expiry(&wallet), None);
+}
+
+#[test]
+fn test_get_embargo_expiry_none_for_indefinite_embargo() {
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    client.set_score_embargo(&wallet, &None);
+    assert_eq!(client.get_embargo_expiry(&wallet), None);
+}
+
+#[test]
+fn test_get_embargo_expiry_some_for_active_timed_embargo() {
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    client.set_score_embargo(&wallet, &Some(10_000));
+    assert_eq!(client.get_embargo_expiry(&wallet), Some(10_000));
+}
+
+#[test]
+fn test_get_embargo_expiry_none_after_timed_embargo_expires() {
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    client.set_score_embargo(&wallet, &Some(500));
+    env.ledger().with_mut(|l| l.timestamp = 501);
+    assert_eq!(client.get_embargo_expiry(&wallet), None);
+}
+
+#[test]
+fn test_get_embargo_expiry_none_after_lift() {
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    client.set_score_embargo(&wallet, &Some(10_000));
+    client.lift_score_embargo(&wallet);
+    assert_eq!(client.get_embargo_expiry(&wallet), None);
+}
+
+#[test]
+fn test_get_embargo_expiry_updates_after_replacing_embargo() {
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    client.set_score_embargo(&wallet, &Some(100));
+    assert_eq!(client.get_embargo_expiry(&wallet), Some(100));
+    client.set_score_embargo(&wallet, &Some(200));
+    assert_eq!(client.get_embargo_expiry(&wallet), Some(200));
+}
+
 // ── get_score blocked by embargo ──────────────────────────────────────────────
 
 #[test]
