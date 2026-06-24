@@ -77,6 +77,9 @@ mod test_model_version;
 #[cfg(test)]
 mod test_histogram;
 
+#[cfg(test)]
+mod test_breach_counter_reset;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN, Env, Symbol,
     SymbolStr, TryFromVal, Vec,
@@ -2171,6 +2174,62 @@ impl LedgerLensScoreContract {
         storage::get_pair_weight(&env, &asset_pair)
     }
 
+    /// Sets the weight for multiple asset pairs in one admin call, avoiding
+    /// N separate transactions during initial contract setup. Each entry is
+    /// applied independently via [`set_pair_weight`]'s underlying storage
+    /// write, emitting one `pw_upd` event per entry. Admin only.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::EmptyBatch`] if `entries` is empty.
+    /// - [`Error::BatchTooLarge`] if `entries.len() > MAX_BATCH_SIZE`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let pair_a = symbol_short!("XLM_USDC");
+    /// let pair_b = symbol_short!("XLM_BTC");
+    /// let mut entries = Vec::new(&env);
+    /// entries.push_back((pair_a.clone(), 2u32));
+    /// entries.push_back((pair_b.clone(), 5u32));
+    /// client.set_pair_weight_batch(&Vec::new(&env), &entries).unwrap();
+    /// assert_eq!(client.get_pair_weight(&pair_a), 2);
+    /// assert_eq!(client.get_pair_weight(&pair_b), 5);
+    /// ```
+    pub fn set_pair_weight_batch(
+        env: Env,
+        admin_signers: Vec<Address>,
+        entries: Vec<(Symbol, u32)>,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if entries.is_empty() {
+            return Err(Error::EmptyBatch);
+        }
+        if entries.len() > constants::MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        for i in 0..entries.len() {
+            let (asset_pair, weight) = entries.get(i).unwrap();
+            storage::set_pair_weight(&env, &asset_pair, weight);
+            events::pair_weight_updated(&env, &asset_pair, weight);
+        }
+        Ok(())
+    }
+
     // ── Global minimum confidence floor ──────────────────────────────────────
 
     /// Set the admin-configured global minimum confidence floor (0–100).
@@ -3547,6 +3606,53 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
+    /// Admin-initiated reset of the consecutive-breach counter for
+    /// `(wallet, asset_pair)`. Unlike [`Self::reset_breach_count`], this
+    /// emits a `breach_counter_reset` event recording which admin performed
+    /// the reset, giving operators an on-chain audit trail for
+    /// investigations that conclude before a clean score submission would
+    /// otherwise reset the counter naturally. Admin only (M-of-N).
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &90, &true, &true, &1, &95, &1, &None).unwrap();
+    /// assert_eq!(client.get_breach_count(&wallet, &asset_pair), 1);
+    /// client.reset_breach_counter(&Vec::new(&env), &wallet, &asset_pair).unwrap();
+    /// assert_eq!(client.get_breach_count(&wallet, &asset_pair), 0);
+    /// ```
+    pub fn reset_breach_counter(
+        env: Env,
+        admin_signers: Vec<Address>,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        let admin = storage::get_admin(&env);
+        storage::clear_breach_count(&env, &wallet, &asset_pair);
+        events::breach_counter_reset(&env, &wallet, &asset_pair, &admin);
+        Ok(())
+    }
+
     // ── Risk threshold ───────────────────────────────────────────────────────
 
     /// Set the global risk threshold (0-100).  Scores at or above this
@@ -3743,6 +3849,11 @@ impl LedgerLensScoreContract {
         }
         let admin = storage::get_admin(&env);
         admin.require_auth();
+        if !storage::peek_is_embargoed(&env, &wallet)
+            && !storage::add_to_embargoed_index(&env, &wallet)
+        {
+            return Err(Error::EmbargoedWalletIndexFull);
+        }
         let embargo_expiry = match expiry {
             None => EmbargoExpiry::Indefinite,
             Some(ts) => EmbargoExpiry::Until(ts),
@@ -3762,6 +3873,7 @@ impl LedgerLensScoreContract {
         let admin = storage::get_admin(&env);
         admin.require_auth();
         storage::remove_embargo(&env, &wallet);
+        storage::remove_from_embargoed_index(&env, &wallet);
         events::embargo_lifted(&env, &wallet);
         Ok(())
     }
@@ -3810,6 +3922,44 @@ impl LedgerLensScoreContract {
     /// is exceeded — no admin action required for expiry.
     pub fn is_embargoed(env: Env, wallet: Address) -> bool {
         storage::is_embargoed(&env, &wallet)
+    }
+
+    /// Lifts every wallet currently tracked in the `EmbargoedWalletIndex` in a
+    /// single transaction and clears the index, instead of requiring one
+    /// `lift_score_embargo` call per wallet. Useful when a regulatory hold is
+    /// lifted globally (e.g. after a court ruling) and hundreds of wallets
+    /// need to be released at once.
+    ///
+    /// The index tracks every wallet ever placed under embargo that has not
+    /// since been explicitly lifted — including a timed embargo whose expiry
+    /// has already passed — so this call also clears out any such
+    /// already-expired entries.
+    ///
+    /// Emits one `emb_lift` event per wallet that was lifted. No-op if the
+    /// index is empty. Admin only.
+    pub fn revoke_all_embargoes(env: Env, admin_signers: Vec<Address>) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+
+        let wallets = storage::get_embargoed_wallets(&env);
+        for i in 0..wallets.len() {
+            let wallet = wallets.get(i).unwrap();
+            storage::remove_embargo(&env, &wallet);
+            events::embargo_lifted(&env, &wallet);
+        }
+        storage::clear_embargoed_index(&env);
+        Ok(())
+    }
+
+    /// Returns the number of wallets currently tracked in the
+    /// `EmbargoedWalletIndex`, i.e. the number of wallets a subsequent
+    /// [`revoke_all_embargoes`](Self::revoke_all_embargoes) call would lift.
+    /// Includes wallets whose timed embargo has already expired but were
+    /// never explicitly lifted (see [`revoke_all_embargoes`](Self::revoke_all_embargoes)).
+    pub fn get_embargoed_wallet_count(env: Env) -> u32 {
+        storage::get_embargoed_wallets(&env).len()
     }
 
     // ── Score dispute mechanism ───────────────────────────────────────────────

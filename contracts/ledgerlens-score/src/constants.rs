@@ -90,6 +90,10 @@ pub const BAND_STATE_TTL_THRESHOLD: u32 = 518_400;
 pub const BAND_STATE_TTL_EXTEND_TO: u32 = 777_600;
 pub const EMBARGO_TTL_THRESHOLD: u32 = 1_555_200;
 pub const EMBARGO_TTL_EXTEND_TO: u32 = 3_110_400;
+
+/// Hard ceiling on the `EmbargoedWalletIndex` so `revoke_all_embargoes` stays
+/// within a single transaction's resource budget.
+pub const MAX_EMBARGOED_WALLETS: u32 = 100;
 pub const DEFAULT_CONSENSUS_THRESHOLD_K: u32 = 2;
 pub const DEFAULT_CONSENSUS_EPSILON: u32 = 5;
 

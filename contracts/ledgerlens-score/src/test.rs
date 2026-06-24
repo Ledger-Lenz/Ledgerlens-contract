@@ -1617,6 +1617,73 @@ fn test_get_pair_weight_defaults_to_one() {
     assert_eq!(client.get_pair_weight(&pair), 1);
 }
 
+#[test]
+fn test_set_pair_weight_batch() {
+    let (env, client, _admin, _service) = initialized();
+    let pair_a = symbol_short!("XLM_USDC");
+    let pair_b = symbol_short!("XLM_BTC");
+
+    let mut entries: Vec<(Symbol, u32)> = Vec::new(&env);
+    entries.push_back((pair_a.clone(), 2));
+    entries.push_back((pair_b.clone(), 5));
+
+    client.set_pair_weight_batch(&Vec::new(&env), &entries);
+
+    assert_eq!(client.get_pair_weight(&pair_a), 2);
+    assert_eq!(client.get_pair_weight(&pair_b), 5);
+}
+
+#[test]
+fn test_set_pair_weight_batch_partial_overlap_updates_only_changed_pairs() {
+    let (env, client, _admin, _service) = initialized();
+    let pair_a = symbol_short!("XLM_USDC");
+    let pair_b = symbol_short!("XLM_BTC");
+    let pair_c = symbol_short!("XLM_ETH");
+
+    client.set_pair_weight(&Vec::new(&env), &pair_a, &1);
+    client.set_pair_weight(&Vec::new(&env), &pair_b, &1);
+
+    // Second batch only touches pair_b and introduces pair_c; pair_a must
+    // remain at its previously configured weight.
+    let mut entries: Vec<(Symbol, u32)> = Vec::new(&env);
+    entries.push_back((pair_b.clone(), 9));
+    entries.push_back((pair_c.clone(), 4));
+
+    client.set_pair_weight_batch(&Vec::new(&env), &entries);
+
+    assert_eq!(client.get_pair_weight(&pair_a), 1);
+    assert_eq!(client.get_pair_weight(&pair_b), 9);
+    assert_eq!(client.get_pair_weight(&pair_c), 4);
+}
+
+#[test]
+fn test_set_pair_weight_batch_empty_returns_error() {
+    let (env, client, _admin, _service) = initialized();
+
+    let empty: Vec<(Symbol, u32)> = Vec::new(&env);
+    let result = client.try_set_pair_weight_batch(&Vec::new(&env), &empty);
+    assert_eq!(result, Err(Ok(Error::EmptyBatch)));
+}
+
+#[test]
+fn test_set_pair_weight_batch_too_large_returns_error() {
+    let (env, client, _admin, _service) = initialized();
+
+    let pair_names = [
+        "P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "PA", "PB", "PC", "PD", "PE",
+        "PF", "PG", "PH", "PI", "PJ", "PK",
+    ];
+    assert_eq!(pair_names.len(), 21); // one over the MAX_BATCH_SIZE (20) cap.
+
+    let mut entries: Vec<(Symbol, u32)> = Vec::new(&env);
+    for name in pair_names.iter() {
+        entries.push_back((Symbol::new(&env, name), 1));
+    }
+
+    let result = client.try_set_pair_weight_batch(&Vec::new(&env), &entries);
+    assert_eq!(result, Err(Ok(Error::BatchTooLarge)));
+}
+
 // ── M-of-N multi-signature service authorization ──────────────────────────────
 
 /// Helper: add N signers and set threshold M on an already-initialized client.

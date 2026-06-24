@@ -60,6 +60,16 @@ pub fn threshold_breached(
         .publish((symbol_short!("breach"), wallet.clone()), (asset_pair.clone(), score, threshold));
 }
 
+/// Emitted by `reset_breach_counter` once the consecutive-breach counter for
+/// `(wallet, asset_pair)` has been zeroed by an admin. `by` records the admin
+/// address that authorized the reset, giving operators an on-chain audit
+/// trail for investigations that conclude before a clean score submission
+/// would otherwise reset the counter naturally.
+pub fn breach_counter_reset(env: &Env, wallet: &Address, asset_pair: &Symbol, by: &Address) {
+    env.events()
+        .publish((symbol_short!("brc_rst"), wallet.clone(), asset_pair.clone()), by.clone());
+}
+
 pub fn signer_added(env: &Env, signer: &Address) {
     env.events().publish((symbol_short!("sig_add"),), signer.clone());
 }

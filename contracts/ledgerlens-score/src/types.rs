@@ -321,6 +321,11 @@ pub enum DataKey {
     WithdrawalLock,
     PairPaused(Symbol),
     PausedPairIndex,
+    /// Ordered set of wallets currently under an active score embargo,
+    /// maintained by `set_score_embargo` / `lift_score_embargo` so
+    /// `revoke_all_embargoes` can enumerate and clear them without scanning
+    /// the whole wallet space. Capped at `MAX_EMBARGOED_WALLETS`.
+    EmbargoedWalletIndex,
     AdminSet,
     AdminThreshold,
     ScoreDelegate(Address),
