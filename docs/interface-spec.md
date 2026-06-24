@@ -122,6 +122,8 @@ capabilities (all `symbol_short!`):
 | `gate`          | `query_risk_gate`                                                    |
 | `aggr`          | `get_aggregate_score` (cross-asset aggregate risk)                   |
 | `batch_attested`| `submit_scores_batch_attested` (Merkle-root attestation)             |
+| `emb`           | `set_score_embargo` / `lift_score_embargo`                          |
+| `cons`          | `commit_consensus` / `reveal_consensus` / `set_consensus_config`     |
 
 Unrecognised capabilities return `false`.
 

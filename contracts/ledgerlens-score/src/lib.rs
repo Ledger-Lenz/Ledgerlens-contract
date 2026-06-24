@@ -2547,6 +2547,8 @@ impl LedgerLensScoreContract {
     /// | `count`          | `get_score_count`                                  |
     /// | `batch_attested` | `submit_scores_batch_attested` (Merkle-root sig)    |
     /// | `cgate`          | `query_risk_gate_with_confidence` / global confidence floor |
+    /// | `emb`            | `set_score_embargo` / `lift_score_embargo`         |
+    /// | `cons`           | `commit_consensus` / `reveal_consensus` / `set_consensus_config` |
     ///
     /// Any unrecognised `capability` returns `false`.
     ///
@@ -2569,6 +2571,8 @@ impl LedgerLensScoreContract {
             || capability == symbol_short!("cgate")
             || capability == Symbol::new(&env, "histogram")
             || capability == Symbol::new(&env, "rgate")
+            || capability == symbol_short!("emb")
+            || capability == symbol_short!("cons")
     }
 
     // ── Service management ───────────────────────────────────────────────────

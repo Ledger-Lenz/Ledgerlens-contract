@@ -193,6 +193,18 @@ fn test_supports_interface_unknown() {
     assert!(!client.supports_interface(&symbol_short!("foobar")));
 }
 
+#[test]
+fn test_supports_interface_emb() {
+    let (_env, client, _admin, _service) = setup();
+    assert!(client.supports_interface(&symbol_short!("emb")));
+}
+
+#[test]
+fn test_supports_interface_cons() {
+    let (_env, client, _admin, _service) = setup();
+    assert!(client.supports_interface(&symbol_short!("cons")));
+}
+
 // ── RiskScore XDR layout stability ────────────────────────────────────────────
 
 #[test]
