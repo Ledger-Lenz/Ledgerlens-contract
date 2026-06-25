@@ -35,6 +35,9 @@ jobs:
   test:
     name: Unit tests
     runs-on: ubuntu-latest
+    env:
+      # Extend proptest runs in CI for property-based test coverage
+      PROPTEST_CASES: "10000"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -69,6 +72,27 @@ jobs:
         run: cargo install cargo-audit --locked
       - name: Run security audit
         run: cargo audit
+
+  mutation-test:
+    name: Mutation Testing
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants --locked
+      - name: Run mutation tests
+        working-directory: contracts/ledgerlens-score
+        run: cargo mutants --jobs 4 -p ledgerlens-score 2>&1 | tee mutants.out
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: contracts/ledgerlens-score/mutants.out
+          retention-days: 7
 
   tlc-verify:
     name: TLA+ Model Check
