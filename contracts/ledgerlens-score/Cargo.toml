@@ -19,6 +19,7 @@ soroban-sdk = { version = "21.0.0", features = ["testutils"] }
 # Used only by tests, to produce real secp256k1 ECDSA signatures that
 # exercise `verify_attestation` end-to-end (see `test_attestation.rs`).
 k256 = { version = "0.13.4", features = ["ecdsa"] }
+proptest = { version = "1", default-features = false, features = ["std"] }
 
 [features]
 testutils = ["soroban-sdk/testutils"]

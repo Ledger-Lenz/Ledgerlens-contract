@@ -29,6 +29,31 @@ cargo build --target wasm32-unknown-unknown --release
 - Keep error codes in `errors.rs` stable; append new variants rather than reordering or removing existing ones, since their numeric values are part of the deployed contract's ABI.
 - Update `README.md` if you change contract function signatures, events, or the deployment flow in `deploy.sh`.
 
+## Testing
+
+### Running Tests
+
+Unit and property-based tests can be run with:
+```bash
+cargo test -p ledgerlens-score
+```
+
+### Property-Based Tests with proptest
+
+The contract includes property-based tests for score velocity cap invariants. These are found in `src/test_velocity_cap_prop.rs`.
+
+Run the property-based tests alone:
+```bash
+cargo test -p ledgerlens-score test_velocity_cap_prop
+```
+
+By default, proptest runs 256 test cases per property. To run extended testing locally:
+```bash
+PROPTEST_CASES=10000 cargo test -p ledgerlens-score test_velocity_cap_prop
+```
+
+In CI, `PROPTEST_CASES` is set to `10000` for comprehensive coverage. Each proptest iteration creates a fresh Soroban `Env` to ensure no state bleed between test cases.
+
 ## Submitting a Pull Request
 
 - Describe what changed and why.

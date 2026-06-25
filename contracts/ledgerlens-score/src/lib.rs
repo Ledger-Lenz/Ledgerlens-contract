@@ -45,6 +45,9 @@ mod test_attestation;
 mod test_velocity_cap;
 
 #[cfg(test)]
+mod test_velocity_cap_prop;
+
+#[cfg(test)]
 mod test_score_floor;
 
 #[cfg(test)]

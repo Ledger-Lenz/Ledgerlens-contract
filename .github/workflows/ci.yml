@@ -35,6 +35,9 @@ jobs:
   test:
     name: Unit tests
     runs-on: ubuntu-latest
+    env:
+      # Extend proptest runs in CI for property-based test coverage
+      PROPTEST_CASES: "10000"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
