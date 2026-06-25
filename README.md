@@ -19,7 +19,21 @@ LedgerLens detects wash trading and artificial volume on the Stellar Decentralis
 - **Confidence Scoring**: Each risk score carries a model confidence value (0-100)
 - **Open and Auditable**: Methodology, scores, and contract logic are fully transparent
 
+## Getting Started
+
+Ready to deploy and use LedgerLens? Start with the [developer quickstart tutorial](docs/quickstart.md) for step-by-step testnet instructions, from building the WASM binary to submitting your first risk score.
+
 ## Architecture
+
+For a comprehensive deep dive into the system design, data flows, and trust model, see the [complete architecture guide](docs/architecture.md). It covers:
+- Off-chain pipeline (Benford's Law + ML ensemble)
+- Cryptographic attestation flow
+- On-chain write and read paths
+- Aggregator shard architecture
+- Upgrade governance
+- Trust assumptions and security boundaries
+
+
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
