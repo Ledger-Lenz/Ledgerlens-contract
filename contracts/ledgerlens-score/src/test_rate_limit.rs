@@ -312,7 +312,7 @@ fn test_admin_override_clears_cooldown() {
         &None,
     );
 
-    client.override_rate_limit(&Vec::new(&env), &wallet, &pair);
+    client.override_rate_limit(&Vec::new(&env), &wallet, &pair, &soroban_sdk::Bytes::from_slice(&env, b"admin"));
     assert_eq!(client.get_last_submit_time(&wallet, &pair), 0);
 
     // Still at START_TS, but immediately accepted since the cooldown was cleared.
@@ -340,7 +340,7 @@ fn test_override_rate_limit_before_init_fails() {
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
-    let result = client.try_override_rate_limit(&Vec::new(&env), &wallet, &pair);
+    let result = client.try_override_rate_limit(&Vec::new(&env), &wallet, &pair, &soroban_sdk::Bytes::from_slice(&env, b"admin"));
     assert_eq!(result, Err(Ok(Error::NotInitialized)));
 }
 

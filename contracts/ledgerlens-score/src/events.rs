@@ -94,6 +94,26 @@ pub fn upgrade_vetoed(env: &Env, by: &Address) {
     env.events().publish((symbol_short!("upg_veto"),), by.clone());
 }
 
+pub fn parameter_change_proposed(
+    env: &Env,
+    proposal_id: u64,
+    param_key: &Symbol,
+    executable_after: u64,
+) {
+    env.events().publish(
+        (symbol_short!("prm_prop"),),
+        (proposal_id, param_key.clone(), executable_after),
+    );
+}
+
+pub fn parameter_change_executed(env: &Env, proposal_id: u64, param_key: &Symbol) {
+    env.events().publish((symbol_short!("prm_exec"),), (proposal_id, param_key.clone()));
+}
+
+pub fn parameter_change_vetoed(env: &Env, proposal_id: u64, by: &Address) {
+    env.events().publish((symbol_short!("prm_veto"),), (proposal_id, by.clone()));
+}
+
 pub fn score_history_cleared(env: &Env, wallet: &Address, asset_pair: &Symbol) {
     env.events().publish((symbol_short!("clr_hist"), wallet.clone()), asset_pair.clone());
 }
@@ -134,6 +154,13 @@ pub fn service_pubkey_updated(env: &Env, pubkey: &Bytes) {
 /// secp256k1 public key via `set_aggregate_service_pubkey`.
 pub fn aggregate_service_pubkey_updated(env: &Env, pubkey: &Bytes) {
     env.events().publish((symbol_short!("agg_pk"),), pubkey.clone());
+}
+
+/// Emitted when `rotate_service_pubkey` is called. `new_key` is the incoming
+/// pubkey; `overlap_expiry` is the ledger timestamp after which the old key
+/// stops being accepted. When `overlap_expiry == 0` the rotation was instant.
+pub fn service_pubkey_rotation_started(env: &Env, new_key: &Bytes, overlap_expiry: u64) {
+    env.events().publish((symbol_short!("pk_rot"),), (new_key.clone(), overlap_expiry));
 }
 
 // ── Merkle-root batch attestation ───────────────────────────────────────────
@@ -517,35 +544,26 @@ pub fn entry_ttls_extended(env: &Env, renewed: u32, requested: u32) {
     env.events().publish((symbol_short!("ttl_ext"),), (renewed, requested));
 }
 
-// ── Epoch sealing (#301) ──────────────────────────────────────────────────────
+// ── #297: IQR outlier rejection ───────────────────────────────────────────────
 
-/// Emitted when the admin opens a new epoch via `open_epoch`.
-pub fn epoch_opened(env: &Env, epoch_id: u32) {
-    env.events().publish((symbol_short!("epoch_opn"),), epoch_id);
+pub fn consensus_signer_rejected(env: &Env, signer: &Address, deviation: u32) {
+    env.events().publish((symbol_short!("iqr_rej"), signer.clone()), deviation);
 }
 
-/// Emitted when the admin closes the current epoch via `close_epoch`.
-pub fn epoch_closed(env: &Env, epoch_id: u32) {
-    env.events().publish((symbol_short!("epoch_cls"),), epoch_id);
+// ── #298: Upgrade approval events ────────────────────────────────────────────
+
+pub fn upgrade_approval_added(env: &Env, signer: &Address, count: u32, required: u32) {
+    env.events().publish((symbol_short!("upg_appr"), signer.clone()), (count, required));
 }
 
-// ── Flash-loan protection (#300) ─────────────────────────────────────────────
+// ── #299: Governance chain events ─────────────────────────────────────────────
 
-/// Emitted when a submission arrives in the same ledger as a gate read for
-/// the same (wallet, asset_pair) — indicative of a flash-loan pattern.
-pub fn suspicious_same_ledger_submission(
-    env: &Env,
-    wallet: &Address,
-    asset_pair: &Symbol,
-    ledger_seq: u32,
-) {
-    env.events().publish(
-        (Symbol::new(env, "flash_sub"), wallet.clone(), asset_pair.clone()),
-        ledger_seq,
-    );
+pub fn governance_action_appended(env: &Env, new_head: &soroban_sdk::BytesN<32>) {
+    env.events().publish((symbol_short!("gov_app"),), new_head.clone());
 }
 
-/// Emitted when the admin changes the flash-protection mode.
-pub fn flash_protection_mode_updated(env: &Env, mode: u32) {
-    env.events().publish((Symbol::new(env, "flash_mode"),), mode);
+// ── #302: Gate enforcement mode ───────────────────────────────────────────────
+
+pub fn gate_enforcement_mode_set(env: &Env, strict: bool) {
+    env.events().publish((symbol_short!("gate_enf"),), strict);
 }
