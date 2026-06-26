@@ -1656,3 +1656,31 @@ pub fn set_signer_rotation_grace(env: &Env, grace_secs: u64) {
 pub fn set_reveal_window_secs(env: &Env, secs: u64) {
     env.storage().instance().set(&DataKey::RevealWindowSecs, &secs);
 }
+
+// ── Wallet risk cluster ───────────────────────────────────────────────────────
+
+pub fn set_cluster_boundaries(env: &Env, boundaries: &Vec<u32>) {
+    env.storage().instance().set(&DataKey::ClusterBoundaries, boundaries);
+}
+
+pub fn get_cluster_boundaries(env: &Env) -> Vec<u32> {
+    env.storage()
+        .instance()
+        .get(&DataKey::ClusterBoundaries)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn set_wallet_cluster(env: &Env, wallet: &Address, cluster: u32) {
+    let key = DataKey::WalletCluster(wallet.clone());
+    env.storage().persistent().set(&key, &cluster);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+pub fn get_wallet_cluster(env: &Env, wallet: &Address) -> Option<u32> {
+    let key = DataKey::WalletCluster(wallet.clone());
+    let v: Option<u32> = env.storage().persistent().get(&key);
+    if v.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    v
+}

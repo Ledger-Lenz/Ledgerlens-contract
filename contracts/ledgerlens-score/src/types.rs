@@ -435,6 +435,11 @@ pub enum DataKey {
     ScoreEntryIndex,
     ScoreEntryLastTouchedLedger(Address, Symbol),
     ModelVersionIndex,
+    /// Sorted bucket boundaries for cluster assignment.
+    /// Stored as Vec<u32> of ascending thresholds.
+    ClusterBoundaries,
+    /// Current cluster index for a wallet (0-based).
+    WalletCluster(Address),
 }
 
 impl DataKey {
@@ -546,6 +551,8 @@ impl DataKey {
             DataKey::JumpStats(w, s) => k2!("JumpStats", w, s),
             DataKey::FeeRecipient => k0!("FeeRecipient"),
             DataKey::EmbargoedWalletIndex => k0!("EmbargoedWIndex"),
+            DataKey::ClusterBoundaries => k0!("ClusterBounds"),
+            DataKey::WalletCluster(a) => k1!("WalletCluster", a),
         }
     }
 }

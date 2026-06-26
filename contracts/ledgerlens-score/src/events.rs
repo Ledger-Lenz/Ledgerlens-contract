@@ -516,3 +516,11 @@ pub fn model_version_registered(env: &Env, version: u32) {
 pub fn entry_ttls_extended(env: &Env, renewed: u32, requested: u32) {
     env.events().publish((symbol_short!("ttl_ext"),), (renewed, requested));
 }
+
+pub fn cluster_boundaries_updated(env: &Env) {
+    env.events().publish((symbol_short!("cl_bnd"),), ());
+}
+
+pub fn wallet_cluster_assigned(env: &Env, wallet: &Address, cluster: u32) {
+    env.events().publish((symbol_short!("cl_asgn"), wallet.clone()), cluster);
+}

@@ -83,6 +83,9 @@ mod test_breach_counter_reset;
 #[cfg(test)]
 mod test_query_helpers;
 
+#[cfg(test)]
+mod test_cluster_boundaries;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN, Env, Symbol,
     SymbolStr, TryFromVal, Vec,
@@ -2289,6 +2292,75 @@ impl LedgerLensScoreContract {
     /// ```
     pub fn get_global_min_confidence(env: Env) -> u32 {
         storage::get_global_min_confidence(&env)
+    }
+
+    // ── Wallet risk cluster assignment (#288) ────────────────────────────────
+
+    /// Admin setter. Stores `boundaries` as the ordered bucket thresholds used
+    /// to assign wallets to clusters.  The list must be non-empty and every
+    /// element must be in [1, 100] and strictly ascending.  Cluster `i` covers
+    /// scores in [boundaries[i-1]+1 .. boundaries[i]] (cluster 0 covers [0..boundaries[0]]).
+    /// The last cluster catches everything above the highest boundary.
+    pub fn set_cluster_boundaries(
+        env: Env,
+        admin_signers: Vec<Address>,
+        boundaries: Vec<u32>,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if boundaries.is_empty() {
+            return Err(Error::InvalidThreshold);
+        }
+        let mut prev: u32 = 0;
+        for i in 0..boundaries.len() {
+            let b = boundaries.get(i).unwrap();
+            if b == 0 || b > 100 || b <= prev {
+                return Err(Error::InvalidThreshold);
+            }
+            prev = b;
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_cluster_boundaries(&env, &boundaries);
+        events::cluster_boundaries_updated(&env);
+        Ok(())
+    }
+
+    /// Returns the currently configured cluster boundaries.
+    pub fn get_cluster_boundaries(env: Env) -> Vec<u32> {
+        storage::get_cluster_boundaries(&env)
+    }
+
+    /// Returns the cluster index for `wallet`, or `None` if no aggregate score
+    /// exists or no boundaries have been configured.
+    pub fn get_wallet_cluster(env: Env, wallet: Address) -> Option<u32> {
+        storage::get_wallet_cluster(&env, &wallet)
+    }
+
+    /// Compute and persist the cluster index for `wallet` based on the wallet's
+    /// aggregate score.  Called internally after each score write.  No-op if no
+    /// boundaries are configured.
+    fn assign_wallet_cluster(env: &Env, wallet: &Address) {
+        let boundaries = storage::get_cluster_boundaries(env);
+        if boundaries.is_empty() {
+            return;
+        }
+        let agg_score = match Self::compute_aggregate_score(env, wallet) {
+            Ok(a) => a.aggregate_score,
+            Err(_) => return,
+        };
+        let mut cluster: u32 = boundaries.len(); // default: last bucket (above all thresholds)
+        for i in 0..boundaries.len() {
+            if agg_score <= boundaries.get(i).unwrap() {
+                cluster = i;
+                break;
+            }
+        }
+        let old = storage::get_wallet_cluster(env, wallet);
+        if old != Some(cluster) {
+            storage::set_wallet_cluster(env, wallet, cluster);
+            events::wallet_cluster_assigned(env, wallet, cluster);
+        }
     }
 
     // ── Composability interface (stable ABI) ─────────────────────────────────
@@ -5741,6 +5813,7 @@ impl LedgerLensScoreContract {
         storage::update_historical_max_score(env, wallet, asset_pair, risk_score.score);
         storage::update_histogram_on_write(env, previous_score, risk_score.score);
         Self::refresh_aggregate_cache(env, wallet);
+        Self::assign_wallet_cluster(env, wallet);
         // Update the incremental Verkle commitment over the full contract state.
         Self::update_verkle_commitment(env, wallet, asset_pair, risk_score);
 
