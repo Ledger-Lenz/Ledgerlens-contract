@@ -164,3 +164,11 @@ pub const DEFAULT_QUORUM_FAILURE_WINDOW_SECS: u64 = 86_400; // 24 hours
 pub const MAX_TRACKED_SCORE_ENTRIES: u32 = 500;
 pub const MAX_EXPIRING_ENTRIES_PER_CALL: u32 = 100;
 
+
+// ── Escrow hold window ────────────────────────────────────────────────────────
+//
+// When configured, submitted scores are held in escrow and auto-committed
+// after the window elapses. Admin can cancel during the window.
+
+/// Maximum escrow hold window: 7 days.
+pub const MAX_ESCROW_HOLD_WINDOW_SECS: u64 = 604_800;

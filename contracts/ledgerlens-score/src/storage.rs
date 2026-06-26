@@ -1656,3 +1656,45 @@ pub fn set_signer_rotation_grace(env: &Env, grace_secs: u64) {
 pub fn set_reveal_window_secs(env: &Env, secs: u64) {
     env.storage().instance().set(&DataKey::RevealWindowSecs, &secs);
 }
+
+// ── Escrow hold window ────────────────────────────────────────────────────────
+
+pub fn get_escrow_hold_window(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&crate::types::DataKey::EscrowHoldWindow)
+        .unwrap_or(0u64)
+}
+
+pub fn set_escrow_hold_window(env: &Env, secs: u64) {
+    env.storage().instance().set(&crate::types::DataKey::EscrowHoldWindow, &secs);
+}
+
+pub fn get_escrow_score(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) -> Option<PendingScoreEntry> {
+    let key = crate::types::DataKey::EscrowScore(wallet.clone(), asset_pair.clone());
+    let entry: Option<PendingScoreEntry> = env.storage().persistent().get(&key);
+    if entry.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    entry
+}
+
+pub fn set_escrow_score(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    entry: &PendingScoreEntry,
+) {
+    let key = crate::types::DataKey::EscrowScore(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, entry);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+pub fn clear_escrow_score(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    let key = crate::types::DataKey::EscrowScore(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().remove(&key);
+}

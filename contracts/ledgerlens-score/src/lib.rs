@@ -15,6 +15,9 @@ mod verkle;
 mod test;
 
 #[cfg(test)]
+mod test_escrow;
+
+#[cfg(test)]
 mod test_upgrade;
 
 #[cfg(test)]
@@ -324,7 +327,38 @@ impl LedgerLensScoreContract {
             RiskScore { score, benford_flag, ml_flag, timestamp, confidence, model_version };
 
         let buffer = storage::get_finality_buffer_secs(&env);
-        if buffer == 0 {
+        let escrow_window = storage::get_escrow_hold_window(&env);
+
+        if escrow_window > 0 {
+            // ── Escrow path ──────────────────────────────────────────────────
+            let last_submit = storage::get_last_submit_time(&env, &wallet, &asset_pair);
+            let cooldown = storage::get_pair_cooldown_secs(&env, &asset_pair);
+            let now2 = env.ledger().timestamp();
+            if last_submit != 0 && now2 < last_submit.saturating_add(cooldown) {
+                return Err(Error::RateLimitExceeded);
+            }
+            storage::set_last_submit_time(&env, &wallet, &asset_pair, now2);
+            Self::record_service_activity(&env);
+
+            let commit_after = now2.saturating_add(escrow_window);
+            let pending = PendingScoreEntry {
+                score,
+                benford_flag,
+                ml_flag,
+                timestamp,
+                confidence,
+                model_version,
+                submitted_at: now2,
+                commit_after,
+                submitted_by: if !storage::get_service_set(&env).is_empty() {
+                    signers.get(0).unwrap_or_else(|| storage::get_service(&env))
+                } else {
+                    storage::get_service(&env)
+                },
+            };
+            storage::set_escrow_score(&env, &wallet, &asset_pair, &pending);
+            events::score_pending(&env, &wallet, &asset_pair, commit_after);
+        } else if buffer == 0 {
             // Disabled — commit straight to live storage.
             Self::write_score_with_rate_limit(&env, &wallet, &asset_pair, &risk_score)?;
             Self::record_service_activity(&env);
@@ -498,6 +532,104 @@ impl LedgerLensScoreContract {
         events::score_pending_cancelled(&env, &wallet, &asset_pair, &admin);
         Ok(())
     }
+
+    // ── Escrow hold window ────────────────────────────────────────────────────
+
+    /// Admin-only. Sets the escrow hold window in seconds. `0` disables escrow.
+    /// Max: MAX_ESCROW_HOLD_WINDOW_SECS (7 days).
+    pub fn set_escrow_hold_window(
+        env: Env,
+        admin_signers: Vec<Address>,
+        secs: u64,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if secs > constants::MAX_ESCROW_HOLD_WINDOW_SECS {
+            return Err(Error::InvalidFinalityBuffer);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_escrow_hold_window(&env, secs);
+        Ok(())
+    }
+
+    /// Returns the current escrow hold window in seconds. `0` means disabled.
+    pub fn get_escrow_hold_window(env: Env) -> u64 {
+        storage::get_escrow_hold_window(&env)
+    }
+
+    /// Read-only lookup of the pending escrow entry for `(wallet, asset_pair)`.
+    pub fn get_escrow_score(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Option<PendingScoreEntry> {
+        storage::get_escrow_score(&env, &wallet, &asset_pair)
+    }
+
+    /// Commits a pending escrow score to live storage once the hold window has elapsed.
+    /// Callable by anyone.
+    pub fn auto_commit_score(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        let pending = storage::get_escrow_score(&env, &wallet, &asset_pair)
+            .ok_or(Error::NoPendingScore)?;
+
+        let now = env.ledger().timestamp();
+        if now < pending.commit_after {
+            return Err(Error::FinalityWindowNotElapsed);
+        }
+
+        let previous_score = storage::peek_score(&env, &wallet, &asset_pair).map(|s| s.score);
+
+        let risk_score = RiskScore {
+            score: pending.score,
+            benford_flag: pending.benford_flag,
+            ml_flag: pending.ml_flag,
+            timestamp: pending.timestamp,
+            confidence: pending.confidence,
+            model_version: pending.model_version,
+        };
+
+        storage::set_score(&env, &wallet, &asset_pair, &risk_score);
+        storage::push_score_history(&env, &wallet, &asset_pair, &risk_score);
+        storage::register_pair_for_wallet(&env, &wallet, &asset_pair);
+        storage::increment_score_count(&env, &wallet, &asset_pair);
+        Self::refresh_aggregate_cache(&env, &wallet);
+
+        let score_threshold = storage::get_risk_threshold(&env);
+        if pending.score >= score_threshold {
+            events::threshold_breached(&env, &wallet, &asset_pair, pending.score, score_threshold);
+        }
+
+        Self::emit_score_delta(&env, &wallet, &asset_pair, previous_score, pending.score);
+        storage::clear_escrow_score(&env, &wallet, &asset_pair);
+        events::score_committed(&env, &wallet, &asset_pair);
+        Ok(())
+    }
+
+    /// Admin-only. Cancels a pending escrow score before it is committed.
+    pub fn cancel_escrow_score(
+        env: Env,
+        admin_signers: Vec<Address>,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        if storage::get_escrow_score(&env, &wallet, &asset_pair).is_none() {
+            return Err(Error::NoPendingScore);
+        }
+        storage::clear_escrow_score(&env, &wallet, &asset_pair);
+        let admin = storage::get_admin(&env);
+        events::score_pending_cancelled(&env, &wallet, &asset_pair, &admin);
+        Ok(())
+    }
+
 
     /// Register a consensus-backed score for `wallet` / `asset_pair` from
     /// multiple independently attested model outputs.

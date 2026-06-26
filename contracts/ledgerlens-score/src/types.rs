@@ -435,6 +435,10 @@ pub enum DataKey {
     ScoreEntryIndex,
     ScoreEntryLastTouchedLedger(Address, Symbol),
     ModelVersionIndex,
+    /// Escrow hold window in seconds (0 = disabled).
+    EscrowHoldWindow,
+    /// Pending escrow score entry for (wallet, asset_pair).
+    EscrowScore(Address, Symbol),
 }
 
 impl DataKey {
@@ -546,6 +550,8 @@ impl DataKey {
             DataKey::JumpStats(w, s) => k2!("JumpStats", w, s),
             DataKey::FeeRecipient => k0!("FeeRecipient"),
             DataKey::EmbargoedWalletIndex => k0!("EmbargoedWIndex"),
+            DataKey::EscrowHoldWindow => k0!("EscrowHoldWin"),
+            DataKey::EscrowScore(a, s) => k2!("EscrowScore", a, s),
         }
     }
 }
