@@ -86,8 +86,15 @@ impl Error {
     pub const NotFound: Error = Error::ScoreNotFound;
     pub const FeeRecipientNotSet: Error = Error::FeeTokenNotSet;
     pub const FeeRecipientMismatch: Error = Error::Unauthorized;
-    /// #298: upgrade proposal lacks sufficient admin co-signatures.
-    pub const InsufficientUpgradeApprovals: Error = Error::InsufficientAdminSigners;
-    /// #302: caller not in the GateCallers allowlist in strict mode.
-    pub const CallerNotAuthorized: Error = Error::Unauthorized;
+
+    pub const ParameterProposalNotFound: Error = Error::ScoreNotFound;
+    pub const ParameterProposalNotReady: Error = Error::UpgradeNotReady;
+    pub const ParameterProposalVetoPeriodEnded: Error = Error::QuorumFailureWindowNotElapsed;
+    pub const ParameterProposalExpired: Error = Error::RevealWindowExpired;
+    pub const TooManyPendingParameterProposals: Error = Error::ServiceSetFull;
+    pub const ParameterProposalAlreadyExecuted: Error = Error::AlreadyInitialized;
+    pub const ParameterProposalVetoed: Error = Error::DisputeAlreadyOpen;
+    pub const InvalidParameterKey: Error = Error::InvalidThreshold;
+    pub const InvalidParameterValue: Error = Error::InvalidScore;
+    pub const InvalidParameterTimeLock: Error = Error::InvalidUpgradeDelay;
 }

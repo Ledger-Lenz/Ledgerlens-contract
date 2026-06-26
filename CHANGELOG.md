@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Parameter Change Governance**: Added `propose_parameter_change`, `execute_parameter_change`, and `veto_parameter_change` for time-locked admin parameter changes with service-signer veto during the first half of the delay window. Supports cooldown, history depth, decay rate, velocity cap, and upgrade delay parameters. See [`docs/governance.md`](docs/governance.md).
+- **Mock AMM liquidity gate**: `contracts/mock-amm` adds `provide_liquidity_gated`, `set_risk_oracle`, and confidence-aware gate configuration. See [`examples/amm_gate_example.rs`](examples/amm_gate_example.rs).
+- **Batch submit benchmarks**: Criterion suite in `contracts/ledgerlens-score/benches/batch_submit.rs` measuring throughput and Soroban budget cost at batch sizes 1, 10, 50, and 100. Results uploaded as CI artifacts on merge to `main`.
+
+### Changed
+- **Lazy score TTL extension**: `set_score` now skips `extend_ttl` when the entry's estimated remaining TTL is still at or above `SCORE_TTL_THRESHOLD`, reducing ledger instruction cost for batch resubmissions to pre-warmed entries.
+
+---
+
 ## [3.0.0] - 2026-06-22
 
 This version corresponds to on-chain `CONTRACT_VERSION = 3`. It merges all the advanced features introduced in recent pull requests (hysteresis, score embargo, score floor, batch attestation, and consensus scoring).
