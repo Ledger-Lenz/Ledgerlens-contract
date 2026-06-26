@@ -83,6 +83,9 @@ mod test_breach_counter_reset;
 #[cfg(test)]
 mod test_query_helpers;
 
+#[cfg(test)]
+mod test_adaptive_rate_limit;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN, Env, Symbol,
     SymbolStr, TryFromVal, Vec,
@@ -91,11 +94,11 @@ use soroban_sdk::{
 pub use errors::Error;
 pub use events::{ServiceResumedEvent, ServiceSilenceAlertEvent};
 pub use types::{
-    AggregateRiskScore, BatchAttestation, BatchEntryResult, BatchResult, BatchScoreResult,
-    EffectiveRiskScore, EmbargoExpiry, MaybeRiskScore, ModelSubmission, ModelVersionStats,
-    PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput, ScoreDispute, ScoreFloorPolicy,
-    ScoreHistogram, ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof, ScoreTrend,
-    ScoreVelocityCap, ThresholdAttestation, UpgradeProposal,
+    AdaptiveRateLimit, AggregateRiskScore, BatchAttestation, BatchEntryResult, BatchResult,
+    BatchScoreResult, EffectiveRiskScore, EmbargoExpiry, MaybeRiskScore, ModelSubmission,
+    ModelVersionStats, PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput,
+    ScoreDispute, ScoreFloorPolicy, ScoreHistogram, ScoreQuery, ScoreSubmission,
+    ScoreSubmissionWithProof, ScoreTrend, ScoreVelocityCap, ThresholdAttestation, UpgradeProposal,
 };
 /// The 32-byte all-zeros field element used as the value in non-membership proofs.
 pub use verkle::NON_MEMBER_SENTINEL;
@@ -332,7 +335,8 @@ impl LedgerLensScoreContract {
             // Buffer active — validate but hold in pending storage.
             // Rate limit still applies so we can't be flooded with pending entries.
             let last_submit = storage::get_last_submit_time(&env, &wallet, &asset_pair);
-            let cooldown = storage::get_pair_cooldown_secs(&env, &asset_pair);
+            let base_cooldown = storage::get_pair_cooldown_secs(&env, &asset_pair);
+            let cooldown = Self::compute_effective_cooldown(&env, &asset_pair, base_cooldown);
             let now2 = env.ledger().timestamp();
             if last_submit != 0 && now2 < last_submit.saturating_add(cooldown) {
                 return Err(Error::RateLimitExceeded);
@@ -814,7 +818,8 @@ impl LedgerLensScoreContract {
                 rejection_code = Error::ModelVersionDeprecated as u32;
             } else {
                 let last_submit = storage::get_last_submit_time(&env, &sub.wallet, &sub.asset_pair);
-                let cooldown = storage::get_pair_cooldown_secs(&env, &sub.asset_pair);
+                let base_cooldown = storage::get_pair_cooldown_secs(&env, &sub.asset_pair);
+                let cooldown = Self::compute_effective_cooldown(&env, &sub.asset_pair, base_cooldown);
                 if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
                     rejection_code = Error::RateLimitExceeded as u32;
                 } else if Self::score_floor_blocks(&env, &sub.wallet, &sub.asset_pair, sub.score) {
@@ -1164,7 +1169,8 @@ impl LedgerLensScoreContract {
                 rejection_code = Error::InvalidTimestamp as u32;
             } else {
                 let last_submit = storage::get_last_submit_time(&env, &sub.wallet, &sub.asset_pair);
-                let cooldown = storage::get_pair_cooldown_secs(&env, &sub.asset_pair);
+                let base_cooldown = storage::get_pair_cooldown_secs(&env, &sub.asset_pair);
+                let cooldown = Self::compute_effective_cooldown(&env, &sub.asset_pair, base_cooldown);
                 if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
                     rejection_code = Error::RateLimitExceeded as u32;
                 } else {
@@ -4448,7 +4454,101 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    /// Emergency re-score path: immediately clears the submission cooldown
+    // ── Adaptive rate limit ───────────────────────────────────────────────────
+
+    /// Configures the adaptive rate-limit mode. When `enabled` and
+    /// `variance_scale > 0`, the effective cooldown is scaled by the current
+    /// global score variance:
+    ///
+    /// ```text
+    /// effective_cooldown = base_cooldown * (1 + variance_scale * normalized_variance / 1000)
+    /// ```
+    ///
+    /// where `normalized_variance` ∈ [0, 1000] is the population variance of
+    /// the global score histogram normalised against the theoretical maximum
+    /// of 2500 (all scores at the extremes). Admin only.
+    pub fn set_adaptive_rate_limit(
+        env: Env,
+        admin_signers: Vec<Address>,
+        enabled: bool,
+        variance_scale: u32,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        let config = AdaptiveRateLimit { enabled, variance_scale };
+        storage::set_adaptive_rate_limit(&env, &config);
+        events::adaptive_rate_limit_updated(&env, enabled, variance_scale);
+        Ok(())
+    }
+
+    /// Returns the current adaptive rate-limit configuration.
+    pub fn get_adaptive_rate_limit(env: Env) -> AdaptiveRateLimit {
+        storage::get_adaptive_rate_limit(&env)
+    }
+
+    /// Returns the effective cooldown for `(wallet, asset_pair)` at the
+    /// current moment.  When the adaptive rate-limit is disabled (or
+    /// `variance_scale == 0`) this equals `get_pair_cooldown(asset_pair)`.
+    /// When enabled, it is scaled by the current global score variance.
+    pub fn get_effective_cooldown(env: Env, wallet: Address, asset_pair: Symbol) -> u64 {
+        let _ = wallet; // wallet / pair reserved for future per-wallet variance
+        let _ = asset_pair;
+        let base = storage::get_pair_cooldown_secs(&env, &asset_pair);
+        Self::compute_effective_cooldown(&env, &asset_pair, base)
+    }
+
+    /// Internal helper: compute the effective cooldown given the base value.
+    fn compute_effective_cooldown(env: &Env, asset_pair: &Symbol, base: u64) -> u64 {
+        let config = storage::get_adaptive_rate_limit(env);
+        if !config.enabled || config.variance_scale == 0 {
+            return base;
+        }
+        let norm_var = Self::compute_global_variance(env); // 0..=1000
+        // effective = base * (1000 + variance_scale * norm_var) / 1000
+        // Using u128 to avoid overflow when base and scale are both large.
+        let numerator = 1000u128
+            .saturating_add((config.variance_scale as u128).saturating_mul(norm_var as u128));
+        let effective = (base as u128).saturating_mul(numerator) / 1000;
+        effective.min(u64::MAX as u128) as u64
+    }
+
+    /// Computes the global score variance from the histogram, normalised to
+    /// [0, 1000] (0 = all scores identical, 1000 ≈ maximum spread).
+    ///
+    /// Uses 10-bucket histogram with midpoints 5, 15, …, 95.
+    /// Max theoretical variance ≈ 2500 (bimodal distribution at extremes).
+    fn compute_global_variance(env: &Env) -> u32 {
+        let hist = storage::get_score_histogram(env);
+        let total = hist.total;
+        if total == 0 {
+            return 0;
+        }
+        // Bucket midpoints: bucket i covers scores [10*i, 10*i+9], midpoint = 10*i+5
+        let mut weighted_sum: u64 = 0;
+        let mut weighted_sum_sq: u64 = 0;
+        for i in 0..hist.buckets.len() {
+            let midpoint = (i * 10 + 5) as u64;
+            let count = hist.buckets.get(i).unwrap_or(0);
+            weighted_sum = weighted_sum.saturating_add(midpoint.saturating_mul(count));
+            weighted_sum_sq =
+                weighted_sum_sq.saturating_add(midpoint.saturating_mul(midpoint).saturating_mul(count));
+        }
+        // mean = weighted_sum / total
+        // variance = (weighted_sum_sq / total) - mean^2
+        // Use u128 for intermediate calculations to avoid overflow.
+        let total128 = total as u128;
+        let mean_scaled = weighted_sum as u128 * 1000 / total128; // mean * 1000
+        let mean_sq_scaled = mean_scaled * mean_scaled / 1000; // mean^2 * 1000
+        let esq_scaled = weighted_sum_sq as u128 * 1000 / total128; // E[X^2] * 1000
+        let variance_scaled = esq_scaled.saturating_sub(mean_sq_scaled); // var * 1000
+
+        // Normalise: max theoretical variance is 2500, so max variance_scaled = 2_500_000.
+        // normalised = variance_scaled * 1000 / 2_500_000 = variance_scaled / 2500
+        let normalised = (variance_scaled / 2500).min(1000) as u32;
+        normalised
+    }
     /// for `(wallet, asset_pair)`, allowing the very next `submit_score` /
     /// `submit_scores_batch` call to be accepted regardless of how recently
     /// the last one was. This is **not** a routine operation — it exists for
@@ -5702,7 +5802,8 @@ impl LedgerLensScoreContract {
         Self::validate_risk_score(env, risk_score)?;
 
         let last_submit = storage::get_last_submit_time(env, wallet, asset_pair);
-        let cooldown = storage::get_pair_cooldown_secs(env, asset_pair);
+        let base_cooldown = storage::get_pair_cooldown_secs(env, asset_pair);
+        let cooldown = Self::compute_effective_cooldown(env, asset_pair, base_cooldown);
         let now = env.ledger().timestamp();
         if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
             return Err(Error::RateLimitExceeded);

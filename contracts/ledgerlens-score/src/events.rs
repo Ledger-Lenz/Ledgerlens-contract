@@ -516,3 +516,9 @@ pub fn model_version_registered(env: &Env, version: u32) {
 pub fn entry_ttls_extended(env: &Env, renewed: u32, requested: u32) {
     env.events().publish((symbol_short!("ttl_ext"),), (renewed, requested));
 }
+
+/// Emitted when the admin updates the adaptive rate-limit config via
+/// `set_adaptive_rate_limit`.
+pub fn adaptive_rate_limit_updated(env: &Env, enabled: bool, variance_scale: u32) {
+    env.events().publish((symbol_short!("arl_upd"),), (enabled, variance_scale));
+}

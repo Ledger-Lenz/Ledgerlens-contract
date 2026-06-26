@@ -6,9 +6,9 @@ use crate::constants::{
 };
 use crate::errors::Error;
 use crate::types::{
-    AggregateRiskScore, DataKey, EmbargoExpiry, GateDataKey, JumpStats, ModelVersionStats,
-    PendingScoreEntry, RiskScore, ScoreDispute, ScoreFloorPolicy, ScoreHistogram, ScoreTrend,
-    ScoreVelocityCap, UpgradeProposal,
+    AdaptiveRateLimit, AggregateRiskScore, DataKey, EmbargoExpiry, GateDataKey, JumpStats,
+    ModelVersionStats, PendingScoreEntry, RiskScore, ScoreDispute, ScoreFloorPolicy,
+    ScoreHistogram, ScoreTrend, ScoreVelocityCap, UpgradeProposal,
 };
 use soroban_sdk::{Address, Bytes, Env, Symbol, Vec};
 
@@ -680,6 +680,19 @@ pub fn set_pair_cooldown_secs(env: &Env, asset_pair: &Symbol, secs: u64) {
 
 pub fn clear_pair_cooldown_secs(env: &Env, asset_pair: &Symbol) {
     env.storage().instance().remove(&DataKey::PairCooldown(asset_pair.clone()));
+}
+
+// ── Adaptive rate limit ───────────────────────────────────────────────────────
+
+pub fn get_adaptive_rate_limit(env: &Env) -> AdaptiveRateLimit {
+    env.storage()
+        .instance()
+        .get(&DataKey::AdaptiveRateLimit)
+        .unwrap_or(AdaptiveRateLimit { enabled: false, variance_scale: 0 })
+}
+
+pub fn set_adaptive_rate_limit(env: &Env, config: &AdaptiveRateLimit) {
+    env.storage().instance().set(&DataKey::AdaptiveRateLimit, config);
 }
 
 // ── Score Velocity Cap ────────────────────────────────────────────────────────

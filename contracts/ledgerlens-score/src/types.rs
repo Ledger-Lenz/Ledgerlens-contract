@@ -435,6 +435,8 @@ pub enum DataKey {
     ScoreEntryIndex,
     ScoreEntryLastTouchedLedger(Address, Symbol),
     ModelVersionIndex,
+    /// Adaptive rate-limit config: `(enabled, variance_scale)`.
+    AdaptiveRateLimit,
 }
 
 impl DataKey {
@@ -546,6 +548,7 @@ impl DataKey {
             DataKey::JumpStats(w, s) => k2!("JumpStats", w, s),
             DataKey::FeeRecipient => k0!("FeeRecipient"),
             DataKey::EmbargoedWalletIndex => k0!("EmbargoedWIndex"),
+            DataKey::AdaptiveRateLimit => k0!("AdaptiveRL"),
         }
     }
 }
@@ -593,4 +596,30 @@ pub struct VerkleLeaf {
     pub score: u32,
     pub timestamp: u64,
     pub model_version: u32,
+}
+
+/// Configuration for the adaptive rate-limit mode.
+///
+/// When `enabled`, the effective cooldown for any `(wallet, asset_pair)` is
+/// scaled by current global score variance:
+///
+/// ```text
+/// effective_cooldown = base_cooldown * (1 + variance_scale * normalized_variance / 1000)
+/// ```
+///
+/// `normalized_variance` is the population variance computed from the global
+/// score histogram, normalised to `[0, 1000]` (0 = all scores identical,
+/// 1000 = maximum possible variance ≈ 2500, i.e. scores concentrated at the
+/// extremes).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdaptiveRateLimit {
+    /// Kill-switch; `false` means no variance scaling is applied and
+    /// `get_effective_cooldown` returns the same value as `get_pair_cooldown`.
+    pub enabled: bool,
+    /// Multiplier that controls how aggressively variance tightens the
+    /// cooldown.  A value of `0` is equivalent to `enabled = false`.
+    /// Stored as a plain integer; the formula divides by 1000, so a value
+    /// of `1000` means the cooldown doubles when variance is at its maximum.
+    pub variance_scale: u32,
 }
