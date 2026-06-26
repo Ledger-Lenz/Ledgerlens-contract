@@ -164,3 +164,15 @@ pub const DEFAULT_QUORUM_FAILURE_WINDOW_SECS: u64 = 86_400; // 24 hours
 pub const MAX_TRACKED_SCORE_ENTRIES: u32 = 500;
 pub const MAX_EXPIRING_ENTRIES_PER_CALL: u32 = 100;
 
+// ── HyperLogLog sketch ────────────────────────────────────────────────────────
+//
+// Per-asset-pair HLL sketch tracks unique wallet count without storing the
+// full wallet list. Precision p ∈ [4, 16] yields 2^p registers; p=10 is the
+// default (~1% error, 1024 registers).
+
+/// Minimum allowed HLL precision (2^4 = 16 registers, ~26% error).
+pub const HLL_MIN_PRECISION: u32 = 4;
+/// Maximum allowed HLL precision (2^16 = 65536 registers, ~0.4% error).
+pub const HLL_MAX_PRECISION: u32 = 16;
+/// Default HLL precision (2^10 = 1024 registers, ~1.04% error).
+pub const HLL_DEFAULT_PRECISION: u32 = 10;

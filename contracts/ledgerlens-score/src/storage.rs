@@ -1656,3 +1656,129 @@ pub fn set_signer_rotation_grace(env: &Env, grace_secs: u64) {
 pub fn set_reveal_window_secs(env: &Env, secs: u64) {
     env.storage().instance().set(&DataKey::RevealWindowSecs, &secs);
 }
+
+// ── HyperLogLog sketch ────────────────────────────────────────────────────────
+
+/// Returns the HLL precision (p) stored globally, defaulting to
+/// `HLL_DEFAULT_PRECISION` when unset.
+pub fn get_hll_precision(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&crate::types::DataKey::HllPrecision)
+        .unwrap_or(crate::constants::HLL_DEFAULT_PRECISION)
+}
+
+pub fn set_hll_precision(env: &Env, precision: u32) {
+    env.storage().instance().set(&crate::types::DataKey::HllPrecision, &precision);
+}
+
+/// Retrieves the HLL sketch for `asset_pair`, or `None` if no wallet has ever
+/// been scored for that pair.
+pub fn get_hll_sketch(env: &Env, asset_pair: &Symbol) -> Option<crate::types::HllSketch> {
+    let key = crate::types::DataKey::HllSketch(asset_pair.clone());
+    let sketch: Option<crate::types::HllSketch> = env.storage().persistent().get(&key);
+    if sketch.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    sketch
+}
+
+pub fn set_hll_sketch(env: &Env, asset_pair: &Symbol, sketch: &crate::types::HllSketch) {
+    let key = crate::types::DataKey::HllSketch(asset_pair.clone());
+    env.storage().persistent().set(&key, sketch);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+/// Hashes `wallet` to a u64 using its internal Val payload bits mixed with FNV constants.
+fn hll_hash_wallet(env: &Env, wallet: &Address) -> u64 {
+    use soroban_sdk::IntoVal as _;
+    let raw: soroban_sdk::Val = wallet.into_val(env);
+    let v: u64 = raw.get_payload();
+    let h: u64 = v ^ 14695981039346656037u64;
+    let mut x = h.wrapping_mul(1099511628211u64);
+    x = x.wrapping_add(0x9e3779b97f4a7c15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d049bb133111eb);
+    x ^ (x >> 31)
+}
+
+/// Updates the HLL sketch for `asset_pair` with a new wallet observation.
+/// Only call when `wallet` is being seen for the first time for the pair.
+pub fn hll_update(env: &Env, asset_pair: &Symbol, wallet: &Address) {
+    let precision = get_hll_precision(env);
+    let num_registers: u32 = 1u32 << precision;
+
+    let mut sketch = get_hll_sketch(env, asset_pair).unwrap_or_else(|| {
+        let mut regs = soroban_sdk::Vec::new(env);
+        for _ in 0..num_registers {
+            regs.push_back(0u32);
+        }
+        crate::types::HllSketch { precision, registers: regs }
+    });
+
+    let hash = hll_hash_wallet(env, wallet);
+    let reg_idx = (hash >> (64 - precision)) as u32 % num_registers;
+    let remaining = hash << precision;
+    let leading_zeros = if remaining == 0 { 64 - precision } else { remaining.leading_zeros() };
+    let rho = (leading_zeros + 1) as u32;
+
+    let current = sketch.registers.get(reg_idx).unwrap_or(0);
+    if rho > current {
+        sketch.registers.set(reg_idx, rho);
+    }
+
+    set_hll_sketch(env, asset_pair, &sketch);
+}
+
+/// Estimates the number of unique wallets for `asset_pair` using HyperLogLog.
+/// Returns `0` if no sketch exists.
+pub fn hll_estimate(env: &Env, asset_pair: &Symbol) -> u64 {
+    let sketch = match get_hll_sketch(env, asset_pair) {
+        Some(s) => s,
+        None => return 0,
+    };
+
+    let m = sketch.registers.len() as u64;
+    let alpha_m: u64 = match m {
+        16 => 7_032,
+        32 => 6_971,
+        64 => 7_092,
+        _ => {
+            let denom = 10_000_u64 + 10_790_u64 / m.max(1);
+            7_213_u64 * 10_000_u64 / denom.max(1)
+        }
+    };
+
+    let mut sum_inv: u64 = 0u64;
+    for i in 0..sketch.registers.len() {
+        let reg = sketch.registers.get(i).unwrap_or(0);
+        let val: u64 = if reg >= 32 { 0 } else { (1u64 << 32) >> reg };
+        sum_inv = sum_inv.saturating_add(val);
+    }
+
+    if sum_inv == 0 {
+        return 0;
+    }
+
+    let precision = sketch.precision;
+    let m_sq = m.saturating_mul(m);
+    let numerator = alpha_m.saturating_mul(m_sq).saturating_mul(1u64 << 32);
+    let raw = numerator / 10_000 / sum_inv.max(1);
+
+    let threshold = m.saturating_mul(25) / 10;
+    if raw <= threshold {
+        let zeros: u64 =
+            (0..sketch.registers.len()).filter(|&i| sketch.registers.get(i).unwrap_or(0) == 0).count() as u64;
+        if zeros > 0 {
+            let ratio = m * 1000 / zeros.max(1);
+            let log2_ratio = if ratio <= 1 { 0u64 } else { 63 - ratio.leading_zeros() as u64 };
+            let log2_1000: u64 = 9;
+            let log2_approx = log2_ratio.saturating_sub(log2_1000);
+            let ln_approx = log2_approx * 10_000 / 14_427;
+            return m * ln_approx / 1000;
+        }
+    }
+
+    let _ = precision;
+    raw
+}
