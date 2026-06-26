@@ -2653,6 +2653,7 @@ impl LedgerLensScoreContract {
     /// | `cgate`          | `query_risk_gate_with_confidence` / global confidence floor |
     /// | `emb`            | `set_score_embargo` / `lift_score_embargo`         |
     /// | `cons`           | `commit_consensus` / `reveal_consensus` / `set_consensus_config` |
+    /// | `pr_rd`          | `is_pair_paused` (per-asset-pair pause read)        |
     ///
     /// Any unrecognised `capability` returns `false`.
     ///
@@ -2677,6 +2678,7 @@ impl LedgerLensScoreContract {
             || capability == Symbol::new(&env, "rgate")
             || capability == symbol_short!("emb")
             || capability == symbol_short!("cons")
+            || capability == symbol_short!("pr_rd")
     }
 
     // ── Service management ───────────────────────────────────────────────────
