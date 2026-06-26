@@ -181,7 +181,7 @@ fn test_supports_interface_score() {
 #[test]
 fn test_supports_interface_all_registered() {
     let (env, client, _admin, _service) = setup();
-    for cap in ["score", "history", "batch", "gate", "aggr"] {
+    for cap in ["score", "history", "batch", "gate", "aggr", "pr_rd"] {
         let sym = Symbol::new(&env, cap);
         assert!(client.supports_interface(&sym), "capability `{cap}` should be supported");
     }
@@ -203,6 +203,12 @@ fn test_supports_interface_emb() {
 fn test_supports_interface_cons() {
     let (_env, client, _admin, _service) = setup();
     assert!(client.supports_interface(&symbol_short!("cons")));
+}
+
+#[test]
+fn test_supports_interface_pr_rd() {
+    let (_env, client, _admin, _service) = setup();
+    assert!(client.supports_interface(&symbol_short!("pr_rd")));
 }
 
 // ── RiskScore XDR layout stability ────────────────────────────────────────────

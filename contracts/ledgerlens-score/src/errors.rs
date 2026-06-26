@@ -86,4 +86,15 @@ impl Error {
     pub const NotFound: Error = Error::ScoreNotFound;
     pub const FeeRecipientNotSet: Error = Error::FeeTokenNotSet;
     pub const FeeRecipientMismatch: Error = Error::Unauthorized;
+
+    pub const ParameterProposalNotFound: Error = Error::ScoreNotFound;
+    pub const ParameterProposalNotReady: Error = Error::UpgradeNotReady;
+    pub const ParameterProposalVetoPeriodEnded: Error = Error::QuorumFailureWindowNotElapsed;
+    pub const ParameterProposalExpired: Error = Error::RevealWindowExpired;
+    pub const TooManyPendingParameterProposals: Error = Error::ServiceSetFull;
+    pub const ParameterProposalAlreadyExecuted: Error = Error::AlreadyInitialized;
+    pub const ParameterProposalVetoed: Error = Error::DisputeAlreadyOpen;
+    pub const InvalidParameterKey: Error = Error::InvalidThreshold;
+    pub const InvalidParameterValue: Error = Error::InvalidScore;
+    pub const InvalidParameterTimeLock: Error = Error::InvalidUpgradeDelay;
 }

@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, Env, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, Symbol, Vec};
 
 /// Embargo expiry configuration stored per wallet in temporary storage.
 #[contracttype]
@@ -39,6 +39,9 @@ pub struct RiskScore {
     pub timestamp: u64,
     pub confidence: u32,
     pub model_version: u32,
+    pub benford_score: u32,
+    pub ml_score: u32,
+    pub network_score: u32,
 }
 
 /// Query descriptor for a batch score read.
@@ -117,11 +120,14 @@ pub struct AggregateRiskScore {
 }
 
 /// A cryptographic attestation over a score payload.
+/// Includes per-signer nonce for replay attack prevention.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScoreAttestation {
     pub commitment: BytesN<32>,
     pub signature: BytesN<65>,
+    pub contract_id: BytesN<32>,
+    pub contract_version: u32,
 }
 
 /// Threshold-signature attestation: t-of-n signers produce one 65-byte proof.
@@ -132,6 +138,8 @@ pub struct ThresholdAttestation {
     pub commitment: BytesN<32>,
     pub threshold_sig: BytesN<65>,
     pub participating_signers: soroban_sdk::Vec<Address>,
+    pub contract_id: BytesN<32>,
+    pub contract_version: u32,
 }
 
 /// Unified attestation input for `submit_score`.
@@ -238,6 +246,36 @@ pub struct UpgradeProposal {
     pub proposed_by: Address,
 }
 
+/// A pending, time-locked admin parameter change.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParameterProposal {
+    pub param_key: Symbol,
+    pub new_value: Bytes,
+    pub proposer: Address,
+    pub proposed_at: u64,
+    pub time_lock_secs: u64,
+}
+
+/// Lifecycle status of a parameter change proposal.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum ParameterProposalStatus {
+    Pending = 0,
+    Executed = 1,
+    Vetoed = 2,
+    Expired = 3,
+}
+
+/// Stored record combining a proposal with its current status.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParameterProposalRecord {
+    pub proposal: ParameterProposal,
+    pub status: ParameterProposalStatus,
+}
+
 /// Per-(wallet, asset_pair) trend state persisted between submissions.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -301,6 +339,9 @@ pub enum DataKey {
     /// Per-signer score range restriction. Maps a service signer address to
     /// its allowed `TierBounds`.
     SignerTier(Address),
+    /// Per-signer nonce for multi-sig attestation replay attack prevention.
+    /// Maps signer address to the next nonce that will be accepted.
+    SignerNonce(Address),
 
     /// Latest risk score for a (wallet, asset_pair) pair.
     Score(Address, Symbol),
@@ -349,6 +390,12 @@ pub enum DataKey {
     /// `revoke_all_embargoes` can enumerate and clear them without scanning
     /// the whole wallet space. Capped at `MAX_EMBARGOED_WALLETS`.
     EmbargoedWalletIndex,
+    /// Global persistent counter of wallets currently under an active score
+    /// embargo. Incremented by `set_score_embargo` (new embargoes only) and
+    /// decremented by `lift_score_embargo`, `batch_lift_score_embargo`, and
+    /// `revoke_all_embargoes`. Stored in persistent storage so it survives
+    /// temporary-storage TTL eviction.
+    ActiveEmbargoCount,
     AdminSet,
     AdminThreshold,
     ScoreDelegate(Address),
@@ -375,9 +422,21 @@ pub enum DataKey {
     ScoreEmbargo(Address),
     ConsensusThresholdK,
     ConsensusEpsilon,
+    /// Adaptive epsilon enabled flag (issue #204).
+    AdaptiveEpsilonEnabled,
+    /// Minimum epsilon bound for adaptive mode (issue #204).
+    AdaptiveEpsilonMin,
+    /// Maximum epsilon bound for adaptive mode (issue #204).
+    AdaptiveEpsilonMax,
     /// Open dispute record for a (wallet, asset_pair) pair. Absent key means
     /// no active dispute. Stored in temporary TTL-bounded storage.
     ScoreDispute(Address, Symbol),
+    /// Commit-reveal hash for dispute bond: H(bond || salt). Scoped to (challenger, wallet, asset_pair).
+    /// Key: DisputeCommit(challenger, wallet, asset_pair) -> BytesN<32> (sha256 hash)
+    DisputeCommit(Address, Address, Symbol),
+    /// Timestamp when dispute bond commitment was made.
+    /// Key: DisputeCommitTime(challenger, wallet, asset_pair) -> u64 (ledger timestamp)
+    DisputeCommitTime(Address, Address, Symbol),
     /// Index of all currently open disputes: `Vec<(Address, Symbol)>`.
     /// Incrementally maintained so `get_open_disputes` is a single read.
     DisputeIndex,
@@ -442,6 +501,12 @@ pub enum DataKey {
     ScoreEntryIndex,
     ScoreEntryLastTouchedLedger(Address, Symbol),
     ModelVersionIndex,
+    /// Running total of score submissions for an asset pair (all wallets combined).
+    /// Incremented on every successful submission for `asset_pair`.
+    PairScoreCount(Symbol),
+    /// Running total of unique (wallet, asset_pair) combinations ever scored.
+    /// Incremented on the *first* successful submission for each new combination.
+    TotalWalletsScored,
 }
 
 impl DataKey {
@@ -473,6 +538,7 @@ impl DataKey {
             DataKey::Admin => k0!("Admin"),
             DataKey::Service => k0!("Service"),
             DataKey::SignerTier(a) => k1!("SignerTier", a),
+            DataKey::SignerNonce(a) => k1!("SignerNonce", a),
             DataKey::Score(a, s) => k2!("Score", a, s),
             DataKey::Paused => k0!("Paused"),
             DataKey::PendingAdmin => k0!("PendingAdmin"),
@@ -519,7 +585,12 @@ impl DataKey {
             DataKey::ScoreEmbargo(a) => k1!("ScoreEmbargo", a),
             DataKey::ConsensusThresholdK => k0!("ConsThresholdK"),
             DataKey::ConsensusEpsilon => k0!("ConsEpsilon"),
+            DataKey::AdaptiveEpsilonEnabled => k0!("AdaptEpsEn"),
+            DataKey::AdaptiveEpsilonMin => k0!("AdaptEpsMin"),
+            DataKey::AdaptiveEpsilonMax => k0!("AdaptEpsMax"),
             DataKey::ScoreDispute(a, s) => k2!("ScoreDispute", a, s),
+            DataKey::DisputeCommit(c, w, s) => k3!("DisputeCommit", c, w, s),
+            DataKey::DisputeCommitTime(c, w, s) => k3!("DisputeCommitTime", c, w, s),
             DataKey::DisputeIndex => k0!("DisputeIndex"),
             DataKey::ConsensusCommitment(m, w, s) => k3!("ConsCommit", m, w, s),
             DataKey::RevealWindowSecs => k0!("RevealWinSecs"),
@@ -554,6 +625,8 @@ impl DataKey {
             DataKey::JumpStats(w, s) => k2!("JumpStats", w, s),
             DataKey::FeeRecipient => k0!("FeeRecipient"),
             DataKey::EmbargoedWalletIndex => k0!("EmbargoedWIndex"),
+            DataKey::PairScoreCount(s) => k1!("PairScoreCnt", s),
+            DataKey::TotalWalletsScored => k0!("TotalWalletsScored"),
         }
     }
 }
@@ -601,4 +674,13 @@ pub struct VerkleLeaf {
     pub score: u32,
     pub timestamp: u64,
     pub model_version: u32,
+}
+
+/// Configurable score decay profile.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DecayProfile {
+    Linear { lambda_num: u32, lambda_den: u32 },
+    Exponential { half_life_secs: u64 },
+    Step { steps: Vec<(u64, u32)> },
 }
