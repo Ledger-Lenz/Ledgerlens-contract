@@ -280,6 +280,13 @@ fn test_get_scores_batch_delegated_wallet() {
 }
 
 #[test]
+fn test_get_min_score_returns_zero() {
+    let (_env, client, admin, service) = setup();
+    client.initialize(&admin, &service);
+    assert_eq!(client.get_min_score(), 0);
+}
+
+#[test]
 fn test_submit_score_invalid_score_range_rejected() {
     let (env, client, admin, service) = setup();
     client.initialize(&admin, &service);

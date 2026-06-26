@@ -4724,6 +4724,31 @@ impl LedgerLensScoreContract {
         storage::get_historical_max_score(&env, &wallet, &asset_pair)
     }
 
+    /// Returns the minimum allowable score value (`0`). All `submit_score`
+    /// calls must supply a score in `[get_min_score(), get_max_score()]`;
+    /// values below this floor are rejected with [`Error::InvalidScore`].
+    ///
+    /// Read-only — callable by any account or contract without authorization.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_min_score(), 0);
+    /// ```
+    pub fn get_min_score(_env: Env) -> u32 {
+        constants::MIN_SCORE
+    }
+
     /// Emergency one-shot override of the score floor for a single
     /// `(wallet, asset_pair)`. Admin only.
     ///

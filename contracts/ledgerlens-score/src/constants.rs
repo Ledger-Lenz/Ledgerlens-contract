@@ -4,6 +4,14 @@ pub const SCORE_TTL_EXTEND_TO: u32 = 777_600;
 /// Maximum number of allowed gate callers in the allowlist.
 pub const MAX_GATE_CALLERS: u32 = 20;
 
+/// Hard lower bound for all score values submitted to the contract.
+/// `submit_score` accepts scores in `[MIN_SCORE, MAX_SCORE]`; any value
+/// below this is rejected with [`Error::InvalidScore`].
+pub const MIN_SCORE: u32 = 0;
+
+/// Hard upper bound for all score values submitted to the contract.
+pub const MAX_SCORE: u32 = 100;
+
 /// Hard ceiling on the ring-buffer depth to bound storage costs.
 /// The admin cannot configure a depth above this value.
 pub const MAX_HISTORY_DEPTH: u32 = 50;
