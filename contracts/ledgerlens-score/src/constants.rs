@@ -73,6 +73,10 @@ pub const MAX_ESCALATION_THRESHOLD: u32 = 100;
 /// Prevents unbounded storage growth and gas exhaustion.
 pub const MAX_COUNTERPARTY_LINKS_PER_WALLET: u32 = 50;
 
+/// Maximum delegation chain depth to prevent unbounded traversal.
+/// Prevents DoS attacks via deep circular delegation chains.
+pub const MAX_DELEGATION_DEPTH: u32 = 5;
+
 // ── Score submission floor ─────────────────────────────────────────────────────
 //
 // A compromised or colluding signer could otherwise submit an artificially low
@@ -139,6 +143,9 @@ pub const DISPUTE_TTL_THRESHOLD: u32 = 518_400;
 
 /// Target TTL for dispute entries on creation or refresh (~45 days at 5 s/ledger).
 pub const DISPUTE_TTL_EXTEND_TO: u32 = 777_600;
+
+/// Default reveal window for sealed-bid dispute bond: 10 minutes (600 seconds).
+pub const DEFAULT_DISPUTE_REVEAL_WINDOW_SECS: u64 = 600;
 
 // ── Finality buffer (pending score commit window) ────────────────────────────
 

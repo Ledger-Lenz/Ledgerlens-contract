@@ -13,6 +13,7 @@ doctest = true
 
 [dependencies]
 soroban-sdk = "21.0.0"
+subtle = { version = "2.6", default-features = false }
 
 [dev-dependencies]
 soroban-sdk = { version = "21.0.0", features = ["testutils"] }

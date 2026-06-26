@@ -76,7 +76,15 @@
                             "symbol": "commitment"
                           },
                           "val": {
-                            "bytes": "df938bb3ab365144e099437d20b1770c4e775a1c5eb9d156d84a5925e6fbecd4"
+                            "bytes": "b37c8a0e2aca575ca04fadb5fd6ddacb5ebe945babf2239c046fc11680c07145"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "nonce"
+                          },
+                          "val": {
+                            "u64": 0
                           }
                         },
                         {
@@ -84,7 +92,7 @@
                             "symbol": "signature"
                           },
                           "val": {
-                            "bytes": "57c365bbd607db6d6e37dfe2ca9075380a8704bc642006450399aedf136381dd63109c355dea275c11a05045898c254d72578daac630f7eea003a631b2310ff600"
+                            "bytes": "be50042e9679ba546a1e85d56583bec571153a01993926d78651c7c6042a82d22cf09103de9f595c336ca4323ccf280392a65b38f889af799c24cb105d30f2dd00"
                           }
                         }
                       ]
@@ -1082,6 +1090,21 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "SignerNonce"
+                            },
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "VerkleCommit"
                             }
                           ]
@@ -1377,7 +1400,15 @@
                             "symbol": "commitment"
                           },
                           "val": {
-                            "bytes": "df938bb3ab365144e099437d20b1770c4e775a1c5eb9d156d84a5925e6fbecd4"
+                            "bytes": "b37c8a0e2aca575ca04fadb5fd6ddacb5ebe945babf2239c046fc11680c07145"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "nonce"
+                          },
+                          "val": {
+                            "u64": 0
                           }
                         },
                         {
@@ -1385,7 +1416,7 @@
                             "symbol": "signature"
                           },
                           "val": {
-                            "bytes": "57c365bbd607db6d6e37dfe2ca9075380a8704bc642006450399aedf136381dd63109c355dea275c11a05045898c254d72578daac630f7eea003a631b2310ff600"
+                            "bytes": "be50042e9679ba546a1e85d56583bec571153a01993926d78651c7c6042a82d22cf09103de9f595c336ca4323ccf280392a65b38f889af799c24cb105d30f2dd00"
                           }
                         }
                       ]

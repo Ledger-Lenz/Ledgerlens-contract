@@ -106,6 +106,7 @@ use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN, Env, Symbol,
     SymbolStr, TryFromVal, Vec,
 };
+use subtle::ConstantTimeEq;
 
 pub use errors::Error;
 pub use events::{ServiceResumedEvent, ServiceSilenceAlertEvent};
@@ -335,8 +336,21 @@ impl LedgerLensScoreContract {
                         timestamp,
                         confidence,
                         model_version,
-                        single_att,
+                        single_att.clone(),
                     )?;
+                    
+                    // For single attestation provided by caller, verify and increment per-service-account nonce.
+                    // Only check nonce if the attestation was explicitly provided (not auto-generated).
+                    if let Some(att) = single_att.as_ref() {
+                        let service = storage::get_service(&env);
+                        let current_nonce = storage::get_signer_nonce(&env, &service);
+                        if current_nonce != att.nonce {
+                            return Err(Error::InvalidAttestation);
+                        }
+                        let next_nonce = att.nonce.checked_add(1)
+                            .ok_or(Error::InvalidAttestation)?;
+                        storage::set_signer_nonce(&env, &service, next_nonce);
+                    }
                 }
             }
         }
@@ -2120,11 +2134,20 @@ impl LedgerLensScoreContract {
         if current == sub_wallet {
             return Err(Error::CyclicDelegation);
         }
-        while let Some(next_delegate) = storage::get_score_delegate(&env, &current) {
-            if next_delegate == sub_wallet {
-                return Err(Error::CyclicDelegation);
+        
+        // Check for transitive cycles up to MAX_DELEGATION_DEPTH
+        let mut depth = 0;
+        let max_depth = constants::MAX_DELEGATION_DEPTH;
+        while depth < max_depth {
+            if let Some(next_delegate) = storage::get_score_delegate(&env, &current) {
+                if next_delegate == sub_wallet {
+                    return Err(Error::CyclicDelegation);
+                }
+                current = next_delegate;
+                depth += 1;
+            } else {
+                break;
             }
-            current = next_delegate;
         }
 
         storage::set_score_delegate(&env, &sub_wallet, &custodian);
@@ -2153,6 +2176,42 @@ impl LedgerLensScoreContract {
     pub fn get_score_delegate(env: Env, sub_wallet: Address) -> Option<Address> {
         storage::get_score_delegate(&env, &sub_wallet)
     }
+
+    /// Returns the full delegation chain for a wallet, from the wallet through all custodians.
+    /// Returns a vector of addresses: [wallet, custodian1, custodian2, ...] up to MAX_DELEGATION_DEPTH.
+    /// Returns empty vector if wallet not found or chain cannot be resolved.
+    pub fn get_delegation_chain(env: Env, wallet: Address) -> Vec<Address> {
+        let mut chain: Vec<Address> = Vec::new(&env);
+        let mut current = wallet.clone();
+        let mut depth = 0;
+        let max_depth = constants::MAX_DELEGATION_DEPTH;
+        
+        chain.push_back(current.clone());
+        
+        while depth < max_depth {
+            if let Some(next) = storage::get_score_delegate(&env, &current) {
+                // Cycle detection: check if next is already in chain
+                let mut found_cycle = false;
+                for i in 0..chain.len() {
+                    if chain.get(i).unwrap() == next {
+                        found_cycle = true;
+                        break;
+                    }
+                }
+                if found_cycle {
+                    break; // Stop at cycle
+                }
+                chain.push_back(next.clone());
+                current = next;
+                depth += 1;
+            } else {
+                break; // No more delegates
+            }
+        }
+        
+        chain
+    }
+
 
     // ── Cross-asset aggregate risk ───────────────────────────────────────────
 
@@ -4379,11 +4438,43 @@ impl LedgerLensScoreContract {
     /// - [`Error::FeeTokenNotSet`] — `set_fee_token` has not been called.
     /// - [`Error::DisputeAlreadyOpen`] — a dispute already exists for the pair.
     /// - [`Error::DisputeAlreadyOpen`] — the open-dispute index is at capacity.
+    /// Commit-reveal for sealed-bid dispute bond: commit to (bond, salt) before revealing.
+    /// Stores H(bond || salt) under temporary storage scoped to (challenger, wallet, asset_pair).
+    /// Caller must reveal within the configured reveal window or commitment expires.
+    ///
+    /// # Arguments
+    /// - `challenger`: Account committing to a dispute bond
+    /// - `wallet`: Wallet whose score is being challenged
+    /// - `asset_pair`: Asset pair of the challenged score
+    /// - `bond_amount_salt`: Salt for commit-reveal (must be ≥16 bytes for security)
+    pub fn commit_dispute_bond(
+        env: Env,
+        challenger: Address,
+        wallet: Address,
+        asset_pair: Symbol,
+        bond_amount_salt: Bytes,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        
+        // Require caller to be the challenger
+        challenger.require_auth();
+        
+        // Compute H(bond_amount_salt) and store
+        let commitment = env.crypto().sha256(&bond_amount_salt);
+        storage::set_dispute_commit(&env, &challenger, &wallet, &asset_pair, &commitment);
+        
+        Ok(())
+    }
+
     pub fn open_score_dispute(
         env: Env,
+        challenger: Address,
         wallet: Address,
         asset_pair: Symbol,
         bond: i128,
+        bond_salt: Bytes,
     ) -> Result<(), Error> {
         Self::ensure_active(&env)?;
 
@@ -4393,7 +4484,30 @@ impl LedgerLensScoreContract {
         let fee_token = storage::get_fee_token(&env).ok_or(Error::FeeTokenNotSet)?;
 
         // The challenger stakes its own funds, so it must authorize.
-        wallet.require_auth();
+        challenger.require_auth();
+
+        // Sealed-bid: verify commitment was made and reveal window not expired
+        let commitment = storage::get_dispute_commit(&env, &challenger, &wallet, &asset_pair)
+            .ok_or(Error::RevealWindowExpired)?;
+        let commit_time = storage::get_dispute_commit_time(&env, &challenger, &wallet, &asset_pair);
+        let reveal_window = storage::get_reveal_window_secs(&env);
+        if env.ledger().timestamp() > commit_time.saturating_add(reveal_window) {
+            storage::remove_dispute_commit(&env, &challenger, &wallet, &asset_pair);
+            return Err(Error::RevealWindowExpired);
+        }
+
+        // Verify revealed bond+salt matches commitment
+        let salt_preimage = [bond.to_le_bytes().to_vec(), bond_salt.to_vec()];
+        let mut revealed = Bytes::new(&env);
+        revealed.extend_from_slice(&bond.to_le_bytes());
+        revealed.extend_from_slice(&bond_salt);
+        let revealed_hash = env.crypto().sha256(&revealed);
+        if revealed_hash.to_bytes() != commitment {
+            return Err(Error::CommitmentMismatch);
+        }
+
+        // Clear commitment after successful reveal
+        storage::remove_dispute_commit(&env, &challenger, &wallet, &asset_pair);
 
         if storage::get_dispute(&env, &wallet, &asset_pair).is_some() {
             return Err(Error::DisputeAlreadyOpen);
@@ -4404,13 +4518,13 @@ impl LedgerLensScoreContract {
 
         // Escrow the bond into the contract.
         let contract_address = env.current_contract_address();
-        token::TokenClient::new(&env, &fee_token).transfer(&wallet, &contract_address, &bond);
+        token::TokenClient::new(&env, &fee_token).transfer(&challenger, &contract_address, &bond);
 
         let challenged_score =
             storage::peek_score(&env, &wallet, &asset_pair).map(|s| s.score).unwrap_or(0);
         let deadline =
             env.ledger().timestamp().saturating_add(constants::DISPUTE_CHALLENGE_PERIOD_SECS);
-        let dispute = ScoreDispute { challenger: wallet.clone(), bond, deadline, challenged_score };
+        let dispute = ScoreDispute { challenger: challenger.clone(), bond, deadline, challenged_score };
         storage::set_dispute(&env, &wallet, &asset_pair, &dispute);
 
         events::dispute_opened(&env, &wallet, &asset_pair, bond, deadline);
@@ -5900,8 +6014,30 @@ impl LedgerLensScoreContract {
             return Ok(Some(score));
         }
 
-        if let Some(custodian) = storage::get_score_delegate(env, wallet) {
-            return Ok(storage::get_score(env, &custodian, asset_pair));
+        // Follow delegation chain up to MAX_DELEGATION_DEPTH with cycle detection
+        let mut current = wallet.clone();
+        let mut visited: Vec<Address> = Vec::new(env);
+        let max_depth = constants::MAX_DELEGATION_DEPTH;
+        let mut depth = 0;
+        
+        while depth < max_depth {
+            // Cycle detection
+            for i in 0..visited.len() {
+                if visited.get(i).unwrap() == current {
+                    return Err(Error::CyclicDelegation);
+                }
+            }
+            visited.push_back(current.clone());
+            
+            if let Some(custodian) = storage::get_score_delegate(env, &current) {
+                current = custodian;
+                if let Some(score) = storage::get_score(env, &current, asset_pair) {
+                    return Ok(Some(score));
+                }
+                depth += 1;
+            } else {
+                break;
+            }
         }
 
         Ok(None)
@@ -6621,6 +6757,7 @@ impl LedgerLensScoreContract {
         preimage.extend_from_array(&timestamp.to_le_bytes());
         preimage.extend_from_array(&confidence.to_le_bytes());
         preimage.extend_from_array(&model_version.to_le_bytes());
+        preimage.extend_from_array(&nonce.to_le_bytes());
         preimage.extend_from_array(&contract_buf);
         preimage.extend_from_array(&env.ledger().network_id().to_array());
         preimage.extend_from_array(&contract_id.to_array());
@@ -6765,7 +6902,15 @@ impl LedgerLensScoreContract {
             attestation.contract_version,
         )?;
 
-        if digest.to_bytes().to_array() != attestation.commitment.to_array() {
+        // Constant-time comparison to prevent timing side-channels
+        if digest.to_bytes().to_array().ct_eq(&attestation.commitment.to_array()).unwrap_u8() == 0 {
+            return Err(Error::InvalidAttestation);
+        }
+
+        // For single attestation, verify nonce per service account.
+        let service = storage::get_service(env);
+        let current_nonce = storage::get_signer_nonce(env, &service);
+        if current_nonce != attestation.nonce {
             return Err(Error::InvalidAttestation);
         }
 
@@ -6800,7 +6945,7 @@ impl LedgerLensScoreContract {
             65 => {
                 let mut stored = [0u8; 65];
                 pubkey.copy_into_slice(&mut stored);
-                recovered.to_array() == stored
+                recovered.to_array().ct_eq(&stored).unwrap_u8() != 0
             }
             33 => {
                 let recovered_arr = recovered.to_array();
@@ -6809,7 +6954,7 @@ impl LedgerLensScoreContract {
                 compressed[1..33].copy_from_slice(&recovered_arr[1..33]);
                 let mut stored = [0u8; 33];
                 pubkey.copy_into_slice(&mut stored);
-                compressed == stored
+                compressed.ct_eq(&stored).unwrap_u8() != 0
             }
             // `set_service_pubkey` rejects any other length, so this is
             // unreachable in practice; treat defensively as a mismatch.
@@ -6874,7 +7019,8 @@ impl LedgerLensScoreContract {
         )?;
 
         // Commitment must match what the contract independently derives.
-        if digest.to_bytes().to_array() != ta.commitment.to_array() {
+        // Use constant-time comparison to prevent timing side-channels.
+        if digest.to_bytes().to_array().ct_eq(&ta.commitment.to_array()).unwrap_u8() == 0 {
             return Err(Error::InvalidAttestation);
         }
 
@@ -6896,7 +7042,7 @@ impl LedgerLensScoreContract {
             65 => {
                 let mut stored = [0u8; 65];
                 pubkey.copy_into_slice(&mut stored);
-                recovered.to_array() == stored
+                recovered.to_array().ct_eq(&stored).unwrap_u8() != 0
             }
             33 => {
                 let recovered_arr = recovered.to_array();
@@ -6905,7 +7051,7 @@ impl LedgerLensScoreContract {
                 compressed[1..33].copy_from_slice(&recovered_arr[1..33]);
                 let mut stored = [0u8; 33];
                 pubkey.copy_into_slice(&mut stored);
-                compressed == stored
+                compressed.ct_eq(&stored).unwrap_u8() != 0
             }
             // `set_aggregate_service_pubkey` rejects any other length, so
             // this is unreachable in practice.
@@ -6915,6 +7061,27 @@ impl LedgerLensScoreContract {
         if !matches {
             return Err(Error::InvalidAttestation);
         }
+
+        // ── Nonce verification and increment ───────────────────────────────────
+        // Each participating signer must have the expected next nonce.
+        // After successful verification, increment each signer's nonce to prevent replay.
+        for i in 0..ta.participating_signers.len() {
+            let signer = ta.participating_signers.get(i).unwrap();
+            let current_nonce = storage::get_signer_nonce(env, &signer);
+            if current_nonce != ta.nonce {
+                return Err(Error::InvalidAttestation);
+            }
+        }
+
+        // All nonces matched; increment them for the next submission.
+        // Safe unwrap: nonce overflow returns error, doesn't panic.
+        for i in 0..ta.participating_signers.len() {
+            let signer = ta.participating_signers.get(i).unwrap();
+            let next_nonce = ta.nonce.checked_add(1)
+                .ok_or(Error::InvalidAttestation)?;
+            storage::set_signer_nonce(env, &signer, next_nonce);
+        }
+
         Ok(())
     }
 
@@ -6963,6 +7130,7 @@ impl LedgerLensScoreContract {
             submission.timestamp,
             submission.confidence,
             submission.model_version,
+            0, // Batch/merkle attestations use nonce 0 (not per-submission)
         )?
         .to_bytes()
         .to_array();

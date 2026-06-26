@@ -959,6 +959,16 @@ pub fn set_service_pubkey(env: &Env, pubkey: &Bytes) {
     env.storage().instance().set(&DataKey::ServicePubKey, pubkey);
 }
 
+// ── Signer nonce tracking ───────────────────────────────────────────────────
+
+pub fn get_signer_nonce(env: &Env, signer: &Address) -> u64 {
+    env.storage().instance().get(&DataKey::SignerNonce(signer.clone())).unwrap_or(0)
+}
+
+pub fn set_signer_nonce(env: &Env, signer: &Address, nonce: u64) {
+    env.storage().instance().set(&DataKey::SignerNonce(signer.clone()), &nonce);
+}
+
 pub fn set_gate_callers(env: &Env, callers: &Vec<Address>) {
     env.storage().instance().set(&GateDataKey::GateCallers, callers);
 }
@@ -1866,6 +1876,26 @@ pub fn get_signer_rotation_ttl(env: &Env) -> u64 {
 
 pub fn set_signer_rotation_grace(env: &Env, grace_secs: u64) {
     env.storage().instance().set(&DataKey::SignerGracePeriod, &grace_secs);
+}
+
+// ── Dispute commit-reveal helpers ────────────────────────────────────────────
+
+pub fn set_dispute_commit(env: &Env, challenger: &Address, wallet: &Address, pair: &Symbol, hash: &BytesN<32>) {
+    env.storage().temporary().set(&DataKey::DisputeCommit(challenger.clone(), wallet.clone(), pair.clone()), hash);
+    env.storage().temporary().set(&DataKey::DisputeCommitTime(challenger.clone(), wallet.clone(), pair.clone()), &env.ledger().timestamp());
+}
+
+pub fn get_dispute_commit(env: &Env, challenger: &Address, wallet: &Address, pair: &Symbol) -> Option<BytesN<32>> {
+    env.storage().temporary().get(&DataKey::DisputeCommit(challenger.clone(), wallet.clone(), pair.clone()))
+}
+
+pub fn get_dispute_commit_time(env: &Env, challenger: &Address, wallet: &Address, pair: &Symbol) -> u64 {
+    env.storage().temporary().get(&DataKey::DisputeCommitTime(challenger.clone(), wallet.clone(), pair.clone())).unwrap_or(0)
+}
+
+pub fn remove_dispute_commit(env: &Env, challenger: &Address, wallet: &Address, pair: &Symbol) {
+    env.storage().temporary().remove(&DataKey::DisputeCommit(challenger.clone(), wallet.clone(), pair.clone()));
+    env.storage().temporary().remove(&DataKey::DisputeCommitTime(challenger.clone(), wallet.clone(), pair.clone()));
 }
 
 pub fn set_reveal_window_secs(env: &Env, secs: u64) {
