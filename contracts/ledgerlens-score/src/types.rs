@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, Env, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, Symbol, Vec};
 
 /// Embargo expiry configuration stored per wallet in temporary storage.
 #[contracttype]
@@ -231,6 +231,36 @@ pub struct UpgradeProposal {
     pub proposed_by: Address,
 }
 
+/// A pending, time-locked admin parameter change.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParameterProposal {
+    pub param_key: Symbol,
+    pub new_value: Bytes,
+    pub proposer: Address,
+    pub proposed_at: u64,
+    pub time_lock_secs: u64,
+}
+
+/// Lifecycle status of a parameter change proposal.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum ParameterProposalStatus {
+    Pending = 0,
+    Executed = 1,
+    Vetoed = 2,
+    Expired = 3,
+}
+
+/// Stored record combining a proposal with its current status.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParameterProposalRecord {
+    pub proposal: ParameterProposal,
+    pub status: ParameterProposalStatus,
+}
+
 /// Per-(wallet, asset_pair) trend state persisted between submissions.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -435,6 +465,12 @@ pub enum DataKey {
     ScoreEntryIndex,
     ScoreEntryLastTouchedLedger(Address, Symbol),
     ModelVersionIndex,
+    /// Parameter change proposal keyed by monotonic proposal ID.
+    ParameterProposal(u64),
+    /// Next proposal ID to allocate (starts at 1).
+    ParameterProposalNextId,
+    /// Ordered list of proposal IDs that are still pending execution.
+    PendingParameterProposalIds,
 }
 
 impl DataKey {
@@ -546,6 +582,9 @@ impl DataKey {
             DataKey::JumpStats(w, s) => k2!("JumpStats", w, s),
             DataKey::FeeRecipient => k0!("FeeRecipient"),
             DataKey::EmbargoedWalletIndex => k0!("EmbargoedWIndex"),
+            DataKey::ParameterProposal(id) => k1!("ParamProp", id),
+            DataKey::ParameterProposalNextId => k0!("ParamPropNxt"),
+            DataKey::PendingParameterProposalIds => k0!("ParamPropIdx"),
         }
     }
 }

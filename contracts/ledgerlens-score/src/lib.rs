@@ -7,6 +7,7 @@ mod constants;
 mod errors;
 mod events;
 mod gdpr_accumulator;
+mod parameter_governance;
 mod storage;
 mod types;
 mod verkle;
@@ -16,6 +17,9 @@ mod test;
 
 #[cfg(test)]
 mod test_upgrade;
+
+#[cfg(test)]
+mod test_parameter_governance;
 
 #[cfg(test)]
 mod test_interface;
@@ -95,7 +99,8 @@ pub use types::{
     EffectiveRiskScore, EmbargoExpiry, MaybeRiskScore, ModelSubmission, ModelVersionStats,
     PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput, ScoreDispute, ScoreFloorPolicy,
     ScoreHistogram, ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof, ScoreTrend,
-    ScoreVelocityCap, ThresholdAttestation, UpgradeProposal,
+    ScoreVelocityCap, ThresholdAttestation, UpgradeProposal, ParameterProposal,
+    ParameterProposalRecord, ParameterProposalStatus,
 };
 /// The 32-byte all-zeros field element used as the value in non-membership proofs.
 pub use verkle::NON_MEMBER_SENTINEL;
@@ -3410,6 +3415,183 @@ impl LedgerLensScoreContract {
         storage::get_upgrade_delay(&env)
     }
 
+    // ── Parameter change governance ───────────────────────────────────────────
+
+    /// Propose an admin parameter change, starting the mandatory time-lock.
+    ///
+    /// The admin commits to `(param_key, new_value)` without applying it
+    /// immediately. The proposal is recorded with `time_lock_secs =
+    /// get_upgrade_delay()` (minimum [`constants::MIN_UPGRADE_DELAY_SECS`]) and
+    /// an `prm_prop` event is emitted so monitoring services can inspect and
+    /// react during the delay window.
+    ///
+    /// Service signers may veto via [`Self::veto_parameter_change`] during the
+    /// first half of the time-lock. After `proposed_at + time_lock_secs / 2`
+    /// the proposal is irrevocable until execution or expiry.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::TooManyPendingParameterProposals`] if 10 proposals are already pending.
+    /// - [`Error::InvalidParameterKey`] / [`Error::InvalidParameterValue`] if the
+    ///   value is unknown or out of bounds.
+    pub fn propose_parameter_change(
+        env: Env,
+        admin_signers: Vec<Address>,
+        param_key: Symbol,
+        new_value: Bytes,
+    ) -> Result<u64, Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        let admin = storage::get_admin(&env);
+
+        parameter_governance::validate_parameter_value(&env, &param_key, &new_value)?;
+
+        storage::prune_expired_parameter_proposals(&env);
+
+        if storage::count_pending_parameter_proposals(&env)
+            >= constants::MAX_PENDING_PARAMETER_PROPOSALS
+        {
+            return Err(Error::TooManyPendingParameterProposals);
+        }
+
+        let now = env.ledger().timestamp();
+        let time_lock_secs = storage::get_upgrade_delay(&env);
+        if time_lock_secs < constants::MIN_UPGRADE_DELAY_SECS {
+            return Err(Error::InvalidParameterTimeLock);
+        }
+
+        let proposal_id = storage::next_parameter_proposal_id(&env);
+        let proposal = ParameterProposal {
+            param_key: param_key.clone(),
+            new_value: new_value.clone(),
+            proposer: admin,
+            proposed_at: now,
+            time_lock_secs,
+        };
+        let record = ParameterProposalRecord {
+            proposal,
+            status: ParameterProposalStatus::Pending,
+        };
+        storage::set_parameter_proposal_record(&env, proposal_id, &record);
+        storage::push_pending_parameter_proposal(&env, proposal_id);
+
+        let executable_after = now.saturating_add(time_lock_secs);
+        events::parameter_change_proposed(&env, proposal_id, &param_key, executable_after);
+        Ok(proposal_id)
+    }
+
+    /// Execute a pending parameter change once its time-lock has elapsed.
+    ///
+    /// Re-verifies at execution time that the proposal is still pending, has not
+    /// expired (`proposed_at + time_lock_secs * 2`), and that
+    /// `now >= proposed_at + time_lock_secs`. Marks the proposal as executed so
+    /// it cannot be applied again.
+    ///
+    /// Admin only.
+    pub fn execute_parameter_change(
+        env: Env,
+        admin_signers: Vec<Address>,
+        proposal_id: u64,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+
+        let record = storage::get_parameter_proposal_record(&env, proposal_id)
+            .ok_or(Error::ParameterProposalNotFound)?;
+
+        if record.status == ParameterProposalStatus::Executed {
+            return Err(Error::ParameterProposalAlreadyExecuted);
+        }
+        if record.status == ParameterProposalStatus::Vetoed {
+            return Err(Error::ParameterProposalVetoed);
+        }
+        if record.status != ParameterProposalStatus::Pending {
+            return Err(Error::ParameterProposalNotFound);
+        }
+
+        let now = env.ledger().timestamp();
+        let p = &record.proposal;
+        if storage::is_parameter_proposal_expired(p, now) {
+            return Err(Error::ParameterProposalExpired);
+        }
+
+        let executable_after = p.proposed_at.saturating_add(p.time_lock_secs);
+        if now < executable_after {
+            return Err(Error::ParameterProposalNotReady);
+        }
+
+        parameter_governance::apply_parameter_change(&env, &p.param_key, &p.new_value)?;
+        storage::mark_parameter_proposal_status(
+            &env,
+            proposal_id,
+            ParameterProposalStatus::Executed,
+        );
+        events::parameter_change_executed(&env, proposal_id, &p.param_key);
+        Ok(())
+    }
+
+    /// Cancel a pending parameter change during the veto window.
+    ///
+    /// Service multi-sig only. Veto is permitted while
+    /// `now <= proposed_at + time_lock_secs / 2`; after that the proposal is
+    /// irrevocable until execution or expiry.
+    pub fn veto_parameter_change(
+        env: Env,
+        service_signers: Vec<Address>,
+        proposal_id: u64,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_service_signers_auth(&env, &service_signers)?;
+
+        let record = storage::get_parameter_proposal_record(&env, proposal_id)
+            .ok_or(Error::ParameterProposalNotFound)?;
+
+        if record.status != ParameterProposalStatus::Pending {
+            if record.status == ParameterProposalStatus::Vetoed {
+                return Err(Error::ParameterProposalVetoed);
+            }
+            if record.status == ParameterProposalStatus::Executed {
+                return Err(Error::ParameterProposalAlreadyExecuted);
+            }
+            return Err(Error::ParameterProposalNotFound);
+        }
+
+        let now = env.ledger().timestamp();
+        let p = &record.proposal;
+        let veto_deadline = p.proposed_at.saturating_add(p.time_lock_secs / 2);
+        if now > veto_deadline {
+            return Err(Error::ParameterProposalVetoPeriodEnded);
+        }
+
+        let vetoer = service_signers.get(0).unwrap();
+        storage::mark_parameter_proposal_status(
+            &env,
+            proposal_id,
+            ParameterProposalStatus::Vetoed,
+        );
+        events::parameter_change_vetoed(&env, proposal_id, &vetoer);
+        Ok(())
+    }
+
+    /// Returns a parameter change proposal record for audit during the
+    /// time-lock window. Read-only and callable by any account or contract.
+    pub fn get_parameter_proposal(env: Env, proposal_id: u64) -> Result<ParameterProposalRecord, Error> {
+        storage::prune_expired_parameter_proposals(&env);
+        storage::get_parameter_proposal_record(&env, proposal_id)
+            .ok_or(Error::ParameterProposalNotFound)
+    }
+
+    /// Returns the IDs of all proposals currently marked pending.
+    pub fn get_pending_param_prop_ids(env: Env) -> Vec<u64> {
+        storage::get_pending_parameter_proposal_ids(&env)
+    }
+
     // ── Watchlist ────────────────────────────────────────────────────────────
 
     /// Add or remove `wallet` from the priority-monitoring watchlist.
@@ -6046,6 +6228,27 @@ impl LedgerLensScoreContract {
             }
         } else {
             storage::get_admin(env).require_auth();
+        }
+        Ok(())
+    }
+
+    fn require_service_signers_auth(env: &Env, service_signers: &Vec<Address>) -> Result<(), Error> {
+        let service_set = storage::get_service_set(env);
+        let threshold = storage::get_service_threshold(env);
+        if !service_set.is_empty() && threshold > 0 {
+            if service_signers.len() < threshold {
+                return Err(Error::InsufficientSigners);
+            }
+            for i in 0..service_signers.len() {
+                let signer = service_signers.get(i).unwrap();
+                if !service_set.contains(&signer) {
+                    return Err(Error::UnauthorizedSigner);
+                }
+                storage::check_signer_expired(env, &signer)?;
+                signer.require_auth();
+            }
+        } else {
+            storage::get_service(env).require_auth();
         }
         Ok(())
     }

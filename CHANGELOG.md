@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Parameter Change Governance**: Added `propose_parameter_change`, `execute_parameter_change`, and `veto_parameter_change` for time-locked admin parameter changes with service-signer veto during the first half of the delay window. Supports cooldown, history depth, decay rate, velocity cap, and upgrade delay parameters. See [`docs/governance.md`](docs/governance.md).
+
+---
+
 ## [3.0.0] - 2026-06-22
 
 This version corresponds to on-chain `CONTRACT_VERSION = 3`. It merges all the advanced features introduced in recent pull requests (hysteresis, score embargo, score floor, batch attestation, and consensus scoring).

@@ -94,6 +94,26 @@ pub fn upgrade_vetoed(env: &Env, by: &Address) {
     env.events().publish((symbol_short!("upg_veto"),), by.clone());
 }
 
+pub fn parameter_change_proposed(
+    env: &Env,
+    proposal_id: u64,
+    param_key: &Symbol,
+    executable_after: u64,
+) {
+    env.events().publish(
+        (symbol_short!("prm_prop"),),
+        (proposal_id, param_key.clone(), executable_after),
+    );
+}
+
+pub fn parameter_change_executed(env: &Env, proposal_id: u64, param_key: &Symbol) {
+    env.events().publish((symbol_short!("prm_exec"),), (proposal_id, param_key.clone()));
+}
+
+pub fn parameter_change_vetoed(env: &Env, proposal_id: u64, by: &Address) {
+    env.events().publish((symbol_short!("prm_veto"),), (proposal_id, by.clone()));
+}
+
 pub fn score_history_cleared(env: &Env, wallet: &Address, asset_pair: &Symbol) {
     env.events().publish((symbol_short!("clr_hist"), wallet.clone()), asset_pair.clone());
 }

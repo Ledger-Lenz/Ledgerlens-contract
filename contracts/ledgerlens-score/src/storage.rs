@@ -7,8 +7,8 @@ use crate::constants::{
 use crate::errors::Error;
 use crate::types::{
     AggregateRiskScore, DataKey, EmbargoExpiry, GateDataKey, JumpStats, ModelVersionStats,
-    PendingScoreEntry, RiskScore, ScoreDispute, ScoreFloorPolicy, ScoreHistogram, ScoreTrend,
-    ScoreVelocityCap, UpgradeProposal,
+    ParameterProposalRecord, ParameterProposalStatus, PendingScoreEntry, RiskScore, ScoreDispute,
+    ScoreFloorPolicy, ScoreHistogram, ScoreTrend, ScoreVelocityCap, UpgradeProposal,
 };
 use soroban_sdk::{Address, Bytes, Env, Symbol, Vec};
 
@@ -519,6 +519,102 @@ pub fn get_upgrade_delay(env: &Env) -> u64 {
 
 pub fn set_upgrade_delay(env: &Env, delay_secs: u64) {
     env.storage().instance().set(&DataKey::UpgradeDelay, &delay_secs);
+}
+
+// ── Parameter change governance ───────────────────────────────────────────────
+
+pub fn next_parameter_proposal_id(env: &Env) -> u64 {
+    let id: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::ParameterProposalNextId)
+        .unwrap_or(1);
+    env.storage()
+        .instance()
+        .set(&DataKey::ParameterProposalNextId, &(id.saturating_add(1)));
+    id
+}
+
+pub fn get_parameter_proposal_record(env: &Env, proposal_id: u64) -> Option<ParameterProposalRecord> {
+    env.storage()
+        .instance()
+        .get(&DataKey::ParameterProposal(proposal_id))
+}
+
+pub fn set_parameter_proposal_record(env: &Env, proposal_id: u64, record: &ParameterProposalRecord) {
+    env.storage()
+        .instance()
+        .set(&DataKey::ParameterProposal(proposal_id), record);
+}
+
+pub fn get_pending_parameter_proposal_ids(env: &Env) -> Vec<u64> {
+    env.storage()
+        .instance()
+        .get(&DataKey::PendingParameterProposalIds)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn set_pending_parameter_proposal_ids(env: &Env, ids: &Vec<u64>) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingParameterProposalIds, ids);
+}
+
+pub fn push_pending_parameter_proposal(env: &Env, proposal_id: u64) {
+    let mut ids = get_pending_parameter_proposal_ids(env);
+    ids.push_back(proposal_id);
+    set_pending_parameter_proposal_ids(env, &ids);
+}
+
+pub fn remove_pending_parameter_proposal(env: &Env, proposal_id: u64) {
+    let ids = get_pending_parameter_proposal_ids(env);
+    let mut next = Vec::new(env);
+    for i in 0..ids.len() {
+        let id = ids.get(i).unwrap();
+        if id != proposal_id {
+            next.push_back(id);
+        }
+    }
+    set_pending_parameter_proposal_ids(env, &next);
+}
+
+pub fn count_pending_parameter_proposals(env: &Env) -> u32 {
+    get_pending_parameter_proposal_ids(env).len()
+}
+
+pub fn mark_parameter_proposal_status(
+    env: &Env,
+    proposal_id: u64,
+    status: ParameterProposalStatus,
+) -> Option<ParameterProposalRecord> {
+    let mut record = get_parameter_proposal_record(env, proposal_id)?;
+    record.status = status;
+    set_parameter_proposal_record(env, proposal_id, &record);
+    remove_pending_parameter_proposal(env, proposal_id);
+    Some(record)
+}
+
+pub fn is_parameter_proposal_expired(proposal: &crate::types::ParameterProposal, now: u64) -> bool {
+    let expiry = proposal
+        .proposed_at
+        .saturating_add(proposal.time_lock_secs.saturating_mul(2));
+    now > expiry
+}
+
+/// Marks expired pending proposals and removes them from the pending index.
+pub fn prune_expired_parameter_proposals(env: &Env) {
+    let ids = get_pending_parameter_proposal_ids(env);
+    let now = env.ledger().timestamp();
+    for i in 0..ids.len() {
+        let id = ids.get(i).unwrap();
+        if let Some(record) = get_parameter_proposal_record(env, id) {
+            if record.status == ParameterProposalStatus::Pending
+                && is_parameter_proposal_expired(&record.proposal, now)
+            {
+                mark_parameter_proposal_status(env, id, ParameterProposalStatus::Expired);
+            }
+        }
+    }
 }
 
 // ── Multi-sig admin set ──────────────────────────────────────────────────────
