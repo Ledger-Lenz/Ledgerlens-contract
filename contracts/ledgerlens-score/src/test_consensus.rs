@@ -65,6 +65,7 @@ fn commitment(
             timestamp,
             confidence,
             model_version,
+            0, // nonce for test
         )
         .unwrap()
         .to_bytes()
@@ -80,6 +81,7 @@ fn attest(env: &Env, key: &SigningKey, digest: [u8; 32]) -> ScoreAttestation {
     ScoreAttestation {
         commitment: BytesN::from_array(env, &digest),
         signature: BytesN::from_array(env, &sig_bytes),
+        nonce: 0,
     }
 }
 

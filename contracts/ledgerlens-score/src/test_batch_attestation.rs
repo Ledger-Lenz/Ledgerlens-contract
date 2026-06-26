@@ -128,6 +128,7 @@ fn payload_commitment(
             timestamp,
             confidence,
             model_version,
+            0, // nonce for test
         )
         .unwrap()
         .to_bytes()
