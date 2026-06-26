@@ -575,3 +575,127 @@ fn test_embargoed_wallet_index_full_does_not_block_revoke_all() {
     client.set_score_embargo(&wallet, &None);
     assert_eq!(client.get_embargoed_wallet_count(), 1);
 }
+
+// ── get_active_embargo_count ──────────────────────────────────────────────────
+
+#[test]
+fn test_active_embargo_count_zero_before_any_embargo() {
+    let (_env, client, _admin, _service) = setup();
+    assert_eq!(client.get_active_embargo_count(), 0);
+}
+
+#[test]
+fn test_active_embargo_count_increments_on_new_embargo() {
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    client.set_score_embargo(&wallet, &None);
+    assert_eq!(client.get_active_embargo_count(), 1);
+}
+
+#[test]
+fn test_active_embargo_count_increments_for_multiple_wallets() {
+    let (env, client, _admin, _service) = setup();
+    let w1 = Address::generate(&env);
+    let w2 = Address::generate(&env);
+    let w3 = Address::generate(&env);
+    client.set_score_embargo(&w1, &None);
+    client.set_score_embargo(&w2, &Some(9_999_999));
+    client.set_score_embargo(&w3, &None);
+    assert_eq!(client.get_active_embargo_count(), 3);
+}
+
+#[test]
+fn test_active_embargo_count_no_double_increment_on_replace() {
+    // Re-embargoing an already-embargoed wallet must not increment again.
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    client.set_score_embargo(&wallet, &None);
+    client.set_score_embargo(&wallet, &Some(9_999_999));
+    assert_eq!(client.get_active_embargo_count(), 1);
+}
+
+#[test]
+fn test_active_embargo_count_decrements_on_lift() {
+    let (env, client, _admin, _service) = setup();
+    let w1 = Address::generate(&env);
+    let w2 = Address::generate(&env);
+    client.set_score_embargo(&w1, &None);
+    client.set_score_embargo(&w2, &None);
+    client.lift_score_embargo(&w1);
+    assert_eq!(client.get_active_embargo_count(), 1);
+    client.lift_score_embargo(&w2);
+    assert_eq!(client.get_active_embargo_count(), 0);
+}
+
+#[test]
+fn test_active_embargo_count_lift_noop_when_not_embargoed() {
+    // Lifting a wallet that was never embargoed must not underflow.
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    client.lift_score_embargo(&wallet);
+    assert_eq!(client.get_active_embargo_count(), 0);
+}
+
+#[test]
+fn test_active_embargo_count_decrements_on_batch_lift() {
+    let (env, client, _admin, _service) = setup();
+    let w1 = Address::generate(&env);
+    let w2 = Address::generate(&env);
+    client.set_score_embargo(&w1, &None);
+    client.set_score_embargo(&w2, &None);
+    assert_eq!(client.get_active_embargo_count(), 2);
+
+    let mut wallets = Vec::new(&env);
+    wallets.push_back(w1);
+    wallets.push_back(w2);
+    client.batch_lift_score_embargo(&Vec::new(&env), &wallets);
+    assert_eq!(client.get_active_embargo_count(), 0);
+}
+
+#[test]
+fn test_active_embargo_count_batch_lift_skips_non_embargoed() {
+    // Only actually-embargoed wallets should decrement the counter.
+    let (env, client, _admin, _service) = setup();
+    let embargoed = Address::generate(&env);
+    let not_embargoed = Address::generate(&env);
+    client.set_score_embargo(&embargoed, &None);
+
+    let mut wallets = Vec::new(&env);
+    wallets.push_back(embargoed);
+    wallets.push_back(not_embargoed);
+    let lifted = client.batch_lift_score_embargo(&Vec::new(&env), &wallets);
+    assert_eq!(lifted, 1);
+    assert_eq!(client.get_active_embargo_count(), 0);
+}
+
+#[test]
+fn test_active_embargo_count_resets_to_zero_on_revoke_all() {
+    let (env, client, _admin, _service) = setup();
+    let w1 = Address::generate(&env);
+    let w2 = Address::generate(&env);
+    client.set_score_embargo(&w1, &None);
+    client.set_score_embargo(&w2, &None);
+    assert_eq!(client.get_active_embargo_count(), 2);
+    client.revoke_all_embargoes(&Vec::new(&env));
+    assert_eq!(client.get_active_embargo_count(), 0);
+}
+
+#[test]
+fn test_active_embargo_count_revoke_all_noop_when_none_set() {
+    let (env, client, _admin, _service) = setup();
+    client.revoke_all_embargoes(&Vec::new(&env));
+    assert_eq!(client.get_active_embargo_count(), 0);
+}
+
+#[test]
+fn test_active_embargo_count_set_after_revoke_all() {
+    // Counter must start clean and be incrementable after a full revoke.
+    let (env, client, _admin, _service) = setup();
+    let w1 = Address::generate(&env);
+    let w2 = Address::generate(&env);
+    client.set_score_embargo(&w1, &None);
+    client.revoke_all_embargoes(&Vec::new(&env));
+    assert_eq!(client.get_active_embargo_count(), 0);
+    client.set_score_embargo(&w2, &None);
+    assert_eq!(client.get_active_embargo_count(), 1);
+}

@@ -353,7 +353,15 @@
                             "symbol": "commitment"
                           },
                           "val": {
-                            "bytes": "4ebbbb3577776d7da6d1553eb68bc9a55ef21c2d4e7f291557836c7c9abcd478"
+                            "bytes": "227641aa23cce1c3574431413a85dd2d8bf1c2acbd4f264964e77c30d022b907"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "nonce"
+                          },
+                          "val": {
+                            "u64": 0
                           }
                         },
                         {
@@ -361,7 +369,7 @@
                             "symbol": "signature"
                           },
                           "val": {
-                            "bytes": "2092d39104093110538cb45cfcb49f6e32f16faeb6c7c6f0cedaafee6b6fbc674effd4da90df97afb650cd73b4482b1b53c0011b9bdb1ca3081faf1cc0e65a5d01"
+                            "bytes": "59ab8e26c153e138bcec8d719ffb0373e1d94975d52b62c636fd250d2afe82f00ac3670deea2aba3052c55526f18517e94be650839d72e9d7e0ff610f9e384a301"
                           }
                         }
                       ]
@@ -491,7 +499,15 @@
                                 "symbol": "commitment"
                               },
                               "val": {
-                                "bytes": "4ebbbb3577776d7da6d1553eb68bc9a55ef21c2d4e7f291557836c7c9abcd478"
+                                "bytes": "227641aa23cce1c3574431413a85dd2d8bf1c2acbd4f264964e77c30d022b907"
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "nonce"
+                              },
+                              "val": {
+                                "u64": 0
                               }
                             },
                             {
@@ -499,7 +515,7 @@
                                 "symbol": "signature"
                               },
                               "val": {
-                                "bytes": "2092d39104093110538cb45cfcb49f6e32f16faeb6c7c6f0cedaafee6b6fbc674effd4da90df97afb650cd73b4482b1b53c0011b9bdb1ca3081faf1cc0e65a5d01"
+                                "bytes": "59ab8e26c153e138bcec8d719ffb0373e1d94975d52b62c636fd250d2afe82f00ac3670deea2aba3052c55526f18517e94be650839d72e9d7e0ff610f9e384a301"
                               }
                             }
                           ]
