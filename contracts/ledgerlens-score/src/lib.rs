@@ -263,6 +263,10 @@ impl LedgerLensScoreContract {
         if storage::is_pair_paused(&env, &asset_pair) {
             return Err(Error::ContractPaused);
         }
+        // Epoch sealing: reject submissions when no epoch is open (#301).
+        if !storage::is_epoch_open(&env) {
+            return Err(Error::EpochClosed);
+        }
 
         match attestation_input {
             Some(ScoreAttestationInput::Threshold(ref ta)) => {
@@ -357,6 +361,23 @@ impl LedgerLensScoreContract {
 
         let risk_score =
             RiskScore { score, benford_flag, ml_flag, timestamp, confidence, model_version };
+
+        // Flash-loan protection: check for same-ledger gate-read + submit (#300).
+        if let Some(gate_seq) = storage::get_gate_read_ledger(&env, &wallet, &asset_pair) {
+            if gate_seq == env.ledger().sequence() {
+                events::suspicious_same_ledger_submission(
+                    &env,
+                    &wallet,
+                    &asset_pair,
+                    gate_seq,
+                );
+                if storage::get_flash_protection_mode(&env)
+                    == crate::types::FlashProtectionMode::Reject
+                {
+                    return Err(Error::EpochClosed);
+                }
+            }
+        }
 
         let buffer = storage::get_finality_buffer_secs(&env);
         if buffer == 0 {
@@ -866,6 +887,10 @@ impl LedgerLensScoreContract {
         submissions: Vec<ScoreSubmission>,
     ) -> Result<BatchResult, Error> {
         Self::ensure_active(&env)?;
+        // Epoch sealing: reject the whole batch when no epoch is open (#301).
+        if !storage::is_epoch_open(&env) {
+            return Err(Error::EpochClosed);
+        }
 
         let service = storage::get_service(&env);
         service.require_auth();
@@ -1154,6 +1179,10 @@ impl LedgerLensScoreContract {
         }
         if storage::is_paused(&env) {
             return Err(Error::ContractPaused);
+        }
+        // Epoch sealing: reject when no epoch is open (#301).
+        if !storage::is_epoch_open(&env) {
+            return Err(Error::EpochClosed);
         }
 
         // Hard-fail before signature recovery if there is nothing to
@@ -2601,6 +2630,8 @@ impl LedgerLensScoreContract {
         asset_pair: Symbol,
         gate_threshold: u32,
     ) -> bool {
+        // Flash-loan protection: record this gate read in temporary storage (#300).
+        storage::set_gate_read_ledger(&env, &wallet, &asset_pair);
         Self::query_risk_gate_with_confidence(env, wallet, asset_pair, gate_threshold, 0)
     }
 
@@ -3447,6 +3478,73 @@ impl LedgerLensScoreContract {
     /// ```
     pub fn is_paused(env: Env) -> bool {
         storage::is_paused(&env)
+    }
+
+    // ── Epoch sealing (#301) ─────────────────────────────────────────────────
+
+    /// Open a new submission epoch.  Admin only.
+    ///
+    /// Sets `EpochOpen = true` and records `epoch_id` as the current epoch.
+    /// `submit_score` will be accepted until `close_epoch` is called.
+    pub fn open_epoch(env: Env, admin_signers: Vec<Address>, epoch_id: u32) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_current_epoch(&env, epoch_id);
+        storage::set_epoch_open(&env, true);
+        events::epoch_opened(&env, epoch_id);
+        Ok(())
+    }
+
+    /// Close the current submission epoch.  Admin only.
+    ///
+    /// Sets `EpochOpen = false`.  After this call, `submit_score` returns
+    /// `EpochClosed` until the admin calls `open_epoch` again.
+    pub fn close_epoch(env: Env, admin_signers: Vec<Address>) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        let epoch_id = storage::get_current_epoch(&env);
+        storage::set_epoch_open(&env, false);
+        events::epoch_closed(&env, epoch_id);
+        Ok(())
+    }
+
+    /// Returns the current epoch ID (0 until the first `open_epoch` call).
+    pub fn get_current_epoch(env: Env) -> u32 {
+        storage::get_current_epoch(&env)
+    }
+
+    /// Returns `true` when the current epoch is open for submissions.
+    pub fn is_epoch_open(env: Env) -> bool {
+        storage::is_epoch_open(&env)
+    }
+
+    // ── Flash-loan protection (#300) ─────────────────────────────────────────
+
+    /// Set the flash-loan protection mode.  Admin only.
+    ///
+    /// - `0` (`Log`): emit `flash_sub` event but allow the submission (default).
+    /// - `1` (`Reject`): reject the submission outright.
+    pub fn set_flash_protection_mode(
+        env: Env,
+        admin_signers: Vec<Address>,
+        mode: FlashProtectionMode,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_flash_protection_mode(&env, &mode);
+        events::flash_protection_mode_updated(&env, mode as u32);
+        Ok(())
+    }
+
+    /// Returns the current flash-loan protection mode.
+    pub fn get_flash_protection_mode(env: Env) -> FlashProtectionMode {
+        storage::get_flash_protection_mode(&env)
     }
 
     // ── Per-asset-pair circuit breaker ────────────────────────────────────────
