@@ -94,6 +94,26 @@ pub fn upgrade_vetoed(env: &Env, by: &Address) {
     env.events().publish((symbol_short!("upg_veto"),), by.clone());
 }
 
+pub fn parameter_change_proposed(
+    env: &Env,
+    proposal_id: u64,
+    param_key: &Symbol,
+    executable_after: u64,
+) {
+    env.events().publish(
+        (symbol_short!("prm_prop"),),
+        (proposal_id, param_key.clone(), executable_after),
+    );
+}
+
+pub fn parameter_change_executed(env: &Env, proposal_id: u64, param_key: &Symbol) {
+    env.events().publish((symbol_short!("prm_exec"),), (proposal_id, param_key.clone()));
+}
+
+pub fn parameter_change_vetoed(env: &Env, proposal_id: u64, by: &Address) {
+    env.events().publish((symbol_short!("prm_veto"),), (proposal_id, by.clone()));
+}
+
 pub fn score_history_cleared(env: &Env, wallet: &Address, asset_pair: &Symbol) {
     env.events().publish((symbol_short!("clr_hist"), wallet.clone()), asset_pair.clone());
 }
@@ -134,6 +154,13 @@ pub fn service_pubkey_updated(env: &Env, pubkey: &Bytes) {
 /// secp256k1 public key via `set_aggregate_service_pubkey`.
 pub fn aggregate_service_pubkey_updated(env: &Env, pubkey: &Bytes) {
     env.events().publish((symbol_short!("agg_pk"),), pubkey.clone());
+}
+
+/// Emitted when `rotate_service_pubkey` is called. `new_key` is the incoming
+/// pubkey; `overlap_expiry` is the ledger timestamp after which the old key
+/// stops being accepted. When `overlap_expiry == 0` the rotation was instant.
+pub fn service_pubkey_rotation_started(env: &Env, new_key: &Bytes, overlap_expiry: u64) {
+    env.events().publish((symbol_short!("pk_rot"),), (new_key.clone(), overlap_expiry));
 }
 
 // ── Merkle-root batch attestation ───────────────────────────────────────────
@@ -517,40 +544,26 @@ pub fn entry_ttls_extended(env: &Env, renewed: u32, requested: u32) {
     env.events().publish((symbol_short!("ttl_ext"),), (renewed, requested));
 }
 
-// ── Signer accuracy (reputation weighting) ────────────────────────────────────
+// ── #297: IQR outlier rejection ───────────────────────────────────────────────
 
-/// Emitted after each consensus round when a participating signer's accuracy
-/// record has been updated. `mad_scaled` is the new MAD × 1000, `count` the
-/// total number of rounds the signer has participated in.
-pub fn signer_accuracy_updated(
-    env: &soroban_sdk::Env,
-    signer: &soroban_sdk::Address,
-    mad_scaled: u64,
-    count: u64,
-) {
-    env.events().publish(
-        (symbol_short!("sgn_acc"), signer.clone()),
-        (mad_scaled, count),
-    );
+pub fn consensus_signer_rejected(env: &Env, signer: &Address, deviation: u32) {
+    env.events().publish((symbol_short!("iqr_rej"), signer.clone()), deviation);
 }
 
-/// Emitted when the admin resets a signer's accuracy record.
-pub fn signer_accuracy_reset(env: &soroban_sdk::Env, signer: &soroban_sdk::Address) {
-    env.events().publish((symbol_short!("sgn_rst"), signer.clone()), ());
+// ── #298: Upgrade approval events ────────────────────────────────────────────
+
+pub fn upgrade_approval_added(env: &Env, signer: &Address, count: u32, required: u32) {
+    env.events().publish((symbol_short!("upg_appr"), signer.clone()), (count, required));
 }
 
-// ── Oracle adapter registry ────────────────────────────────────────────────────
+// ── #299: Governance chain events ─────────────────────────────────────────────
 
-/// Emitted when the admin registers (or replaces) an oracle for an asset pair.
-pub fn oracle_registered(
-    env: &soroban_sdk::Env,
-    asset_pair: &soroban_sdk::Symbol,
-    oracle: &soroban_sdk::Address,
-) {
-    env.events().publish((symbol_short!("orc_reg"), asset_pair.clone()), oracle.clone());
+pub fn governance_action_appended(env: &Env, new_head: &soroban_sdk::BytesN<32>) {
+    env.events().publish((symbol_short!("gov_app"),), new_head.clone());
 }
 
-/// Emitted when the admin removes an oracle registration for an asset pair.
-pub fn oracle_removed(env: &soroban_sdk::Env, asset_pair: &soroban_sdk::Symbol) {
-    env.events().publish((symbol_short!("orc_rm"), asset_pair.clone()), ());
+// ── #302: Gate enforcement mode ───────────────────────────────────────────────
+
+pub fn gate_enforcement_mode_set(env: &Env, strict: bool) {
+    env.events().publish((symbol_short!("gate_enf"),), strict);
 }

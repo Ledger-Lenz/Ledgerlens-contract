@@ -44,6 +44,7 @@ fn setup<'a>() -> Fixture<'a> {
     let amm_id = env.register_contract(None, MockAmm);
     let amm = MockAmmClient::new(&env, &amm_id);
     amm.initialize(&ledgerlens_id, &GATE_THRESHOLD);
+    amm.set_liquidity_gate_config(&GATE_THRESHOLD, &MIN_CONFIDENCE);
 
     let lending_id = env.register_contract(None, MockLending);
     let lending = MockLendingClient::new(&env, &lending_id);
@@ -112,6 +113,65 @@ fn amm_swap_rejected_for_unknown_wallet() {
 
     let result = fixture.amm.try_swap(&wallet, &symbol_short!("XLM_USDC"), &1_000);
     assert_eq!(result, Err(Ok(MockAmmError::HighRiskWallet)));
+}
+
+// ── AMM gated liquidity provision (issue #214) ───────────────────────────────
+
+#[test]
+fn amm_provide_liquidity_allowed_for_low_risk_high_confidence() {
+    let fixture = setup();
+    let provider = Address::generate(&fixture.env);
+    submit_score(&fixture, &provider, 10, 90);
+
+    assert_eq!(fixture.amm.try_provide_liquidity_gated(&provider, &1_000), Ok(Ok(())));
+}
+
+#[test]
+fn amm_provide_liquidity_blocked_for_high_risk_provider() {
+    let fixture = setup();
+    let provider = Address::generate(&fixture.env);
+    submit_score(&fixture, &provider, 90, 95);
+
+    let result = fixture.amm.try_provide_liquidity_gated(&provider, &1_000);
+    assert_eq!(result, Err(Ok(MockAmmError::HighRiskWallet)));
+}
+
+#[test]
+fn amm_provide_liquidity_blocked_for_low_confidence() {
+    let fixture = setup();
+    let provider = Address::generate(&fixture.env);
+    submit_score(&fixture, &provider, 10, 20);
+
+    let result = fixture.amm.try_provide_liquidity_gated(&provider, &1_000);
+    assert_eq!(result, Err(Ok(MockAmmError::LowConfidence)));
+}
+
+#[test]
+fn amm_provide_liquidity_uses_set_risk_oracle() {
+    let fixture = setup();
+    let alt_oracle_id = fixture.env.register_contract(None, LedgerLensScoreContract);
+    let alt_oracle = LedgerLensScoreContractClient::new(&fixture.env, &alt_oracle_id);
+    let admin = Address::generate(&fixture.env);
+    let service = Address::generate(&fixture.env);
+    alt_oracle.initialize(&admin, &service);
+
+    let provider = Address::generate(&fixture.env);
+    fixture.env.ledger().with_mut(|l| l.timestamp += 3_601);
+    alt_oracle.submit_score(
+        &Vec::new(&fixture.env),
+        &provider,
+        &symbol_short!("XLM_USDC"),
+        &10,
+        &false,
+        &false,
+        &fixture.env.ledger().timestamp(),
+        &90,
+        &1,
+        &None,
+    );
+
+    fixture.amm.set_risk_oracle(&alt_oracle_id);
+    assert_eq!(fixture.amm.try_provide_liquidity_gated(&provider, &500), Ok(Ok(())));
 }
 
 // ── Acceptance criterion: lending gate fails on low confidence ─────────────

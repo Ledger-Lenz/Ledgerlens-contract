@@ -68,8 +68,10 @@ field is either fixed-width or zero-padded to a fixed width):
 | `model_version` | 4 bytes | `u32`, little-endian |
 | contract address | 56 bytes | `env.current_contract_address().to_string()` — StrKey encoding, ASCII |
 | network id | 32 bytes | `env.ledger().network_id()` |
+| `contract_id` | 32 bytes | contract's own address as raw 32 bytes |
+| `contract_version` | 4 bytes | `u32`, little-endian |
 
-Total preimage length: 175 bytes.
+Total preimage length: 243 bytes.
 
 Rationale for the StrKey (`to_string()`) encoding of `wallet` and the
 contract address: these are the only stable, deterministic byte
@@ -116,3 +118,16 @@ instance) cannot be replayed against another.
 - 65 bytes, uncompressed (`0x04` prefix + x + y coordinates).
 
 Any other length is rejected with `Error::InvalidPubkeyLength`.
+
+## 6. Migration & Cross-Deployment Binding
+
+As of `CONTRACT_VERSION` 4, attestations now include `contract_id` and `contract_version` fields.
+These fields cryptographically bind the signature to one specific contract deployment and version,
+preventing cross-deployment and cross-version replay attacks.
+
+**Operators running existing service signers must update their signing code to include
+`contract_id` and `contract_version` in the digest.** Existing signatures without these
+fields will be rejected as `InvalidAttestation` after this upgrade.
+
+The digest layout changed from 175 bytes to 243 bytes (see §3). Signers must recompute
+all attestations using the updated preimage format.
