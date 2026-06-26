@@ -25,6 +25,9 @@ mod test_attestation;
 #[cfg(test)]
 mod test_fee_withdrawal;
 
+#[cfg(test)]
+mod test_param_timelock;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN, Env, Symbol,
     SymbolStr, TryFromVal, Vec,
@@ -32,8 +35,8 @@ use soroban_sdk::{
 
 pub use errors::Error;
 pub use types::{
-    AggregateRiskScore, BatchEntryResult, BatchResult, RiskScore, ScoreAttestation,
-    ScoreSubmission, UpgradeProposal,
+    AggregateRiskScore, BatchEntryResult, BatchResult, ParamChangeProposal, ParamValue, RiskScore,
+    ScoreAttestation, ScoreSubmission, UpgradeProposal,
 };
 
 /// On-chain truth layer for LedgerLens risk scores.
@@ -94,7 +97,7 @@ impl LedgerLensScoreContract {
     /// let admin = Address::generate(&env);
     /// let service = Address::generate(&env);
     /// client.initialize(&admin, &service);
-    /// assert_eq!(client.get_version(), 3);
+    /// assert_eq!(client.get_version(), 4);
     /// ```
     pub fn get_version(env: Env) -> u32 {
         storage::get_contract_version(&env)
@@ -511,6 +514,8 @@ impl LedgerLensScoreContract {
     /// - [`Error::NotInitialized`] if the contract has no admin yet.
     /// - [`Error::InvalidHistoryDepth`] if `depth` is `0` or above
     ///   `MAX_HISTORY_DEPTH` (50).
+    /// - [`Error::ParamChangeAlreadyPending`] if a pending proposal for this
+    ///   parameter already exists.
     pub fn set_history_max_depth(
         env: Env,
         admin_signers: Vec<Address>,
@@ -523,8 +528,22 @@ impl LedgerLensScoreContract {
             return Err(Error::InvalidHistoryDepth);
         }
         Self::require_admin_auth(&env, &admin_signers)?;
-        storage::set_history_max_depth(&env, depth);
-        events::history_depth_updated(&env, depth);
+        let key = symbol_short!("hist_dep");
+        if storage::has_pending_param_change(&env, &key) {
+            return Err(Error::ParamChangeAlreadyPending);
+        }
+        let now = env.ledger().timestamp();
+        let apply_after = now.saturating_add(storage::get_param_change_delay(&env));
+        storage::set_pending_param_change(
+            &env,
+            &key,
+            &ParamChangeProposal {
+                new_value: ParamValue::U32(depth),
+                proposed_at: now,
+                apply_after,
+            },
+        );
+        events::param_change_proposed(&env, &key, apply_after);
         Ok(())
     }
 
@@ -1194,7 +1213,22 @@ impl LedgerLensScoreContract {
             return Err(Error::InvalidUpgradeDelay);
         }
         Self::require_admin_auth(&env, &admin_signers)?;
-        storage::set_upgrade_delay(&env, delay_secs);
+        let key = symbol_short!("upg_dly");
+        if storage::has_pending_param_change(&env, &key) {
+            return Err(Error::ParamChangeAlreadyPending);
+        }
+        let now = env.ledger().timestamp();
+        let apply_after = now.saturating_add(storage::get_param_change_delay(&env));
+        storage::set_pending_param_change(
+            &env,
+            &key,
+            &ParamChangeProposal {
+                new_value: ParamValue::U64(delay_secs),
+                proposed_at: now,
+                apply_after,
+            },
+        );
+        events::param_change_proposed(&env, &key, apply_after);
         Ok(())
     }
 
@@ -1202,6 +1236,173 @@ impl LedgerLensScoreContract {
     /// `DEFAULT_UPGRADE_DELAY_SECS` (48 hours) until configured.
     pub fn get_upgrade_delay(env: Env) -> u64 {
         storage::get_upgrade_delay(&env)
+    }
+
+    // ── Parameter change time-lock ────────────────────────────────────────────
+
+    /// Propose a change to the parameter-change delay itself.  The proposal
+    /// is time-locked by the *current* delay, preventing an attacker from
+    /// first slashing the delay to zero and then immediately applying any
+    /// other parameter change.  Admin only.
+    ///
+    /// `delay_secs` must be within `[MIN_PARAM_CHANGE_DELAY_SECS (1 h),
+    /// MAX_PARAM_CHANGE_DELAY_SECS (7 days)]`.
+    ///
+    /// Call `apply_param_change` with key `"pc_delay"` after the current delay
+    /// elapses to activate the new value.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::InvalidParamChangeDelay`] if `delay_secs` is outside bounds.
+    /// - [`Error::ParamChangeAlreadyPending`] if a proposal for this key exists.
+    pub fn set_param_change_delay(
+        env: Env,
+        admin_signers: Vec<Address>,
+        delay_secs: u64,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if !(constants::MIN_PARAM_CHANGE_DELAY_SECS..=constants::MAX_PARAM_CHANGE_DELAY_SECS)
+            .contains(&delay_secs)
+        {
+            return Err(Error::InvalidParamChangeDelay);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        let key = symbol_short!("pc_delay");
+        if storage::has_pending_param_change(&env, &key) {
+            return Err(Error::ParamChangeAlreadyPending);
+        }
+        let now = env.ledger().timestamp();
+        let apply_after = now.saturating_add(storage::get_param_change_delay(&env));
+        storage::set_pending_param_change(
+            &env,
+            &key,
+            &ParamChangeProposal {
+                new_value: ParamValue::U64(delay_secs),
+                proposed_at: now,
+                apply_after,
+            },
+        );
+        events::param_change_proposed(&env, &key, apply_after);
+        Ok(())
+    }
+
+    /// Returns the current parameter-change delay in seconds.  Defaults to
+    /// `DEFAULT_PARAM_CHANGE_DELAY_SECS` (24 hours) until configured via
+    /// `set_param_change_delay` and `apply_param_change`.
+    pub fn get_param_change_delay(env: Env) -> u64 {
+        storage::get_param_change_delay(&env)
+    }
+
+    /// Apply a pending parameter change proposal once its time-lock has elapsed.
+    ///
+    /// Callable by **anyone** — no admin auth required.  The key must match one
+    /// of the well-known parameter symbol keys:
+    ///
+    /// | Key symbol  | Parameter                         |
+    /// |-------------|-----------------------------------|
+    /// | `"risk_thr"`| global risk threshold             |
+    /// | `"cooldown"`| submission cooldown               |
+    /// | `"stale_w"` | staleness window                  |
+    /// | `"upg_dly"` | upgrade time-lock delay           |
+    /// | `"hist_dep"`| history ring-buffer depth         |
+    /// | `"pc_delay"`| parameter-change delay (meta)     |
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::NoPendingParamChange`] if no proposal exists for `key`.
+    /// - [`Error::ParamChangeNotReady`] if `apply_after` has not yet elapsed.
+    /// - [`Error::UnknownParamKey`] if `key` is not a recognised parameter key.
+    pub fn apply_param_change(env: Env, key: Symbol) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        let proposal =
+            storage::get_pending_param_change(&env, &key).ok_or(Error::NoPendingParamChange)?;
+        let now = env.ledger().timestamp();
+        if now < proposal.apply_after {
+            return Err(Error::ParamChangeNotReady);
+        }
+        storage::clear_pending_param_change(&env, &key);
+
+        if key == symbol_short!("risk_thr") {
+            match proposal.new_value {
+                ParamValue::U32(v) => {
+                    let old = storage::get_risk_threshold(&env);
+                    storage::set_risk_threshold(&env, v);
+                    events::threshold_updated(&env, old, v);
+                }
+                _ => return Err(Error::UnknownParamKey),
+            }
+        } else if key == symbol_short!("cooldown") {
+            match proposal.new_value {
+                ParamValue::U64(v) => {
+                    storage::set_cooldown_secs(&env, v);
+                    events::cooldown_updated(&env, v);
+                }
+                _ => return Err(Error::UnknownParamKey),
+            }
+        } else if key == symbol_short!("stale_w") {
+            match proposal.new_value {
+                ParamValue::U64(v) => storage::set_staleness_window(&env, v),
+                _ => return Err(Error::UnknownParamKey),
+            }
+        } else if key == symbol_short!("upg_dly") {
+            match proposal.new_value {
+                ParamValue::U64(v) => storage::set_upgrade_delay(&env, v),
+                _ => return Err(Error::UnknownParamKey),
+            }
+        } else if key == symbol_short!("hist_dep") {
+            match proposal.new_value {
+                ParamValue::U32(v) => {
+                    storage::set_history_max_depth(&env, v);
+                    events::history_depth_updated(&env, v);
+                }
+                _ => return Err(Error::UnknownParamKey),
+            }
+        } else if key == symbol_short!("pc_delay") {
+            match proposal.new_value {
+                ParamValue::U64(v) => storage::set_param_change_delay(&env, v),
+                _ => return Err(Error::UnknownParamKey),
+            }
+        } else {
+            return Err(Error::UnknownParamKey);
+        }
+
+        events::param_change_applied(&env, &key);
+        Ok(())
+    }
+
+    /// Cancel a pending parameter change proposal.  Admin only.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::NoPendingParamChange`] if no proposal exists for `key`.
+    pub fn cancel_param_change(
+        env: Env,
+        admin_signers: Vec<Address>,
+        key: Symbol,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        if !storage::has_pending_param_change(&env, &key) {
+            return Err(Error::NoPendingParamChange);
+        }
+        storage::clear_pending_param_change(&env, &key);
+        events::param_change_cancelled(&env, &key);
+        Ok(())
+    }
+
+    /// Return the pending parameter change proposal for `key`, so anyone can
+    /// audit it during the delay window.
+    ///
+    /// # Errors
+    /// - [`Error::NoPendingParamChange`] if no proposal exists for `key`.
+    pub fn get_pending_param_change(env: Env, key: Symbol) -> Result<ParamChangeProposal, Error> {
+        storage::get_pending_param_change(&env, &key).ok_or(Error::NoPendingParamChange)
     }
 
     // ── Watchlist ────────────────────────────────────────────────────────────
@@ -1299,9 +1500,22 @@ impl LedgerLensScoreContract {
             return Err(Error::InvalidScore);
         }
         Self::require_admin_auth(&env, &admin_signers)?;
-        let old = storage::get_risk_threshold(&env);
-        storage::set_risk_threshold(&env, threshold);
-        events::threshold_updated(&env, old, threshold);
+        let key = symbol_short!("risk_thr");
+        if storage::has_pending_param_change(&env, &key) {
+            return Err(Error::ParamChangeAlreadyPending);
+        }
+        let now = env.ledger().timestamp();
+        let apply_after = now.saturating_add(storage::get_param_change_delay(&env));
+        storage::set_pending_param_change(
+            &env,
+            &key,
+            &ParamChangeProposal {
+                new_value: ParamValue::U32(threshold),
+                proposed_at: now,
+                apply_after,
+            },
+        );
+        events::param_change_proposed(&env, &key, apply_after);
         Ok(())
     }
 
@@ -1346,7 +1560,8 @@ impl LedgerLensScoreContract {
     }
 
     /// Set the staleness window in seconds. A value of `0` is rejected with
-    /// `InvalidStalenessWindow`. Admin only.
+    /// `InvalidStalenessWindow`. Admin only. The change is time-locked:
+    /// call `apply_param_change` with key `"stale_w"` after the delay elapses.
     pub fn set_staleness_window(
         env: Env,
         admin_signers: Vec<Address>,
@@ -1359,7 +1574,22 @@ impl LedgerLensScoreContract {
             return Err(Error::InvalidStalenessWindow);
         }
         Self::require_admin_auth(&env, &admin_signers)?;
-        storage::set_staleness_window(&env, window_secs);
+        let key = symbol_short!("stale_w");
+        if storage::has_pending_param_change(&env, &key) {
+            return Err(Error::ParamChangeAlreadyPending);
+        }
+        let now = env.ledger().timestamp();
+        let apply_after = now.saturating_add(storage::get_param_change_delay(&env));
+        storage::set_pending_param_change(
+            &env,
+            &key,
+            &ParamChangeProposal {
+                new_value: ParamValue::U64(window_secs),
+                proposed_at: now,
+                apply_after,
+            },
+        );
+        events::param_change_proposed(&env, &key, apply_after);
         Ok(())
     }
 
@@ -1404,8 +1634,22 @@ impl LedgerLensScoreContract {
             return Err(Error::InvalidCooldown);
         }
         Self::require_admin_auth(&env, &admin_signers)?;
-        storage::set_cooldown_secs(&env, secs);
-        events::cooldown_updated(&env, secs);
+        let key = symbol_short!("cooldown");
+        if storage::has_pending_param_change(&env, &key) {
+            return Err(Error::ParamChangeAlreadyPending);
+        }
+        let now = env.ledger().timestamp();
+        let apply_after = now.saturating_add(storage::get_param_change_delay(&env));
+        storage::set_pending_param_change(
+            &env,
+            &key,
+            &ParamChangeProposal {
+                new_value: ParamValue::U64(secs),
+                proposed_at: now,
+                apply_after,
+            },
+        );
+        events::param_change_proposed(&env, &key, apply_after);
         Ok(())
     }
 

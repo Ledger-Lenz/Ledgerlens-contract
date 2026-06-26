@@ -12,13 +12,13 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "set_history_max_depth",
+              "function_name": "set_cooldown",
               "args": [
                 {
                   "vec": []
                 },
                 {
-                  "u32": 50
+                  "u64": 120
                 }
               ]
             }
@@ -79,12 +79,12 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "HistoryMaxDepth"
+                              "symbol": "CooldownSecs"
                             }
                           ]
                         },
                         "val": {
-                          "u32": 50
+                          "u64": 120
                         }
                       },
                       {
@@ -235,7 +235,7 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "set_history_max_depth"
+                "symbol": "set_cooldown"
               }
             ],
             "data": {
@@ -244,7 +244,7 @@
                   "vec": []
                 },
                 {
-                  "u32": 50
+                  "u64": 120
                 }
               ]
             }
@@ -265,7 +265,7 @@
                 "symbol": "pc_prop"
               },
               {
-                "symbol": "hist_dep"
+                "symbol": "cooldown"
               }
             ],
             "data": {
@@ -288,7 +288,7 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "set_history_max_depth"
+                "symbol": "set_cooldown"
               }
             ],
             "data": "void"
@@ -316,7 +316,7 @@
               }
             ],
             "data": {
-              "symbol": "hist_dep"
+              "symbol": "cooldown"
             }
           }
         }
@@ -332,11 +332,11 @@
           "v0": {
             "topics": [
               {
-                "symbol": "hd_upd"
+                "symbol": "cd_upd"
               }
             ],
             "data": {
-              "u32": 50
+              "u64": 120
             }
           }
         }
@@ -356,7 +356,7 @@
               }
             ],
             "data": {
-              "symbol": "hist_dep"
+              "symbol": "cooldown"
             }
           }
         }
@@ -399,7 +399,7 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "get_history_max_depth"
+                "symbol": "get_cooldown"
               }
             ],
             "data": "void"
@@ -420,11 +420,11 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "get_history_max_depth"
+                "symbol": "get_cooldown"
               }
             ],
             "data": {
-              "u32": 50
+              "u64": 120
             }
           }
         }

@@ -92,4 +92,31 @@ pub enum Error {
     /// Returned by `withdraw_fees` when another withdrawal call is already
     /// in-flight (concurrency lock held).
     WithdrawalInProgress = 32,
+
+    // ── Admin multi-sig ────────────────────────────────────────────────────
+    /// `add_admin_signer` was called when the admin set already contains
+    /// `MAX_ADMIN_SIGNERS` members.
+    AdminSetFull = 33,
+    /// A signer passed to an admin function is not a member of the admin set.
+    AdminSignerNotInSet = 34,
+    /// Fewer than the configured admin threshold of signers were provided to
+    /// an admin-gated function.
+    InsufficientAdminSigners = 35,
+
+    // ── Parameter change time-lock ──────────────────────────────────────────
+    /// `apply_param_change` or `cancel_param_change` called but no pending
+    /// proposal exists for the given parameter key.
+    NoPendingParamChange = 36,
+    /// `apply_param_change` called before the proposal's `apply_after`
+    /// timestamp has elapsed.
+    ParamChangeNotReady = 37,
+    /// A parameter change proposal already exists for this key; cancel or
+    /// apply it before proposing a new one.
+    ParamChangeAlreadyPending = 38,
+    /// `set_param_change_delay` called with a value outside the allowed bounds
+    /// `[MIN_PARAM_CHANGE_DELAY_SECS, MAX_PARAM_CHANGE_DELAY_SECS]`.
+    InvalidParamChangeDelay = 39,
+    /// `apply_param_change` called with a key that does not map to any known
+    /// parameter — should not occur via the normal setter paths.
+    UnknownParamKey = 40,
 }

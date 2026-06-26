@@ -110,6 +110,29 @@ pub struct BatchResult {
     pub results: soroban_sdk::Vec<BatchEntryResult>,
 }
 
+/// A pending, time-locked parameter change proposal.
+///
+/// Created by any time-locked parameter setter (e.g. `set_risk_threshold`)
+/// and cleared by `apply_param_change` or `cancel_param_change`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParamChangeProposal {
+    /// The proposed new value for the parameter.
+    pub new_value: ParamValue,
+    /// Ledger timestamp when the proposal was created.
+    pub proposed_at: u64,
+    /// Earliest ledger timestamp at which `apply_param_change` may run.
+    pub apply_after: u64,
+}
+
+/// Typed value payload for a pending parameter change.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ParamValue {
+    U32(u32),
+    U64(u64),
+}
+
 /// A pending, time-locked contract WASM upgrade.
 ///
 /// Created by `propose_upgrade` and cleared by `execute_upgrade` /
@@ -198,10 +221,22 @@ pub enum DataKey {
     /// `DEFAULT_HISTORY_MAX_DEPTH` when unset; bounded above by
     /// `MAX_HISTORY_DEPTH`.
     HistoryMaxDepth,
+    /// Ordered set of N addresses authorised to co-sign admin operations.
+    AdminSet,
+    /// The M-of-N threshold: minimum number of admin-set members that must
+    /// co-sign any admin-tier operation.
+    AdminThreshold,
     /// The SEP-41 token contract address from which fees are withdrawn.
     /// Unset until `set_fee_token` is called.
     FeeToken,
     /// Boolean flag set for the duration of a `withdraw_fees` call to
     /// prevent concurrent duplicate withdrawals.
     WithdrawalLock,
+    /// Pending time-locked parameter change proposal for a given parameter key.
+    /// Keys are well-known short symbols: "risk_thr", "cooldown", "stale_w",
+    /// "upg_dly", "hist_dep", "pc_delay".
+    PendingParamChange(Symbol),
+    /// Admin-configured delay (seconds) before a proposed parameter change
+    /// takes effect. Defaults to `DEFAULT_PARAM_CHANGE_DELAY_SECS` when unset.
+    ParamChangeDelay,
 }

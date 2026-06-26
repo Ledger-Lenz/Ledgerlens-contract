@@ -17,10 +17,10 @@ pub const DEFAULT_RISK_THRESHOLD: u32 = 75;
 
 /// Semantic contract version; bump on breaking ABI changes.
 ///
-/// Bumped to 3 when all admin-tier functions gained `admin_signers: Vec<Address>`
-/// for M-of-N governance and the `AdminSet` / `AdminThreshold` storage keys
-/// were introduced.
-pub const CONTRACT_VERSION: u32 = 3;
+/// Bumped to 4 when all admin parameter setters gained mandatory time-lock
+/// governance: changes are proposed and stored as pending, then applied
+/// after `get_param_change_delay()` seconds via `apply_param_change`.
+pub const CONTRACT_VERSION: u32 = 4;
 
 /// Practical upper bound on the number of distinct asset pairs tracked per
 /// wallet. `get_aggregate_score` iterates the wallet's full `AssetPairs`
@@ -78,3 +78,20 @@ pub const MAX_ADMIN_SIGNERS: u32 = 5;
 
 /// Default staleness window: 7 days in seconds.
 pub const DEFAULT_STALENESS_WINDOW_SECS: u64 = 604_800;
+
+// ── Parameter change time-lock ────────────────────────────────────────────────
+//
+// Every privileged admin parameter setter (risk threshold, cooldown,
+// staleness window, upgrade delay, history depth, and the delay itself)
+// goes through a mandatory delay before taking effect.  This window gives
+// the community time to inspect and react to any change before it is final,
+// preventing a compromised admin key from silently reconfiguring the oracle.
+
+/// Default delay before a proposed parameter change takes effect — 24 hours.
+pub const DEFAULT_PARAM_CHANGE_DELAY_SECS: u64 = 86_400;
+
+/// Minimum configurable param-change delay — 1 hour.
+pub const MIN_PARAM_CHANGE_DELAY_SECS: u64 = 3_600;
+
+/// Maximum configurable param-change delay — 7 days.
+pub const MAX_PARAM_CHANGE_DELAY_SECS: u64 = 604_800;

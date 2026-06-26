@@ -167,7 +167,7 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "get_version"
+                "symbol": "get_param_change_delay"
               }
             ],
             "data": "void"
@@ -188,11 +188,11 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "get_version"
+                "symbol": "get_param_change_delay"
               }
             ],
             "data": {
-              "u32": 4
+              "u64": 86400
             }
           }
         }

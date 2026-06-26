@@ -1,10 +1,10 @@
 use soroban_sdk::{Address, Bytes, Env, Symbol, Vec};
 
 use crate::constants::{
-    DEFAULT_COOLDOWN_SECS, DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS, SCORE_TTL_EXTEND_TO,
-    SCORE_TTL_THRESHOLD,
+    DEFAULT_COOLDOWN_SECS, DEFAULT_PARAM_CHANGE_DELAY_SECS, DEFAULT_RISK_THRESHOLD,
+    DEFAULT_UPGRADE_DELAY_SECS, SCORE_TTL_EXTEND_TO, SCORE_TTL_THRESHOLD,
 };
-use crate::types::{AggregateRiskScore, DataKey, RiskScore, UpgradeProposal};
+use crate::types::{AggregateRiskScore, DataKey, ParamChangeProposal, RiskScore, UpgradeProposal};
 
 // ── Admin / Service ─────────────────────────────────────────────────────────
 
@@ -404,4 +404,33 @@ pub fn set_withdrawal_lock(env: &Env) {
 
 pub fn clear_withdrawal_lock(env: &Env) {
     env.storage().instance().remove(&DataKey::WithdrawalLock);
+}
+
+// ── Parameter change time-lock ────────────────────────────────────────────────
+
+pub fn get_param_change_delay(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::ParamChangeDelay)
+        .unwrap_or(DEFAULT_PARAM_CHANGE_DELAY_SECS)
+}
+
+pub fn set_param_change_delay(env: &Env, delay_secs: u64) {
+    env.storage().instance().set(&DataKey::ParamChangeDelay, &delay_secs);
+}
+
+pub fn has_pending_param_change(env: &Env, key: &Symbol) -> bool {
+    env.storage().instance().has(&DataKey::PendingParamChange(key.clone()))
+}
+
+pub fn set_pending_param_change(env: &Env, key: &Symbol, proposal: &ParamChangeProposal) {
+    env.storage().instance().set(&DataKey::PendingParamChange(key.clone()), proposal);
+}
+
+pub fn get_pending_param_change(env: &Env, key: &Symbol) -> Option<ParamChangeProposal> {
+    env.storage().instance().get(&DataKey::PendingParamChange(key.clone()))
+}
+
+pub fn clear_pending_param_change(env: &Env, key: &Symbol) {
+    env.storage().instance().remove(&DataKey::PendingParamChange(key.clone()));
 }

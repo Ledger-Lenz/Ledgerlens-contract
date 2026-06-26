@@ -12,13 +12,13 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "set_history_max_depth",
+              "function_name": "set_staleness_window",
               "args": [
                 {
                   "vec": []
                 },
                 {
-                  "u32": 50
+                  "u64": 3600
                 }
               ]
             }
@@ -79,24 +79,24 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "HistoryMaxDepth"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u32": 50
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
                               "symbol": "Service"
                             }
                           ]
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "StalenessWindow"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 3600
                         }
                       }
                     ]
@@ -235,7 +235,7 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "set_history_max_depth"
+                "symbol": "set_staleness_window"
               }
             ],
             "data": {
@@ -244,7 +244,7 @@
                   "vec": []
                 },
                 {
-                  "u32": 50
+                  "u64": 3600
                 }
               ]
             }
@@ -265,7 +265,7 @@
                 "symbol": "pc_prop"
               },
               {
-                "symbol": "hist_dep"
+                "symbol": "stale_w"
               }
             ],
             "data": {
@@ -288,7 +288,7 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "set_history_max_depth"
+                "symbol": "set_staleness_window"
               }
             ],
             "data": "void"
@@ -316,27 +316,7 @@
               }
             ],
             "data": {
-              "symbol": "hist_dep"
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "hd_upd"
-              }
-            ],
-            "data": {
-              "u32": 50
+              "symbol": "stale_w"
             }
           }
         }
@@ -356,7 +336,7 @@
               }
             ],
             "data": {
-              "symbol": "hist_dep"
+              "symbol": "stale_w"
             }
           }
         }
@@ -399,7 +379,7 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "get_history_max_depth"
+                "symbol": "get_staleness_window"
               }
             ],
             "data": "void"
@@ -420,11 +400,11 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "get_history_max_depth"
+                "symbol": "get_staleness_window"
               }
             ],
             "data": {
-              "u32": 50
+              "u64": 3600
             }
           }
         }

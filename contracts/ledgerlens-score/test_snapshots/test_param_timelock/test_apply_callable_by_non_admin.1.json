@@ -12,13 +12,13 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "set_history_max_depth",
+              "function_name": "set_risk_threshold",
               "args": [
                 {
                   "vec": []
                 },
                 {
-                  "u32": 50
+                  "u32": 60
                 }
               ]
             }
@@ -79,12 +79,12 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "HistoryMaxDepth"
+                              "symbol": "RiskThreshold"
                             }
                           ]
                         },
                         "val": {
-                          "u32": 50
+                          "u32": 60
                         }
                       },
                       {
@@ -235,7 +235,7 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "set_history_max_depth"
+                "symbol": "set_risk_threshold"
               }
             ],
             "data": {
@@ -244,7 +244,7 @@
                   "vec": []
                 },
                 {
-                  "u32": 50
+                  "u32": 60
                 }
               ]
             }
@@ -265,7 +265,7 @@
                 "symbol": "pc_prop"
               },
               {
-                "symbol": "hist_dep"
+                "symbol": "risk_thr"
               }
             ],
             "data": {
@@ -288,7 +288,7 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "set_history_max_depth"
+                "symbol": "set_risk_threshold"
               }
             ],
             "data": "void"
@@ -316,7 +316,7 @@
               }
             ],
             "data": {
-              "symbol": "hist_dep"
+              "symbol": "risk_thr"
             }
           }
         }
@@ -332,11 +332,18 @@
           "v0": {
             "topics": [
               {
-                "symbol": "hd_upd"
+                "symbol": "thresh"
               }
             ],
             "data": {
-              "u32": 50
+              "vec": [
+                {
+                  "u32": 75
+                },
+                {
+                  "u32": 60
+                }
+              ]
             }
           }
         }
@@ -356,7 +363,7 @@
               }
             ],
             "data": {
-              "symbol": "hist_dep"
+              "symbol": "risk_thr"
             }
           }
         }
@@ -399,7 +406,7 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "get_history_max_depth"
+                "symbol": "get_risk_threshold"
               }
             ],
             "data": "void"
@@ -420,11 +427,11 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "get_history_max_depth"
+                "symbol": "get_risk_threshold"
               }
             ],
             "data": {
-              "u32": 50
+              "u32": 60
             }
           }
         }

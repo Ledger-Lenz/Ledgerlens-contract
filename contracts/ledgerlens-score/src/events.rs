@@ -174,3 +174,20 @@ pub fn fee_withdrawn(
 pub fn withdrawal_locked(env: &Env, admin: &Address) {
     env.events().publish((symbol_short!("wdl_lck"),), admin.clone());
 }
+
+// ── Parameter change time-lock ────────────────────────────────────────────────
+
+/// Emitted when an admin proposes a parameter change.
+pub fn param_change_proposed(env: &Env, key: &Symbol, apply_after: u64) {
+    env.events().publish((symbol_short!("pc_prop"), key.clone()), apply_after);
+}
+
+/// Emitted when a parameter change proposal is applied by `apply_param_change`.
+pub fn param_change_applied(env: &Env, key: &Symbol) {
+    env.events().publish((symbol_short!("pc_appl"),), key.clone());
+}
+
+/// Emitted when a parameter change proposal is cancelled by `cancel_param_change`.
+pub fn param_change_cancelled(env: &Env, key: &Symbol) {
+    env.events().publish((symbol_short!("pc_canc"),), key.clone());
+}
