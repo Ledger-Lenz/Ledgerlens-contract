@@ -4288,9 +4288,8 @@ impl LedgerLensScoreContract {
         }
         let admin = storage::get_admin(&env);
         admin.require_auth();
-        if !storage::peek_is_embargoed(&env, &wallet)
-            && !storage::add_to_embargoed_index(&env, &wallet)
-        {
+        let is_new = !storage::peek_is_embargoed(&env, &wallet);
+        if is_new && !storage::add_to_embargoed_index(&env, &wallet) {
             return Err(Error::EmbargoedWalletIndexFull);
         }
         let embargo_expiry = match expiry {
@@ -4298,6 +4297,9 @@ impl LedgerLensScoreContract {
             Some(ts) => EmbargoExpiry::Until(ts),
         };
         storage::set_embargo(&env, &wallet, &embargo_expiry);
+        if is_new {
+            storage::increment_active_embargo_count(&env);
+        }
         events::embargo_set(&env, &wallet, expiry);
         Ok(())
     }
@@ -4311,8 +4313,12 @@ impl LedgerLensScoreContract {
         }
         let admin = storage::get_admin(&env);
         admin.require_auth();
+        let was_embargoed = storage::peek_is_embargoed(&env, &wallet);
         storage::remove_embargo(&env, &wallet);
         storage::remove_from_embargoed_index(&env, &wallet);
+        if was_embargoed {
+            storage::decrement_active_embargo_count(&env);
+        }
         events::embargo_lifted(&env, &wallet);
         Ok(())
     }
@@ -4347,6 +4353,7 @@ impl LedgerLensScoreContract {
             let wallet = wallets.get(i).unwrap();
             if storage::peek_is_embargoed(&env, &wallet) {
                 storage::remove_embargo(&env, &wallet);
+                storage::decrement_active_embargo_count(&env);
                 events::embargo_lifted(&env, &wallet);
                 lifted += 1;
             }
@@ -4402,6 +4409,7 @@ impl LedgerLensScoreContract {
             events::embargo_lifted(&env, &wallet);
         }
         storage::clear_embargoed_index(&env);
+        storage::reset_active_embargo_count(&env);
         Ok(())
     }
 
@@ -4412,6 +4420,27 @@ impl LedgerLensScoreContract {
     /// never explicitly lifted (see [`revoke_all_embargoes`](Self::revoke_all_embargoes)).
     pub fn get_embargoed_wallet_count(env: Env) -> u32 {
         storage::get_embargoed_wallets(&env).len()
+    }
+
+    /// Returns the number of wallets currently under an active score embargo.
+    ///
+    /// The value is maintained as a persistent counter: incremented by
+    /// [`set_score_embargo`](Self::set_score_embargo) when a **new** embargo is
+    /// placed on a wallet (re-embargoing an already-embargoed wallet does not
+    /// increment), and decremented by
+    /// [`lift_score_embargo`](Self::lift_score_embargo),
+    /// [`batch_lift_score_embargo`](Self::batch_lift_score_embargo), and
+    /// [`revoke_all_embargoes`](Self::revoke_all_embargoes).
+    ///
+    /// Because the counter lives in persistent storage it survives
+    /// temporary-storage TTL eviction, making it a reliable signal for admin
+    /// dashboards and monitoring tools that need a fast, single-read gauge of
+    /// the current embargo load without enumerating all wallets.
+    ///
+    /// Returns `0` when no embargo has ever been set or all embargoes have been
+    /// explicitly lifted.
+    pub fn get_active_embargo_count(env: Env) -> u32 {
+        storage::get_active_embargo_count(&env)
     }
 
     // ── Score dispute mechanism ───────────────────────────────────────────────
@@ -5260,6 +5289,31 @@ impl LedgerLensScoreContract {
     /// ```
     pub fn get_historical_max_score(env: Env, wallet: Address, asset_pair: Symbol) -> u32 {
         storage::get_historical_max_score(&env, &wallet, &asset_pair)
+    }
+
+    /// Returns the minimum allowable score value (`0`). All `submit_score`
+    /// calls must supply a score in `[get_min_score(), get_max_score()]`;
+    /// values below this floor are rejected with [`Error::InvalidScore`].
+    ///
+    /// Read-only — callable by any account or contract without authorization.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_min_score(), 0);
+    /// ```
+    pub fn get_min_score(_env: Env) -> u32 {
+        constants::MIN_SCORE
     }
 
     /// Emergency one-shot override of the score floor for a single

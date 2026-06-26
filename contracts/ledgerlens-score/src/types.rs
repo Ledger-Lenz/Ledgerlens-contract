@@ -383,6 +383,12 @@ pub enum DataKey {
     /// `revoke_all_embargoes` can enumerate and clear them without scanning
     /// the whole wallet space. Capped at `MAX_EMBARGOED_WALLETS`.
     EmbargoedWalletIndex,
+    /// Global persistent counter of wallets currently under an active score
+    /// embargo. Incremented by `set_score_embargo` (new embargoes only) and
+    /// decremented by `lift_score_embargo`, `batch_lift_score_embargo`, and
+    /// `revoke_all_embargoes`. Stored in persistent storage so it survives
+    /// temporary-storage TTL eviction.
+    ActiveEmbargoCount,
     AdminSet,
     AdminThreshold,
     ScoreDelegate(Address),

@@ -1360,6 +1360,54 @@ pub fn remove_from_embargoed_index(env: &Env, wallet: &Address) {
 pub fn clear_embargoed_index(env: &Env) {
     env.storage().temporary().remove(&DataKey::EmbargoedWalletIndex);
 }
+
+// ── Active embargo counter ────────────────────────────────────────────────────
+
+pub fn get_active_embargo_count(env: &Env) -> u32 {
+    let count: u32 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::ActiveEmbargoCount)
+        .unwrap_or(0);
+    if count > 0 {
+        env.storage().persistent().extend_ttl(
+            &DataKey::ActiveEmbargoCount,
+            EMBARGO_TTL_THRESHOLD,
+            EMBARGO_TTL_EXTEND_TO,
+        );
+    }
+    count
+}
+
+pub fn increment_active_embargo_count(env: &Env) {
+    let new_count = get_active_embargo_count(env).saturating_add(1);
+    env.storage().persistent().set(&DataKey::ActiveEmbargoCount, &new_count);
+    env.storage().persistent().extend_ttl(
+        &DataKey::ActiveEmbargoCount,
+        EMBARGO_TTL_THRESHOLD,
+        EMBARGO_TTL_EXTEND_TO,
+    );
+}
+
+pub fn decrement_active_embargo_count(env: &Env) {
+    let current = get_active_embargo_count(env);
+    let new_count = current.saturating_sub(1);
+    if new_count == 0 {
+        env.storage().persistent().remove(&DataKey::ActiveEmbargoCount);
+    } else {
+        env.storage().persistent().set(&DataKey::ActiveEmbargoCount, &new_count);
+        env.storage().persistent().extend_ttl(
+            &DataKey::ActiveEmbargoCount,
+            EMBARGO_TTL_THRESHOLD,
+            EMBARGO_TTL_EXTEND_TO,
+        );
+    }
+}
+
+pub fn reset_active_embargo_count(env: &Env) {
+    env.storage().persistent().remove(&DataKey::ActiveEmbargoCount);
+}
+
 // ── Band entry timestamp ──────────────────────────────────────────────────────
 
 /// Returns the ledger timestamp at which `wallet` first entered the high-risk
