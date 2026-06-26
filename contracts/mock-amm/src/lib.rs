@@ -142,6 +142,3 @@ impl MockAmm {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod test;

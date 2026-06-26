@@ -679,6 +679,40 @@ pub fn prune_expired_parameter_proposals(env: &Env) {
     }
 }
 
+/// Seeds `count` pending proposals directly in storage for cap tests without
+/// replaying the full propose flow (keeps Soroban test snapshots small).
+#[cfg(test)]
+pub fn test_seed_pending_parameter_proposals(
+    env: &Env,
+    count: u32,
+    proposer: &Address,
+    param_key: &Symbol,
+    new_value: &Bytes,
+) {
+    use crate::types::{ParameterProposal, ParameterProposalRecord, ParameterProposalStatus};
+
+    let now = env.ledger().timestamp();
+    let time_lock_secs = get_upgrade_delay(env);
+    for i in 1..=count {
+        let proposal = ParameterProposal {
+            param_key: param_key.clone(),
+            new_value: new_value.clone(),
+            proposer: proposer.clone(),
+            proposed_at: now,
+            time_lock_secs,
+        };
+        let record = ParameterProposalRecord {
+            proposal,
+            status: ParameterProposalStatus::Pending,
+        };
+        set_parameter_proposal_record(env, i as u64, &record);
+        push_pending_parameter_proposal(env, i as u64);
+    }
+    env.storage()
+        .instance()
+        .set(&DataKey::ParameterProposalNextId, &(count as u64 + 1));
+}
+
 // ── Multi-sig admin set ──────────────────────────────────────────────────────
 
 pub fn get_admin_set(env: &Env) -> Vec<Address> {

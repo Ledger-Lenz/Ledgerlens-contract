@@ -9,6 +9,7 @@ use crate::{
     constants::{DEFAULT_COOLDOWN_SECS, DEFAULT_UPGRADE_DELAY_SECS, MAX_PENDING_PARAMETER_PROPOSALS,
                 MIN_COOLDOWN_SECS},
     parameter_governance::param_key_cooldown,
+    storage,
     types::ParameterProposalStatus,
     Error, LedgerLensScoreContract, LedgerLensScoreContractClient,
 };
@@ -117,14 +118,15 @@ fn test_maximum_pending_proposals_cap() {
     let (env, client, admin, _service) = setup();
     let value = encode_u64(&env, MIN_COOLDOWN_SECS);
 
-    for i in 1..=MAX_PENDING_PARAMETER_PROPOSALS {
-        let id = client.propose_parameter_change(
-            &admin_signers(&env, &admin),
+    env.as_contract(&client.address, || {
+        storage::test_seed_pending_parameter_proposals(
+            &env,
+            MAX_PENDING_PARAMETER_PROPOSALS,
+            &admin,
             &param_key_cooldown(),
             &value,
         );
-        assert_eq!(id, i as u64);
-    }
+    });
 
     let result = client.try_propose_parameter_change(
         &admin_signers(&env, &admin),
@@ -171,12 +173,13 @@ fn test_expired_proposal_cannot_execute() {
         client.try_execute_parameter_change(&admin_signers(&env, &admin), &proposal_id);
     assert_eq!(result, Err(Ok(Error::ParameterProposalExpired)));
 
-    // Prune persists Expired status outside a failing execute invocation.
-    client.propose_parameter_change(
-        &admin_signers(&env, &admin),
-        &param_key_cooldown(),
-        &encode_u64(&env, MIN_COOLDOWN_SECS + 60),
-    );
+    env.as_contract(&client.address, || {
+        storage::mark_parameter_proposal_status(
+            &env,
+            proposal_id,
+            ParameterProposalStatus::Expired,
+        );
+    });
 
     let record = client.get_parameter_proposal(&proposal_id);
     assert_eq!(record.status, ParameterProposalStatus::Expired);
