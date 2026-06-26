@@ -13,12 +13,19 @@ doctest = true
 
 [dependencies]
 soroban-sdk = "21.0.0"
+subtle = { version = "2.6", default-features = false }
 
 [dev-dependencies]
 soroban-sdk = { version = "21.0.0", features = ["testutils"] }
 # Used only by tests, to produce real secp256k1 ECDSA signatures that
 # exercise `verify_attestation` end-to-end (see `test_attestation.rs`).
 k256 = { version = "0.13.4", features = ["ecdsa"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "batch_submit"
+harness = false
+path = "benches/batch_submit.rs"
 
 [features]
 testutils = ["soroban-sdk/testutils"]
@@ -29,4 +36,9 @@ testutils = ["soroban-sdk/testutils"]
 [[example]]
 name = "amm_gate"
 path = "../../examples/amm_gate.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "amm_gate_example"
+path = "../../examples/amm_gate_example.rs"
 crate-type = ["lib"]
