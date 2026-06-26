@@ -83,6 +83,12 @@ mod test_breach_counter_reset;
 #[cfg(test)]
 mod test_query_helpers;
 
+#[cfg(test)]
+mod test_signer_reputation;
+
+#[cfg(test)]
+mod test_oracle_adapter;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN, Env, Symbol,
     SymbolStr, TryFromVal, Vec,
@@ -93,9 +99,10 @@ pub use events::{ServiceResumedEvent, ServiceSilenceAlertEvent};
 pub use types::{
     AggregateRiskScore, BatchAttestation, BatchEntryResult, BatchResult, BatchScoreResult,
     EffectiveRiskScore, EmbargoExpiry, MaybeRiskScore, ModelSubmission, ModelVersionStats,
-    PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput, ScoreDispute, ScoreFloorPolicy,
-    ScoreHistogram, ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof, ScoreTrend,
-    ScoreVelocityCap, ThresholdAttestation, UpgradeProposal,
+    OraclePriceRecord, PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput,
+    ScoreDispute, ScoreFloorPolicy, ScoreHistogram, ScoreQuery, ScoreSubmission,
+    ScoreSubmissionWithProof, ScoreTrend, ScoreVelocityCap, SignerAccuracyRecord,
+    ThresholdAttestation, UpgradeProposal,
 };
 /// The 32-byte all-zeros field element used as the value in non-membership proofs.
 pub use verkle::NON_MEMBER_SENTINEL;
@@ -625,8 +632,9 @@ impl LedgerLensScoreContract {
             return Err(Error::InsufficientConsensus);
         }
 
-        let median_score = Self::median_score_for_indices(&submissions, &consensus_indices)
-            .ok_or(Error::InsufficientConsensus)?;
+        let median_score =
+            Self::weighted_mean_score(&env, &submissions, &consensus_indices)
+                .ok_or(Error::InsufficientConsensus)?;
         let median_confidence =
             Self::median_confidence_for_indices(&submissions, &consensus_indices).unwrap_or(0);
         let benford_flag = Self::any_benford_flag(&submissions, &consensus_indices);
@@ -651,21 +659,20 @@ impl LedgerLensScoreContract {
             epsilon,
         );
 
-        // ── Bayesian posterior update ──────────────────────────────────────
-        // For each consensus model, update its posterior weight by penalising
-        // squared deviation from the accepted median:
-        //   new_weight = max(1, prior_weight - k * (median - score)^2)
-        // where k = 1 (fixed) and all weights are scaled by BAYESIAN_WEIGHT_SCALE.
+        // ── Bayesian posterior update + signer accuracy ────────────────────
         for i in 0..consensus_indices.len() {
             let idx = consensus_indices.get(i).unwrap();
             let sub = submissions.get(idx).unwrap();
+            // Bayesian weight
             let version = sub.model_version;
             let prior = storage::get_model_posterior_weight(&env, version);
             let diff = (median_score as i64) - (sub.score as i64);
-            let penalty = (diff * diff) as u64; // squared error, unscaled
-                                                // Scale penalty by 1 (k=1) — subtract from weight directly
+            let penalty = (diff * diff) as u64;
             let new_weight = prior.saturating_sub(penalty).max(1);
             storage::set_model_posterior_weight(&env, version, new_weight);
+            // Signer accuracy (rolling MAD)
+            let abs_dev = (median_score as i64 - sub.score as i64).unsigned_abs() as u32;
+            Self::update_signer_accuracy(&env, &sub.model, abs_dev);
         }
 
         Ok(())
@@ -713,15 +720,24 @@ impl LedgerLensScoreContract {
         if valid_indices.is_empty() {
             return Err(Error::InsufficientConsensus);
         }
-        let median_score = Self::median_score_for_indices(&submissions, &valid_indices)
-            .ok_or(Error::InsufficientConsensus)?;
+        let consensus_score =
+            Self::weighted_mean_score(&env, &submissions, &valid_indices)
+                .ok_or(Error::InsufficientConsensus)?;
         let median_confidence =
             Self::median_confidence_for_indices(&submissions, &valid_indices).unwrap_or(0);
         let benford_flag = Self::any_benford_flag(&submissions, &valid_indices);
         let ml_flag = Self::any_ml_flag(&submissions, &valid_indices);
-        let risk_score = RiskScore { score: median_score, benford_flag, ml_flag, timestamp, confidence: median_confidence, model_version: 0 };
+        let risk_score = RiskScore { score: consensus_score, benford_flag, ml_flag, timestamp, confidence: median_confidence, model_version: 0 };
         storage::set_last_global_submission_time(&env, env.ledger().timestamp());
-        Self::write_score_with_rate_limit(&env, &wallet, &asset_pair, &risk_score)
+        Self::write_score_with_rate_limit(&env, &wallet, &asset_pair, &risk_score)?;
+        // Update per-model signer accuracy
+        for i in 0..valid_indices.len() {
+            let idx = valid_indices.get(i).unwrap();
+            let sub = submissions.get(idx).unwrap();
+            let abs_dev = (consensus_score as i64 - sub.score as i64).unsigned_abs() as u32;
+            Self::update_signer_accuracy(&env, &sub.model, abs_dev);
+        }
+        Ok(())
     }
 
     /// Submit multiple risk scores in a single invocation.  The service
@@ -1635,11 +1651,35 @@ impl LedgerLensScoreContract {
             score.score
         };
 
+        // ── Oracle confidence adjustment ───────────────────────────────────
+        // If an oracle is registered for this asset pair, retrieve the current
+        // price and reduce confidence proportionally when the price is
+        // extremely high (indicating elevated volatility risk). The adjustment
+        // is: confidence_floor = min(50, oracle_floor) where oracle_floor = 0
+        // for prices ≤ 0 (unavailable / invalid) and scales linearly from 0 to
+        // 50 as the price grows beyond a reference level of 1_000_000 units.
+        // This is intentionally conservative: scores survive intact; only the
+        // caller's confidence floor perception changes.
+        let oracle_confidence_floor: u32 = if let Some(oracle_addr) =
+            storage::get_registered_oracle(&env, &asset_pair)
+        {
+            let price: i128 = env
+                .invoke_contract(&oracle_addr, &soroban_sdk::symbol_short!("get_price"), soroban_sdk::Vec::from_array(&env, [asset_pair.to_val()]));
+            if price <= 0 {
+                0
+            } else {
+                // floor rises 1 point per 20_000 units above zero, capped at 50.
+                ((price / 20_000).min(50)) as u32
+            }
+        } else {
+            0
+        };
+
         Ok(EffectiveRiskScore {
             original_score: score.score,
             effective_score,
             original_confidence: score.confidence,
-            confidence_floor: 0,
+            confidence_floor: oracle_confidence_floor,
             delegated_to: None,
         })
     }
@@ -5829,6 +5869,57 @@ impl LedgerLensScoreContract {
         Self::kth_score_for_indices(submissions, indices, kth)
     }
 
+    /// Compute a weighted mean score for the given indices using per-model
+    /// signer reputation weights. Falls back to the plain median when all
+    /// weights are equal or the weighted sum overflows.
+    fn weighted_mean_score(
+        env: &Env,
+        submissions: &Vec<ModelSubmission>,
+        indices: &Vec<u32>,
+    ) -> Option<u32> {
+        if indices.is_empty() {
+            return None;
+        }
+        let mut weight_sum: u64 = 0;
+        let mut weighted_score_sum: u64 = 0;
+        for i in 0..indices.len() {
+            let idx = indices.get(i).unwrap();
+            let sub = submissions.get(idx).unwrap();
+            let record = storage::get_signer_accuracy(env, &sub.model);
+            // weight = 1000 / (mad_scaled + 1); fresh signers have mad_scaled=0 → weight=1000
+            let mad_scaled = record.map(|r| r.mad_scaled).unwrap_or(0);
+            let weight: u64 = 1000u64 / (mad_scaled.saturating_add(1));
+            let weight = weight.max(1);
+            weight_sum = weight_sum.saturating_add(weight);
+            weighted_score_sum =
+                weighted_score_sum.saturating_add(weight.saturating_mul(sub.score as u64));
+        }
+        if weight_sum == 0 {
+            return Self::median_score_for_indices(submissions, indices);
+        }
+        Some((weighted_score_sum / weight_sum) as u32)
+    }
+
+    /// Update a signer's rolling mean absolute deviation (MAD) record after a
+    /// consensus round in which they participated.
+    ///
+    /// `mad_scaled_new = (mad_scaled_old * (count-1) + abs_dev * 1000) / count`
+    fn update_signer_accuracy(
+        env: &Env,
+        signer: &Address,
+        abs_deviation: u32,
+    ) {
+        let record = storage::get_signer_accuracy(env, signer)
+            .unwrap_or(SignerAccuracyRecord { count: 0, mad_scaled: 0 });
+        let new_count = record.count.saturating_add(1);
+        let abs_dev_scaled = (abs_deviation as u64).saturating_mul(1000);
+        let new_mad = (record.mad_scaled.saturating_mul(record.count).saturating_add(abs_dev_scaled))
+            / new_count;
+        let updated = SignerAccuracyRecord { count: new_count, mad_scaled: new_mad };
+        storage::set_signer_accuracy(env, signer, &updated);
+        events::signer_accuracy_updated(env, signer, new_mad, new_count);
+    }
+
     fn median_confidence_for_indices(
         submissions: &Vec<ModelSubmission>,
         indices: &Vec<u32>,
@@ -6491,6 +6582,76 @@ impl LedgerLensScoreContract {
 
         storage::set_verkle_commitment_raw(env, &commit);
         storage::set_verkle_leaf(env, wallet, asset_pair, &leaf_new);
+    }
+
+    // ── Signer reputation (issue #274) ────────────────────────────────────────
+
+    /// Returns the current accuracy record for `signer`, or `None` if the
+    /// signer has never participated in a consensus round.
+    pub fn get_signer_accuracy(
+        env: Env,
+        signer: Address,
+    ) -> Option<SignerAccuracyRecord> {
+        storage::get_signer_accuracy(&env, &signer)
+    }
+
+    /// Admin-only. Clears the accuracy record for `signer`, resetting their
+    /// reputation to a neutral starting state.
+    pub fn reset_signer_accuracy(
+        env: Env,
+        admin_signers: Vec<Address>,
+        signer: Address,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::remove_signer_accuracy(&env, &signer);
+        events::signer_accuracy_reset(&env, &signer);
+        Ok(())
+    }
+
+    // ── Oracle adapter (issue #276) ────────────────────────────────────────────
+
+    /// Admin-only. Registers (or replaces) the oracle contract for `asset_pair`.
+    /// The oracle must implement `OracleAdapterTrait::get_price(asset_pair)`.
+    pub fn register_oracle(
+        env: Env,
+        admin_signers: Vec<Address>,
+        asset_pair: Symbol,
+        oracle_contract: Address,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_registered_oracle(&env, &asset_pair, &oracle_contract);
+        events::oracle_registered(&env, &asset_pair, &oracle_contract);
+        Ok(())
+    }
+
+    /// Admin-only. Removes the oracle registration for `asset_pair`.
+    pub fn remove_oracle(
+        env: Env,
+        admin_signers: Vec<Address>,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::remove_registered_oracle(&env, &asset_pair);
+        events::oracle_removed(&env, &asset_pair);
+        Ok(())
+    }
+
+    /// Returns the registered oracle contract address for `asset_pair`, or
+    /// `None` if none has been registered.
+    pub fn get_registered_oracle(
+        env: Env,
+        asset_pair: Symbol,
+    ) -> Option<Address> {
+        storage::get_registered_oracle(&env, &asset_pair)
     }
 }
 

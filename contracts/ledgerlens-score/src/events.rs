@@ -516,3 +516,41 @@ pub fn model_version_registered(env: &Env, version: u32) {
 pub fn entry_ttls_extended(env: &Env, renewed: u32, requested: u32) {
     env.events().publish((symbol_short!("ttl_ext"),), (renewed, requested));
 }
+
+// ── Signer accuracy (reputation weighting) ────────────────────────────────────
+
+/// Emitted after each consensus round when a participating signer's accuracy
+/// record has been updated. `mad_scaled` is the new MAD × 1000, `count` the
+/// total number of rounds the signer has participated in.
+pub fn signer_accuracy_updated(
+    env: &soroban_sdk::Env,
+    signer: &soroban_sdk::Address,
+    mad_scaled: u64,
+    count: u64,
+) {
+    env.events().publish(
+        (symbol_short!("sgn_acc"), signer.clone()),
+        (mad_scaled, count),
+    );
+}
+
+/// Emitted when the admin resets a signer's accuracy record.
+pub fn signer_accuracy_reset(env: &soroban_sdk::Env, signer: &soroban_sdk::Address) {
+    env.events().publish((symbol_short!("sgn_rst"), signer.clone()), ());
+}
+
+// ── Oracle adapter registry ────────────────────────────────────────────────────
+
+/// Emitted when the admin registers (or replaces) an oracle for an asset pair.
+pub fn oracle_registered(
+    env: &soroban_sdk::Env,
+    asset_pair: &soroban_sdk::Symbol,
+    oracle: &soroban_sdk::Address,
+) {
+    env.events().publish((symbol_short!("orc_reg"), asset_pair.clone()), oracle.clone());
+}
+
+/// Emitted when the admin removes an oracle registration for an asset pair.
+pub fn oracle_removed(env: &soroban_sdk::Env, asset_pair: &soroban_sdk::Symbol) {
+    env.events().publish((symbol_short!("orc_rm"), asset_pair.clone()), ());
+}

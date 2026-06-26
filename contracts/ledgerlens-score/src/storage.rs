@@ -8,7 +8,7 @@ use crate::errors::Error;
 use crate::types::{
     AggregateRiskScore, DataKey, EmbargoExpiry, GateDataKey, JumpStats, ModelVersionStats,
     PendingScoreEntry, RiskScore, ScoreDispute, ScoreFloorPolicy, ScoreHistogram, ScoreTrend,
-    ScoreVelocityCap, UpgradeProposal,
+    ScoreVelocityCap, SignerAccuracyRecord, UpgradeProposal,
 };
 use soroban_sdk::{Address, Bytes, Env, Symbol, Vec};
 
@@ -1655,4 +1655,39 @@ pub fn set_signer_rotation_grace(env: &Env, grace_secs: u64) {
 
 pub fn set_reveal_window_secs(env: &Env, secs: u64) {
     env.storage().instance().set(&DataKey::RevealWindowSecs, &secs);
+}
+
+// ── Signer accuracy (reputation weighting) ────────────────────────────────────
+
+/// Returns the stored accuracy record for `signer`, or `None` if the signer
+/// has never participated in a consensus round.
+pub fn get_signer_accuracy(env: &Env, signer: &Address) -> Option<SignerAccuracyRecord> {
+    env.storage().instance().get(&DataKey::SignerAccuracy(signer.clone()))
+}
+
+/// Persists the accuracy record for `signer`.
+pub fn set_signer_accuracy(env: &Env, signer: &Address, record: &SignerAccuracyRecord) {
+    env.storage().instance().set(&DataKey::SignerAccuracy(signer.clone()), record);
+}
+
+/// Removes the accuracy record for `signer` (admin reset).
+pub fn remove_signer_accuracy(env: &Env, signer: &Address) {
+    env.storage().instance().remove(&DataKey::SignerAccuracy(signer.clone()));
+}
+
+// ── Oracle adapter registry ────────────────────────────────────────────────────
+
+/// Returns the oracle contract address registered for `asset_pair`, or `None`.
+pub fn get_registered_oracle(env: &Env, asset_pair: &Symbol) -> Option<Address> {
+    env.storage().instance().get(&DataKey::RegisteredOracle(asset_pair.clone()))
+}
+
+/// Registers (or replaces) the oracle contract for `asset_pair`.
+pub fn set_registered_oracle(env: &Env, asset_pair: &Symbol, oracle: &Address) {
+    env.storage().instance().set(&DataKey::RegisteredOracle(asset_pair.clone()), oracle);
+}
+
+/// Removes the oracle registration for `asset_pair`.
+pub fn remove_registered_oracle(env: &Env, asset_pair: &Symbol) {
+    env.storage().instance().remove(&DataKey::RegisteredOracle(asset_pair.clone()));
 }

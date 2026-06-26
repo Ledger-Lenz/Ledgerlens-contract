@@ -435,6 +435,10 @@ pub enum DataKey {
     ScoreEntryIndex,
     ScoreEntryLastTouchedLedger(Address, Symbol),
     ModelVersionIndex,
+    /// Per-signer rolling accuracy record for reputation weighting in consensus.
+    SignerAccuracy(Address),
+    /// Registered oracle contract address for a given asset pair.
+    RegisteredOracle(Symbol),
 }
 
 impl DataKey {
@@ -546,6 +550,8 @@ impl DataKey {
             DataKey::JumpStats(w, s) => k2!("JumpStats", w, s),
             DataKey::FeeRecipient => k0!("FeeRecipient"),
             DataKey::EmbargoedWalletIndex => k0!("EmbargoedWIndex"),
+            DataKey::SignerAccuracy(a) => k1!("SignerAccuracy", a),
+            DataKey::RegisteredOracle(s) => k1!("RegOracle", s),
         }
     }
 }
@@ -593,4 +599,38 @@ pub struct VerkleLeaf {
     pub score: u32,
     pub timestamp: u64,
     pub model_version: u32,
+}
+
+/// Rolling accuracy record for a single consensus signer.
+///
+/// Tracks the mean absolute deviation (MAD) of the signer's submitted scores
+/// from the accepted consensus median, used to weight each signer's contribution
+/// in subsequent consensus rounds. `count` is the number of rounds the signer
+/// has participated in; `mad_scaled` is the running MAD × 1000 to preserve
+/// precision while staying within `u64`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SignerAccuracyRecord {
+    /// Number of consensus rounds this signer has participated in.
+    pub count: u64,
+    /// Running mean absolute deviation × 1000 (integer, rounded).
+    pub mad_scaled: u64,
+}
+
+/// Snapshot of the price returned by a registered oracle for a single asset pair.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OraclePriceRecord {
+    /// Latest price from the oracle (raw, oracle-defined units).
+    pub price: i128,
+    /// Ledger timestamp at which the price was fetched.
+    pub fetched_at: u64,
+}
+
+/// Interface that every registered price-feed oracle must implement.
+/// Register an oracle via `register_oracle(asset_pair, oracle_contract)`;
+/// the contract calls `get_price(asset_pair)` on each `get_effective_score`
+/// invocation to retrieve the current market price.
+pub trait OracleAdapterTrait {
+    fn get_price(env: soroban_sdk::Env, asset_pair: Symbol) -> i128;
 }
