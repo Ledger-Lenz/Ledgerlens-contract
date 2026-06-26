@@ -42,6 +42,7 @@ pub struct RiskScore {
     pub benford_score: u32,
     pub ml_score: u32,
     pub network_score: u32,
+    pub commitment: Option<Bytes>,
 }
 
 /// Query descriptor for a batch score read.
@@ -142,14 +143,29 @@ pub struct ThresholdAttestation {
     pub contract_version: u32,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MaybeScoreAttestation {
+    None,
+    Some(ScoreAttestation),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MaybeThresholdAttestation {
+    None,
+    Some(ThresholdAttestation),
+}
+
 /// Unified attestation input for `submit_score`.
 /// Wraps both attestation variants so the function stays within
 /// Soroban's 10-parameter limit.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ScoreAttestationInput {
-    Single(ScoreAttestation),
-    Threshold(ThresholdAttestation),
+pub struct ScoreAttestationInput {
+    pub attestation: MaybeScoreAttestation,
+    pub threshold_attestation: MaybeThresholdAttestation,
+    pub commitment: Option<Bytes>,
 }
 
 /// Per-model-version aggregate stats, returned by `get_model_version_stats`.
@@ -180,6 +196,7 @@ pub struct PendingScoreEntry {
     pub timestamp: u64,
     pub commit_after: u64,
     pub submitted_by: Address,
+    pub commitment: Option<Bytes>,
 }
 
 #[contracttype]
