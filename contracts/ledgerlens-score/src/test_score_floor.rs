@@ -91,6 +91,17 @@ fn test_default_policy_is_disabled() {
 }
 
 #[test]
+fn test_score_floor_getters_return_defaults_and_configured_values() {
+    let (env, client, _) = setup();
+    assert_eq!(client.get_score_floor_high_water_mark(), 80);
+    assert_eq!(client.get_score_floor_min_value(), 20);
+
+    client.set_score_floor_policy(&Vec::new(&env), &true, &90, &15);
+    assert_eq!(client.get_score_floor_high_water_mark(), 90);
+    assert_eq!(client.get_score_floor_min_value(), 15);
+}
+
+#[test]
 fn test_historical_max_defaults_to_zero() {
     let (env, client, _) = setup();
     let wallet = Address::generate(&env);

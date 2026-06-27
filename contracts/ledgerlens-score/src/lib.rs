@@ -6041,6 +6041,51 @@ impl LedgerLensScoreContract {
         storage::get_score_floor_policy(&env)
     }
 
+    /// Returns the high-water mark threshold above which the floor policy
+    /// activates for a wallet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_score_floor_policy(&Vec::new(&env), &true, &90, &15);
+    /// assert_eq!(client.get_score_floor_high_water_mark(), 90);
+    /// ```
+    pub fn get_score_floor_high_water_mark(env: Env) -> u32 {
+        storage::get_score_floor_policy(&env).high_water_mark
+    }
+
+    /// Returns the minimum score allowed once the floor policy is active.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_score_floor_policy(&Vec::new(&env), &true, &90, &15);
+    /// assert_eq!(client.get_score_floor_min_value(), 15);
+    /// ```
+    pub fn get_score_floor_min_value(env: Env) -> u32 {
+        storage::get_score_floor_policy(&env).floor_value
+    }
+
     /// Returns the highest score ever recorded for `(wallet, asset_pair)`, or
     /// `0` if no score has ever been accepted. This running peak is what the
     /// floor compares against `high_water_mark`. Read-only, callable by any
@@ -6397,9 +6442,25 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    /// Returns the configured fee token address, or `NotFound` if none.
-    pub fn get_fee_token(env: Env) -> Result<Address, Error> {
-        storage::get_fee_token(&env).ok_or(Error::FeeTokenNotSet)
+    /// Returns the configured SEP-41 fee token address, or `None` if fees are not configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_fee_token(), None);
+    /// ```
+    pub fn get_fee_token(env: Env) -> Option<Address> {
+        storage::get_fee_token(&env)
     }
 
     /// Registers the only address allowed to receive fee withdrawals.
@@ -6544,13 +6605,29 @@ impl LedgerLensScoreContract {
         Ok(storage::get_service(&env))
     }
 
-    /// Returns the address nominated as the pending new admin, or
-    /// `NoPendingAdminTransfer` if no transfer is in progress.
-    pub fn get_pending_admin(env: Env) -> Result<Address, Error> {
-        if !storage::has_admin(&env) {
-            return Err(Error::NotInitialized);
-        }
-        storage::get_pending_admin(&env).ok_or(Error::NoPendingAdminTransfer)
+    /// Returns the address nominated as the pending new admin, or `None` if
+    /// no transfer is in progress.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_pending_admin(), None);
+    /// let new_admin = Address::generate(&env);
+    /// client.transfer_admin(&Vec::new(&env), &new_admin);
+    /// assert_eq!(client.get_pending_admin(), Some(new_admin));
+    /// ```
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        storage::get_pending_admin(&env)
     }
 
     /// Returns `true` if an admin transfer has been initiated but not yet
