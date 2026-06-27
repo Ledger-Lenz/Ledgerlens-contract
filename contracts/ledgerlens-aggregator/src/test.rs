@@ -48,3 +48,19 @@ fn test_get_consensus_threshold_k() {
     assert_eq!(k, 5, "Should return the configured consensus threshold K");
     assert!(k >= 3, "K should be at least 3 for meaningful consensus");
 }
+
+#[test]
+fn test_get_watchlist_status() {
+    let env = TestEnv::default();
+    let contract_id = env.register_contract(None, LedgerLens);
+    let client = LedgerLensClient::new(&env, &contract_id);
+
+    let watched_wallet = Address::generate(&env);
+    let unwatched_wallet = Address::generate(&env);
+
+    // Test unwatched (default)
+    assert_eq!(client.get_watchlist_status(&unwatched_wallet), false);
+
+    // TODO: Add logic to add to watchlist and test true case
+    // For now, this verifies the function signature and basic behavior
+}
