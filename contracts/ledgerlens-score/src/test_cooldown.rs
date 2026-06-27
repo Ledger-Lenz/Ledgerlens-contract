@@ -285,9 +285,9 @@ fn test_override_on_never_submitted_pair_is_noop() {
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
 
-    assert_eq!(client.get_last_submit_time(&wallet, &pair), 0);
+    assert!(client.get_last_submit_time(&wallet, &pair).is_none());
     client.override_rate_limit(&Vec::new(&env), &wallet, &pair, &soroban_sdk::Bytes::from_slice(&env, b"admin"));
-    assert_eq!(client.get_last_submit_time(&wallet, &pair), 0);
+    assert!(client.get_last_submit_time(&wallet, &pair).is_none());
 
     // First submit after a no-op override still works.
     submit(&env, &client, &wallet, &pair, 42);
@@ -305,7 +305,7 @@ fn test_double_override_is_idempotent() {
     client.override_rate_limit(&Vec::new(&env), &wallet, &pair, &soroban_sdk::Bytes::from_slice(&env, b"admin"));
     client.override_rate_limit(&Vec::new(&env), &wallet, &pair, &soroban_sdk::Bytes::from_slice(&env, b"admin"));
 
-    assert_eq!(client.get_last_submit_time(&wallet, &pair), 0);
+    assert!(client.get_last_submit_time(&wallet, &pair).is_none());
     submit(&env, &client, &wallet, &pair, 70);
     assert_eq!(client.get_score(&wallet, &pair).score, 70);
 }

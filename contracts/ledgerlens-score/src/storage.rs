@@ -842,6 +842,14 @@ pub fn get_last_submit_time(env: &Env, wallet: &Address, asset_pair: &Symbol) ->
     result.unwrap_or(0)
 }
 
+/// Returns the last accepted submission timestamp as `Some(ts)`, or `None` if
+/// no submission has ever been recorded for `(wallet, asset_pair)`.
+/// Does not extend the storage TTL.
+pub fn get_last_submit_time_opt(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<u64> {
+    let key = DataKey::LastSubmitTime(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().get(&key)
+}
+
 pub fn set_last_submit_time(env: &Env, wallet: &Address, asset_pair: &Symbol, timestamp: u64) {
     let key = DataKey::LastSubmitTime(wallet.clone(), asset_pair.clone());
     env.storage().persistent().set(&key, &timestamp);

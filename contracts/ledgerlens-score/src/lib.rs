@@ -3215,7 +3215,6 @@ impl LedgerLensScoreContract {
         data[0] = 0x02; // action: add_service_signer
         Self::append_governance_action_raw(&env, &data);
         Ok(())
-        Ok(())
     }
 
     /// Remove `signer` from the M-of-N service signer set.  Admin only.
@@ -5939,11 +5938,15 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    /// Returns the ledger timestamp of the last accepted submission for
-    /// `(wallet, asset_pair)`, or `0` if none has ever been accepted (or it
-    /// was cleared by `override_rate_limit`).
-    pub fn get_last_submit_time(env: Env, wallet: Address, asset_pair: Symbol) -> u64 {
-        storage::get_last_submit_time(&env, &wallet, &asset_pair)
+    /// Returns the Unix timestamp of the last accepted score submission for
+    /// `(wallet, asset_pair)`.
+    ///
+    /// - `Some(ts)` — a submission has been accepted; `ts` is the ledger
+    ///   timestamp at the time of acceptance.
+    /// - `None` — no submission has ever been accepted for this pair, or the
+    ///   submission record was cleared by `override_rate_limit`.
+    pub fn get_last_submit_time(env: Env, wallet: Address, asset_pair: Symbol) -> Option<u64> {
+        storage::get_last_submit_time_opt(&env, &wallet, &asset_pair)
     }
 
     // ── Score submission floor ────────────────────────────────────────────────
