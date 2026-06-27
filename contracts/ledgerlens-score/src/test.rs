@@ -1748,6 +1748,72 @@ fn test_set_pair_weight_batch_too_large_returns_error() {
     assert_eq!(result, Err(Ok(Error::BatchTooLarge)));
 }
 
+// ── bulk_reset_pair_weight ────────────────────────────────────────────────────
+
+#[test]
+fn test_bulk_reset_pair_weight_removes_custom_weights() {
+    let (env, client, _admin, _service) = initialized();
+    let pair_a = symbol_short!("XLM_USDC");
+    let pair_b = Symbol::new(&env, "XLM_BTC");
+
+    client.set_pair_weight(&Vec::new(&env), &pair_a, &5).unwrap();
+    client.set_pair_weight(&Vec::new(&env), &pair_b, &3).unwrap();
+    assert_eq!(client.get_pair_weight(&pair_a), 5);
+    assert_eq!(client.get_pair_weight(&pair_b), 3);
+
+    let mut pairs: Vec<Symbol> = Vec::new(&env);
+    pairs.push_back(pair_a.clone());
+    pairs.push_back(pair_b.clone());
+    client.bulk_reset_pair_weight(&Vec::new(&env), &pairs).unwrap();
+
+    // Custom weights removed — default of 1 is returned.
+    assert_eq!(client.get_pair_weight(&pair_a), 1);
+    assert_eq!(client.get_pair_weight(&pair_b), 1);
+}
+
+#[test]
+fn test_bulk_reset_pair_weight_skips_pairs_without_custom_weight() {
+    let (env, client, _admin, _service) = initialized();
+    let pair_a = symbol_short!("XLM_USDC");
+    let pair_b = Symbol::new(&env, "XLM_BTC");
+
+    // Only pair_a has a custom weight.
+    client.set_pair_weight(&Vec::new(&env), &pair_a, &7).unwrap();
+
+    let mut pairs: Vec<Symbol> = Vec::new(&env);
+    pairs.push_back(pair_a.clone());
+    pairs.push_back(pair_b.clone()); // no custom weight — must be skipped silently
+
+    let result = client.try_bulk_reset_pair_weight(&Vec::new(&env), &pairs);
+    assert!(result.is_ok());
+    assert_eq!(client.get_pair_weight(&pair_a), 1);
+    assert_eq!(client.get_pair_weight(&pair_b), 1);
+}
+
+#[test]
+fn test_bulk_reset_pair_weight_empty_batch_errors() {
+    let (env, client, _admin, _service) = initialized();
+    let empty: Vec<Symbol> = Vec::new(&env);
+    let result = client.try_bulk_reset_pair_weight(&Vec::new(&env), &empty);
+    assert_eq!(result, Err(Ok(Error::EmptyBatch)));
+}
+
+#[test]
+fn test_bulk_reset_pair_weight_too_large_errors() {
+    let (env, client, _admin, _service) = initialized();
+
+    let pair_names = [
+        "P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9",
+        "PA", "PB", "PC", "PD", "PE", "PF", "PG", "PH", "PI", "PJ", "PK",
+    ];
+    let mut pairs: Vec<Symbol> = Vec::new(&env);
+    for name in pair_names.iter() {
+        pairs.push_back(Symbol::new(&env, name));
+    }
+    let result = client.try_bulk_reset_pair_weight(&Vec::new(&env), &pairs);
+    assert_eq!(result, Err(Ok(Error::BatchTooLarge)));
+}
+
 // ── M-of-N multi-signature service authorization ──────────────────────────────
 
 /// Helper: add N signers and set threshold M on an already-initialized client.

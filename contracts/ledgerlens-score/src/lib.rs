@@ -2718,6 +2718,64 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
+    /// Remove the custom weight for multiple asset pairs in a single admin
+    /// call, restoring them to the implicit default of `1`.  Pairs that have
+    /// no custom weight are silently skipped.  One `pw_rst` event is emitted
+    /// per pair whose custom weight was actually removed.  Admin only.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::EmptyBatch`] if `pairs` is empty.
+    /// - [`Error::BatchTooLarge`] if `pairs.len() > MAX_BATCH_SIZE`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// client.set_pair_weight(&Vec::new(&env), &pair, &5).unwrap();
+    /// assert_eq!(client.get_pair_weight(&pair), 5);
+    /// let mut pairs = Vec::new(&env);
+    /// pairs.push_back(pair.clone());
+    /// client.bulk_reset_pair_weight(&Vec::new(&env), &pairs).unwrap();
+    /// assert_eq!(client.get_pair_weight(&pair), 1);
+    /// ```
+    pub fn bulk_reset_pair_weight(
+        env: Env,
+        admin_signers: Vec<Address>,
+        pairs: Vec<Symbol>,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if pairs.is_empty() {
+            return Err(Error::EmptyBatch);
+        }
+        if pairs.len() > constants::MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        for i in 0..pairs.len() {
+            let pair = pairs.get(i).unwrap();
+            if !storage::has_custom_pair_weight(&env, &pair) {
+                continue;
+            }
+            storage::remove_pair_weight(&env, &pair);
+            events::pair_weight_reset(&env, &pair);
+        }
+        Ok(())
+    }
+
     // ── Global minimum confidence floor ──────────────────────────────────────
 
     /// Set the admin-configured global minimum confidence floor (0–100).
