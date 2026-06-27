@@ -39,6 +39,21 @@ impl LedgerLensAggregator {
         (DECAY_NUMERATOR, DECAY_DENOMINATOR)
     }
 
+    /// Returns the minimum number of model submissions (K) that must agree
+    /// within epsilon for consensus to be accepted.
+    /// 
+    /// Example:
+    /// ```
+    /// let k = env.invoke_contract(&contract_id, &symbol_short!("get_consensus_threshold_k"), ());
+    /// // e.g. k = 5 means at least 5 models must agree
+    /// ```
+    pub fn get_consensus_threshold_k(env: Env) -> u32 {
+        // Adjust this value based on your actual consensus parameters
+        const CONSENSUS_THRESHOLD_K: u32 = 5;   // Minimum agreeing models required
+
+        CONSENSUS_THRESHOLD_K
+    }
+
     pub fn add_shard(env: Env, shard: Address) -> Result<(), ScoreError> {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(ScoreError::NotInitialized)?;
         admin.require_auth();
