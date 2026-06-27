@@ -102,6 +102,9 @@ mod test_total_wallets_scored;
 #[cfg(test)]
 mod test_cooldown_period;
 
+#[cfg(test)]
+mod test_two_step_admin;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN, Env, Symbol,
     SymbolStr, TryFromVal, Vec,
