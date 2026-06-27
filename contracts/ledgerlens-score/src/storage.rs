@@ -6,9 +6,10 @@ use crate::constants::{
 };
 use crate::errors::Error;
 use crate::types::{
-    AggregateRiskScore, DataKey, EmbargoExpiry, GateDataKey, JumpStats, ModelVersionStats,
-    ParameterProposalRecord, ParameterProposalStatus, PendingScoreEntry, RiskScore, ScoreDispute,
-    ScoreFloorPolicy, ScoreHistogram, ScoreTrend, ScoreVelocityCap, UpgradeProposal,
+    AdaptiveRateLimit, AggregateRiskScore, DataKey, EmbargoExpiry, GateDataKey, JumpStats,
+    ModelVersionStats, ParameterProposalRecord, ParameterProposalStatus, PendingScoreEntry,
+    RiskScore, ScoreDispute, ScoreFloorPolicy, ScoreHistogram, ScoreTrend, ScoreVelocityCap,
+    TokenBucket, UpgradeProposal, WelfordCorrState,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Symbol, Vec};
 
@@ -2009,4 +2010,114 @@ pub fn increment_total_wallets_scored(env: &Env) {
 /// protocol-health metric.
 pub fn get_total_wallets_scored(env: &Env) -> u64 {
     env.storage().instance().get(&DataKey::TotalWalletsScored).unwrap_or(0)
+}
+
+// ── Admin-set portfolio correlation (×10 000 scale) ──────────────────────────
+
+/// Sets the admin-configured correlation coefficient between two pairs used
+/// for portfolio VaR calculations.  `corr` is ×10 000 (e.g. 5000 = 0.5).
+pub fn set_pair_correlation(env: &Env, pair_a: &Symbol, pair_b: &Symbol, corr: i32) {
+    let (a, b) = canonical_pair_order(env, pair_a, pair_b);
+    let key = DataKey::PortfolioCorr(a, b);
+    env.storage().persistent().set(&key, &corr);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+/// Returns the admin-configured correlation coefficient (×10 000) between
+/// two pairs.  Defaults to 0 (uncorrelated) when unset.
+pub fn get_pair_correlation(env: &Env, pair_a: &Symbol, pair_b: &Symbol) -> i32 {
+    let (a, b) = canonical_pair_order(env, pair_a, pair_b);
+    let key = DataKey::PortfolioCorr(a, b);
+    let result: Option<i32> = env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    result.unwrap_or(0)
+}
+
+// ── Welford online correlation (±1000 scale, issue #268) ─────────────────────
+
+/// Returns a canonical (lesser, greater) ordering for a symbol pair so that
+/// storage keys are symmetric: (A,B) and (B,A) resolve to the same entry.
+/// Uses byte-level comparison of the symbol XDR encoding.
+fn canonical_pair_order(env: &Env, a: &Symbol, b: &Symbol) -> (Symbol, Symbol) {
+    // Encode each symbol as a tiny key tuple so we can compare bytes.
+    use soroban_sdk::IntoVal as _;
+    let av: soroban_sdk::Val = a.into_val(env);
+    let bv: soroban_sdk::Val = b.into_val(env);
+    // Val is a u64-backed type; compare the bit-patterns for a stable ordering.
+    if av.get_payload() <= bv.get_payload() {
+        (a.clone(), b.clone())
+    } else {
+        (b.clone(), a.clone())
+    }
+}
+
+/// Returns the Welford accumulator state for the (pair_a, pair_b) correlation.
+pub fn get_welford_corr_state(env: &Env, pair_a: &Symbol, pair_b: &Symbol) -> Option<WelfordCorrState> {
+    let (a, b) = canonical_pair_order(env, pair_a, pair_b);
+    let key = DataKey::PairCorrelation(a, b);
+    let result: Option<WelfordCorrState> = env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    result
+}
+
+/// Persists the Welford accumulator state for the (pair_a, pair_b) correlation.
+pub fn set_welford_corr_state(env: &Env, pair_a: &Symbol, pair_b: &Symbol, state: &WelfordCorrState) {
+    let (a, b) = canonical_pair_order(env, pair_a, pair_b);
+    let key = DataKey::PairCorrelation(a, b);
+    env.storage().persistent().set(&key, state);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+/// Removes the Welford accumulator state for the (pair_a, pair_b) correlation.
+pub fn reset_welford_corr_state(env: &Env, pair_a: &Symbol, pair_b: &Symbol) {
+    let (a, b) = canonical_pair_order(env, pair_a, pair_b);
+    let key = DataKey::PairCorrelation(a, b);
+    env.storage().persistent().remove(&key);
+}
+
+// ── Token-bucket rate limiting (issue #269) ───────────────────────────────────
+
+/// Returns the global burst capacity (max tokens per bucket).  Defaults to 1
+/// (equivalent to the old flat-cooldown behaviour) when unset.
+pub fn get_burst_capacity(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::BurstCapacity).unwrap_or(1)
+}
+
+/// Sets the global burst capacity.
+pub fn set_burst_capacity(env: &Env, capacity: u32) {
+    env.storage().instance().set(&DataKey::BurstCapacity, &capacity);
+}
+
+/// Returns the token-bucket state for (wallet, asset_pair), or `None` if the
+/// wallet has never submitted for this pair.
+pub fn get_token_bucket(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<TokenBucket> {
+    let key = DataKey::TokenBucket(wallet.clone(), asset_pair.clone());
+    let result: Option<TokenBucket> = env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    result
+}
+
+/// Persists the token-bucket state for (wallet, asset_pair).
+pub fn set_token_bucket(env: &Env, wallet: &Address, asset_pair: &Symbol, bucket: &TokenBucket) {
+    let key = DataKey::TokenBucket(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, bucket);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+// ── Differential-privacy epsilon (issue #291) ─────────────────────────────────
+
+/// Returns the DP epsilon in basis points (0 = disabled).
+pub fn get_dp_epsilon(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::DpEpsilon).unwrap_or(0)
+}
+
+/// Sets the DP epsilon in basis points.
+pub fn set_dp_epsilon(env: &Env, epsilon_bps: u32) {
+    env.storage().instance().set(&DataKey::DpEpsilon, &epsilon_bps);
 }

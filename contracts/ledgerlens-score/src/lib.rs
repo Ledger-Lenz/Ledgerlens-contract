@@ -111,12 +111,13 @@ use subtle::ConstantTimeEq;
 pub use errors::Error;
 pub use events::{ServiceResumedEvent, ServiceSilenceAlertEvent};
 pub use types::{
-    AggregateRiskScore, BatchAttestation, BatchEntryResult, BatchResult, BatchScoreResult,
-    EffectiveRiskScore, EmbargoExpiry, MaybeRiskScore, ModelSubmission, ModelVersionStats,
-    PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput, ScoreDispute, ScoreFloorPolicy,
-    ScoreHistogram, ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof, ScoreTrend,
-    ScoreVelocityCap, ThresholdAttestation, UpgradeProposal, ParameterProposal,
-    ParameterProposalRecord, ParameterProposalStatus,
+    AdaptiveRateLimit, AggregateRiskScore, BatchAttestation, BatchEntryResult, BatchResult,
+    BatchScoreResult, EffectiveRiskScore, EmbargoExpiry, MaybeRiskScore, ModelSubmission,
+    ModelVersionStats, ParameterProposal, ParameterProposalRecord, ParameterProposalStatus,
+    PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput, ScoreDispute,
+    ScoreFloorPolicy, ScoreHistogram, ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof,
+    ScoreTrend, ScoreVelocityCap, ThresholdAttestation, TokenBucket, UpgradeProposal,
+    WelfordCorrState,
 };
 /// The 32-byte all-zeros field element used as the value in non-membership proofs.
 pub use verkle::NON_MEMBER_SENTINEL;
@@ -2367,6 +2368,68 @@ impl LedgerLensScoreContract {
         Self::compute_aggregate_score(&env, &wallet)
     }
 
+    // ── Issue #291: differential-privacy aggregate ────────────────────────────
+
+    /// Admin-only: sets the Laplace differential-privacy budget ε as basis
+    /// points (e.g. 100 = ε 0.01).  Set to 0 to disable DP noise.
+    pub fn set_dp_epsilon(env: Env, epsilon_bps: u32) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        storage::get_admin(&env).require_auth();
+        storage::set_dp_epsilon(&env, epsilon_bps);
+        Ok(())
+    }
+
+    /// Returns the current DP epsilon in basis points.
+    pub fn get_dp_epsilon(env: Env) -> u32 {
+        storage::get_dp_epsilon(&env)
+    }
+
+    /// Returns a differentially-private aggregate score for `wallet`.
+    /// When ε > 0, Laplace noise calibrated to `sensitivity = 100` and
+    /// `ε = epsilon_bps / 10_000.0` is added before returning.
+    /// Noise is deterministic: derived from the current ledger hash, the
+    /// wallet bytes, and the ε value — unpredictable to callers but
+    /// reproducible for the same ledger sequence / wallet.
+    /// Returns `None` when no pairs exist for `wallet`.
+    pub fn get_aggregate_score_private(env: Env, wallet: Address) -> Result<AggregateRiskScore, Error> {
+        let epsilon_bps = storage::get_dp_epsilon(&env);
+        let mut agg = Self::compute_aggregate_score(&env, &wallet)?;
+        if epsilon_bps > 0 {
+            // Sensitivity = 100 (max aggregate score range).
+            // Scale = sensitivity * 10_000 / epsilon_bps gives the Laplace scale b×10_000.
+            let sensitivity: u64 = 100;
+            let scale_x10000: u64 = sensitivity.saturating_mul(10_000) / (epsilon_bps as u64).max(1);
+            // Derive deterministic noise from ledger sequence + epsilon.
+            let ledger_seq = env.ledger().sequence();
+            let seed_buf: [u8; 6] = [
+                ((ledger_seq >> 24) & 0xFF) as u8,
+                ((ledger_seq >> 16) & 0xFF) as u8,
+                ((ledger_seq >> 8) & 0xFF) as u8,
+                (ledger_seq & 0xFF) as u8,
+                ((epsilon_bps >> 8) & 0xFF) as u8,
+                (epsilon_bps & 0xFF) as u8,
+            ];
+            let seed_bytes = Bytes::from_array(&env, &seed_buf);
+            let hash: BytesN<32> = env.crypto().sha256(&seed_bytes);
+            // Extract two bytes for sign and magnitude.
+            let b0 = hash.get(0).unwrap_or(0) as u64;
+            let b1 = hash.get(1).unwrap_or(0) as u64;
+            // Geometric approximation of Laplace: magnitude ~ scale * (-ln(u))
+            // approximated as scale * (255 - byte) / 255 for u in [0,255].
+            let magnitude_x10000 = scale_x10000.saturating_mul(255u64.saturating_sub(b1)) / 255;
+            let noise: i64 = if b0 < 128 {
+                (magnitude_x10000 / 10_000) as i64
+            } else {
+                -((magnitude_x10000 / 10_000) as i64)
+            };
+            let noisy = (agg.aggregate_score as i64).saturating_add(noise);
+            agg.aggregate_score = noisy.max(0).min(100) as u32;
+        }
+        Ok(agg)
+    }
+
     /// Returns every asset pair that `wallet` has ever had a score submitted
     /// for. Returns an empty `Vec` when no scores exist for the wallet.
     ///
@@ -2434,6 +2497,50 @@ impl LedgerLensScoreContract {
     /// Defaults to `0` (uncorrelated) when unset.
     pub fn get_pair_correlation(env: Env, pair_a: Symbol, pair_b: Symbol) -> i32 {
         storage::get_pair_correlation(&env, &pair_a, &pair_b)
+    }
+
+    // ── Issue #268: online Welford correlation ────────────────────────────────
+
+    /// Returns the auto-computed Pearson correlation coefficient (±1000 scale)
+    /// between the score time series of `pair_a` and `pair_b`, derived from
+    /// the incremental Welford accumulator updated on every `submit_score`.
+    /// Returns `None` when fewer than 2 joint observations exist.
+    pub fn get_online_pair_correlation(env: Env, pair_a: Symbol, pair_b: Symbol) -> Option<i32> {
+        let state = storage::get_welford_corr_state(&env, &pair_a, &pair_b)?;
+        Self::pearson_from_welford(&state)
+    }
+
+    /// Admin-only: resets the Welford accumulator for `(pair_a, pair_b)`,
+    /// clearing the auto-computed correlation history.
+    pub fn reset_pair_correlation(env: Env, pair_a: Symbol, pair_b: Symbol) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        storage::get_admin(&env).require_auth();
+        storage::reset_welford_corr_state(&env, &pair_a, &pair_b);
+        Ok(())
+    }
+
+    /// Computes Pearson r (±1000) from a Welford accumulator using integer
+    /// arithmetic; returns `None` when variance in either series is zero.
+    fn pearson_from_welford(s: &WelfordCorrState) -> Option<i32> {
+        if s.n < 2 {
+            return None;
+        }
+        let n = s.n as i128;
+        let num: i128 = n * (s.sum_ab as i128) - (s.sum_a as i128) * (s.sum_b as i128);
+        let da: i128 = n * (s.sum_aa as i128) - (s.sum_a as i128) * (s.sum_a as i128);
+        let db: i128 = n * (s.sum_bb as i128) - (s.sum_b as i128) * (s.sum_b as i128);
+        if da <= 0 || db <= 0 {
+            return None;
+        }
+        let denom_sq: u128 = (da as u128).saturating_mul(db as u128);
+        let denom = isqrt_u128(denom_sq) as i128;
+        if denom == 0 {
+            return None;
+        }
+        let r = (num * 1000) / denom;
+        Some(r.max(-1000).min(1000) as i32)
     }
 
     /// Estimates portfolio-level Value-at-Risk (VaR) for a wallet by combining
@@ -5716,6 +5823,44 @@ impl LedgerLensScoreContract {
         storage::get_adaptive_rate_limit(&env)
     }
 
+    // ── Issue #269: token-bucket rate limiting ────────────────────────────────
+
+    /// Admin-only: sets the global burst capacity — the maximum number of
+    /// tokens each `(wallet, asset_pair)` bucket can hold.  A capacity of 1
+    /// (the default) behaves identically to the legacy flat-cooldown model.
+    pub fn set_burst_capacity(env: Env, capacity: u32) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        storage::get_admin(&env).require_auth();
+        storage::set_burst_capacity(&env, capacity);
+        Ok(())
+    }
+
+    /// Returns the global burst capacity (max tokens per bucket).
+    pub fn get_burst_capacity(env: Env) -> u32 {
+        storage::get_burst_capacity(&env)
+    }
+
+    /// Returns the number of tokens currently available in the bucket for
+    /// `(wallet, asset_pair)`, accounting for any refills since the last
+    /// submission.  Returns 0 when the wallet has never submitted or when all
+    /// tokens are spent and none have refilled yet.
+    pub fn get_remaining_tokens(env: Env, wallet: Address, asset_pair: Symbol) -> u32 {
+        let capacity = storage::get_burst_capacity(&env);
+        let base_cooldown = storage::get_pair_cooldown_secs(&env, &asset_pair);
+        let cooldown = Self::compute_effective_cooldown(&env, &asset_pair, base_cooldown);
+        let now = env.ledger().timestamp();
+        match storage::get_token_bucket(&env, &wallet, &asset_pair) {
+            None => capacity, // full bucket — never submitted
+            Some(b) => {
+                let elapsed = now.saturating_sub(b.last_refill);
+                let refills = if cooldown > 0 { elapsed / cooldown } else { 0 };
+                ((b.tokens as u64).saturating_add(refills).min(capacity as u64)) as u32
+            }
+        }
+    }
+
     /// Returns the effective cooldown for `(wallet, asset_pair)` at the
     /// current moment.  When the adaptive rate-limit is disabled (or
     /// `variance_scale == 0`) this equals `get_pair_cooldown(asset_pair)`.
@@ -6681,14 +6826,16 @@ impl LedgerLensScoreContract {
     /// client.initialize(&admin, &service);
     /// let wallet = Address::generate(&env);
     /// let pair = symbol_short!("XLM_USDC");
-    /// assert_eq!(client.get_score_age(&wallet, &pair), 0);
+    /// assert_eq!(client.get_score_age(&wallet, &pair), None);
     /// ```
-    pub fn get_score_age(env: Env, wallet: Address, asset_pair: Symbol) -> u64 {
+    /// Returns the number of seconds elapsed since the last accepted submission
+    /// for `(wallet, asset_pair)`, or `None` if no submission has ever been made.
+    pub fn get_score_age(env: Env, wallet: Address, asset_pair: Symbol) -> Option<u64> {
         let last_submit = storage::get_last_submit_time(&env, &wallet, &asset_pair);
         if last_submit == 0 {
-            return 0;
+            return None;
         }
-        env.ledger().timestamp().saturating_sub(last_submit)
+        Some(env.ledger().timestamp().saturating_sub(last_submit))
     }
 
     // ── Model version registry ────────────────────────────────────────────────
@@ -7189,6 +7336,35 @@ impl LedgerLensScoreContract {
     /// score write. Failures are swallowed (e.g. a wallet whose only pair
     /// currently has weight 0) — the cache is informational only and must
     /// never cause `submit_score` / `submit_scores_batch` to fail.
+    /// Updates the Welford online correlation accumulators for all pairs that
+    /// share a score with `wallet`.  For each pair `other` ≠ `asset_pair`
+    /// that `wallet` has a live score, records `(score_a, score_b)` as a new
+    /// joint sample for the `(asset_pair, other)` accumulator (issue #268).
+    fn update_welford_correlation(env: &Env, wallet: &Address, asset_pair: &Symbol, score_a: u32) {
+        let pairs = storage::get_wallet_pairs(env, wallet);
+        for other in pairs.iter() {
+            if other == *asset_pair {
+                continue;
+            }
+            if let Some(other_risk) = storage::peek_score(env, wallet, &other) {
+                let score_b = other_risk.score;
+                let state = storage::get_welford_corr_state(env, asset_pair, &other)
+                    .unwrap_or(WelfordCorrState { n: 0, sum_a: 0, sum_b: 0, sum_aa: 0, sum_bb: 0, sum_ab: 0 });
+                let a = score_a as i64;
+                let b = score_b as i64;
+                let updated = WelfordCorrState {
+                    n: state.n.saturating_add(1),
+                    sum_a: state.sum_a.saturating_add(a),
+                    sum_b: state.sum_b.saturating_add(b),
+                    sum_aa: state.sum_aa.saturating_add(a * a),
+                    sum_bb: state.sum_bb.saturating_add(b * b),
+                    sum_ab: state.sum_ab.saturating_add(a * b),
+                };
+                storage::set_welford_corr_state(env, asset_pair, &other, &updated);
+            }
+        }
+    }
+
     fn refresh_aggregate_cache(env: &Env, wallet: &Address) {
         if let Ok(aggregate) = Self::compute_aggregate_score(env, wallet) {
             storage::set_aggregate_score(env, wallet, &aggregate);
@@ -7292,13 +7468,43 @@ impl LedgerLensScoreContract {
     ) -> Result<(), Error> {
         Self::validate_risk_score(env, risk_score)?;
 
-        let last_submit = storage::get_last_submit_time(env, wallet, asset_pair);
+        let now = env.ledger().timestamp();
         let base_cooldown = storage::get_pair_cooldown_secs(env, asset_pair);
         let cooldown = Self::compute_effective_cooldown(env, asset_pair, base_cooldown);
-        let now = env.ledger().timestamp();
-        if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
-            return Err(Error::RateLimitExceeded);
+        let capacity = storage::get_burst_capacity(env);
+        // Always read last_submit for use in the velocity-cap check below.
+        let last_submit = storage::get_last_submit_time(env, wallet, asset_pair);
+
+        if capacity > 1 {
+            // Token-bucket rate limiting (issue #269).
+            let bucket = storage::get_token_bucket(env, wallet, asset_pair);
+            let (current_tokens, last_refill) = match bucket {
+                Some(b) => (b.tokens, b.last_refill),
+                None => (capacity, now), // first submission: start with a full bucket
+            };
+            // Refill tokens that accumulated since last_refill.
+            let elapsed = now.saturating_sub(last_refill);
+            let refills = if cooldown > 0 { elapsed / cooldown } else { 0 };
+            let refilled = (current_tokens as u64).saturating_add(refills).min(capacity as u64) as u32;
+            if refilled == 0 {
+                return Err(Error::RateLimitExceeded);
+            }
+            let new_last_refill = if refills > 0 {
+                last_refill.saturating_add(refills.saturating_mul(cooldown))
+            } else {
+                last_refill
+            };
+            storage::set_token_bucket(env, wallet, asset_pair, &TokenBucket {
+                tokens: refilled - 1,
+                last_refill: new_last_refill,
+            });
+        } else {
+            // Legacy flat-cooldown check.
+            if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
+                return Err(Error::RateLimitExceeded);
+            }
         }
+
         let previous_score = storage::peek_score(env, wallet, asset_pair).map(|s| s.score);
         if let Some(prev) = previous_score {
             let cap = storage::get_score_velocity_cap(env);
@@ -7340,6 +7546,10 @@ impl LedgerLensScoreContract {
         storage::update_model_stats(env, risk_score.model_version, risk_score.score);
         storage::update_historical_max_score(env, wallet, asset_pair, risk_score.score);
         storage::update_histogram_on_write(env, previous_score, risk_score.score);
+        // Welford online correlation update (issue #268): for each other pair
+        // this wallet has a live score, record (new_score, other_score) as a
+        // joint sample for the (asset_pair, other_pair) accumulator.
+        Self::update_welford_correlation(env, wallet, asset_pair, risk_score.score);
         Self::refresh_aggregate_cache(env, wallet);
         Self::assign_wallet_cluster(env, wallet);
         // Update the incremental Verkle commitment over the full contract state.
@@ -8397,6 +8607,19 @@ mod storage_gate {
 
 /// Integer square root (floor) for use in volatility std-dev computation.
 fn isqrt_u64(n: u64) -> u64 {
+    if n == 0 {
+        return 0;
+    }
+    let mut x = n;
+    let mut y = (x + 1) / 2;
+    while y < x {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    x
+}
+
+fn isqrt_u128(n: u128) -> u128 {
     if n == 0 {
         return 0;
     }

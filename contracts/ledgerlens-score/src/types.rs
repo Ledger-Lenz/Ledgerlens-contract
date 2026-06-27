@@ -500,6 +500,18 @@ pub enum DataKey {
     /// Running total of unique (wallet, asset_pair) combinations ever scored.
     /// Incremented on the *first* successful submission for each new combination.
     TotalWalletsScored,
+    /// Adaptive rate-limit configuration (enabled flag + variance scale).
+    AdaptiveRateLimit,
+    /// Admin-set pairwise correlation coefficient for portfolio VaR (×10 000 scale).
+    PortfolioCorr(Symbol, Symbol),
+    /// Incremental Welford correlation state for auto-computed pair correlation (issue #268).
+    PairCorrelation(Symbol, Symbol),
+    /// Global burst capacity for token-bucket rate limiting (issue #269).
+    BurstCapacity,
+    /// Per-(wallet, asset_pair) token-bucket state (issue #269).
+    TokenBucket(Address, Symbol),
+    /// Differential-privacy epsilon in basis points (issue #291).
+    DpEpsilon,
 }
 
 impl DataKey {
@@ -619,6 +631,12 @@ impl DataKey {
             DataKey::EmbargoedWalletIndex => k0!("EmbargoedWIndex"),
             DataKey::PairScoreCount(s) => k1!("PairScoreCnt", s),
             DataKey::TotalWalletsScored => k0!("TotalWalletsScored"),
+            DataKey::AdaptiveRateLimit => k0!("AdaptRateLimit"),
+            DataKey::PortfolioCorr(a, b) => k2!("PortfolioCorr", a, b),
+            DataKey::PairCorrelation(a, b) => k2!("PairCorrelation", a, b),
+            DataKey::BurstCapacity => k0!("BurstCapacity"),
+            DataKey::TokenBucket(a, s) => k2!("TokenBucket", a, s),
+            DataKey::DpEpsilon => k0!("DpEpsilon"),
         }
     }
 }
@@ -675,4 +693,34 @@ pub enum DecayProfile {
     Linear { lambda_num: u32, lambda_den: u32 },
     Exponential { half_life_secs: u64 },
     Step { steps: Vec<(u64, u32)> },
+}
+
+/// Configuration for the adaptive rate-limit feature.
+/// When enabled, the effective cooldown scales with global score variance.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdaptiveRateLimit {
+    pub enabled: bool,
+    pub variance_scale: u32,
+}
+
+/// Incremental Welford state for online Pearson correlation tracking (issue #268).
+/// Stores accumulated sums for computing r(pair_a, pair_b) on the fly.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WelfordCorrState {
+    pub n: u32,
+    pub sum_a: i64,
+    pub sum_b: i64,
+    pub sum_aa: i64,
+    pub sum_bb: i64,
+    pub sum_ab: i64,
+}
+
+/// Per-(wallet, asset_pair) token-bucket state for burst rate limiting (issue #269).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TokenBucket {
+    pub tokens: u32,
+    pub last_refill: u64,
 }
