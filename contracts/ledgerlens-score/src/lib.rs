@@ -4912,6 +4912,23 @@ impl LedgerLensScoreContract {
 
     /// Returns the current hysteresis margin.  Defaults to `0` (no hysteresis)
     /// until the admin sets one explicitly.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_hysteresis_margin(&20);
+    /// assert_eq!(client.get_hysteresis_margin(), 20);
+    /// ```
     pub fn get_hysteresis_margin(env: Env) -> u32 {
         storage::get_hysteresis_margin(&env)
     }
@@ -5404,6 +5421,23 @@ impl LedgerLensScoreContract {
 
     /// Returns the current staleness window in seconds. Defaults to
     /// `DEFAULT_STALENESS_WINDOW_SECS` (7 days) until configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_staleness_window(&Vec::new(&env), &3600);
+    /// assert_eq!(client.get_staleness_window(), 3600);
+    /// ```
     pub fn get_staleness_window(env: Env) -> u64 {
         storage::get_staleness_window(&env)
     }
@@ -6647,6 +6681,30 @@ impl LedgerLensScoreContract {
     /// Returns the current M-of-N admin signer set. Empty until
     /// `add_admin_signer` is called (legacy mode).
     pub fn get_admin_signers(env: Env) -> Vec<Address> {
+        storage::get_admin_set(&env)
+    }
+
+    /// Returns all current admin co-signers in the M-of-N admin set. Empty
+    /// until `add_admin_signer` is called (legacy mode).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let signer = Address::generate(&env);
+    /// client.add_admin_signer(&Vec::new(&env), &signer);
+    /// assert!(client.get_admin_set().contains(&signer));
+    /// ```
+    pub fn get_admin_set(env: Env) -> Vec<Address> {
         storage::get_admin_set(&env)
     }
 

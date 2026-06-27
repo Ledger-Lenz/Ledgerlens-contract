@@ -45,6 +45,18 @@ fn test_admin_multisig_init_state() {
     assert_eq!(client.get_risk_threshold(), 80);
 }
 
+// ── 1b. get_admin_set mirrors get_admin_signers ──────────────────────────────
+
+#[test]
+fn test_get_admin_set_returns_co_signers() {
+    let (env, client, _admin, _service) = setup();
+    assert_eq!(client.get_admin_set().len(), 0);
+    let signer = Address::generate(&env);
+    client.add_admin_signer(&Vec::new(&env), &signer);
+    assert_eq!(client.get_admin_set(), client.get_admin_signers());
+    assert!(client.get_admin_set().contains(&signer));
+}
+
 // ── 2. Legacy admin can add first signer ─────────────────────────────────────
 
 #[test]
