@@ -111,12 +111,12 @@ use subtle::ConstantTimeEq;
 pub use errors::Error;
 pub use events::{ServiceResumedEvent, ServiceSilenceAlertEvent};
 pub use types::{
-    AggregateRiskScore, BatchAttestation, BatchEntryResult, BatchResult, BatchScoreResult,
-    EffectiveRiskScore, EmbargoExpiry, MaybeRiskScore, ModelSubmission, ModelVersionStats,
-    PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput, ScoreDispute, ScoreFloorPolicy,
-    ScoreHistogram, ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof, ScoreTrend,
-    ScoreVelocityCap, ThresholdAttestation, UpgradeProposal, ParameterProposal,
-    ParameterProposalRecord, ParameterProposalStatus,
+    AdaptiveRateLimit, AggregateRiskScore, BatchAttestation, BatchEntryResult, BatchResult,
+    BatchScoreResult, EffectiveRiskScore, EmbargoExpiry, InterpolationMethod, MaybeRiskScore,
+    ModelSubmission, ModelVersionStats, ParameterProposal, ParameterProposalRecord,
+    ParameterProposalStatus, PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput,
+    ScoreDispute, ScoreFloorPolicy, ScoreHistogram, ScoreQuery, ScoreSubmission,
+    ScoreSubmissionWithProof, ScoreTrend, ScoreVelocityCap, ThresholdAttestation, UpgradeProposal,
 };
 /// The 32-byte all-zeros field element used as the value in non-membership proofs.
 pub use verkle::NON_MEMBER_SENTINEL;
@@ -1905,11 +1905,14 @@ impl LedgerLensScoreContract {
     }
 
     /// Returns an interpolated score at `timestamp` using stored history.
-    /// Minimal linear fallback implementation: exact-node returns stored
-    /// value, extrapolation is clamped to boundaries, and in-between points
-    /// are linearly interpolated.
     ///
-    /// See [docs/score-math.md](../../docs/score-math.md) for the formula and fixed-point implementation notes.
+    /// The interpolation method is determined by the stored `InterpolationMethod`
+    /// setting (default: `Linear`). When `CubicSpline` is configured, a
+    /// Catmull-Rom cubic Hermite spline is used for smoother trajectory
+    /// estimation. Both modes clamp output to [0, 100] and return boundary
+    /// values for out-of-range timestamps.
+    ///
+    /// See [docs/score-math.md](../../docs/score-math.md) for formula details.
     pub fn get_interpolated_score(
         env: Env,
         wallet: Address,
@@ -1920,6 +1923,7 @@ impl LedgerLensScoreContract {
         if history.is_empty() {
             return 0;
         }
+        // Exact match
         for i in 0..history.len() {
             let r = history.get(i).unwrap();
             if r.timestamp == timestamp {
@@ -1934,7 +1938,21 @@ impl LedgerLensScoreContract {
         if timestamp >= last.timestamp {
             return last.score;
         }
-        for i in 0..(history.len() - 1) {
+        let method = storage::get_interpolation_method(&env);
+        match method {
+            InterpolationMethod::CubicSpline => {
+                Self::cubic_spline_interpolate(&history, timestamp)
+            }
+            InterpolationMethod::Linear => {
+                Self::linear_interpolate(&history, timestamp)
+            }
+        }
+    }
+
+    /// Linear interpolation between adjacent history entries.
+    fn linear_interpolate(history: &Vec<RiskScore>, timestamp: u64) -> u32 {
+        let n = history.len();
+        for i in 0..(n - 1) {
             let a = history.get(i).unwrap();
             let b = history.get(i + 1).unwrap();
             if a.timestamp <= timestamp && timestamp <= b.timestamp {
@@ -1942,11 +1960,88 @@ impl LedgerLensScoreContract {
                 if dt == 0 {
                     return a.score;
                 }
-                let num = (timestamp - a.timestamp) as i128 * (b.score as i128 - a.score as i128);
+                let num =
+                    (timestamp - a.timestamp) as i128 * (b.score as i128 - a.score as i128);
                 return (a.score as i128 + num / dt) as u32;
             }
         }
-        last.score
+        history.get(n - 1).unwrap().score
+    }
+
+    /// Catmull-Rom cubic Hermite spline interpolation using fixed-point
+    /// arithmetic (no floating point). Tangents are estimated from adjacent
+    /// neighbours; boundary tangents use one-sided finite differences.
+    fn cubic_spline_interpolate(history: &Vec<RiskScore>, timestamp: u64) -> u32 {
+        let n = history.len();
+        for i in 0..(n - 1) {
+            let p1 = history.get(i).unwrap();
+            let p2 = history.get(i + 1).unwrap();
+            if p1.timestamp > timestamp || timestamp > p2.timestamp {
+                continue;
+            }
+            let h = (p2.timestamp - p1.timestamp) as i128;
+            if h == 0 {
+                return p1.score;
+            }
+            let dt = (timestamp - p1.timestamp) as i128;
+
+            // Neighbouring points for Catmull-Rom tangent estimation.
+            let p0 = if i > 0 { history.get(i - 1).unwrap() } else { p1.clone() };
+            let p3 = if i + 2 < n { history.get(i + 2).unwrap() } else { p2.clone() };
+
+            let y0 = p0.score as i128;
+            let y1 = p1.score as i128;
+            let y2 = p2.score as i128;
+            let y3 = p3.score as i128;
+
+            // Catmull-Rom tangent T = h * dy/dx, so the result stays in score units.
+            // T1 = h * (y2 - y0) / (x2 - x0)
+            let dx_p0_p2 = (p2.timestamp.saturating_sub(p0.timestamp)) as i128;
+            let t1 = if dx_p0_p2 > 0 { h * (y2 - y0) / dx_p0_p2 } else { y2 - y1 };
+
+            // T2 = h * (y3 - y1) / (x3 - x1)
+            let dx_p1_p3 = (p3.timestamp.saturating_sub(p1.timestamp)) as i128;
+            let t2 = if dx_p1_p3 > 0 { h * (y3 - y1) / dx_p1_p3 } else { y2 - y1 };
+
+            // Normalised parameter in fixed-point: t_p = (dt/h) * P, P = 2^20.
+            const P: i128 = 1 << 20;
+            let t_p = dt * P / h;
+            let t2_p = t_p * t_p / P;
+            let t3_p = t2_p * t_p / P;
+
+            // Cubic Hermite basis functions scaled by P.
+            let h00 = 2 * t3_p - 3 * t2_p + P;   // (2t³-3t²+1)*P
+            let h10 = t3_p - 2 * t2_p + t_p;       // (t³-2t²+t)*P
+            let h01 = -2 * t3_p + 3 * t2_p;        // (-2t³+3t²)*P
+            let h11 = t3_p - t2_p;                  // (t³-t²)*P
+
+            let s_p = h00 * y1 + h10 * t1 + h01 * y2 + h11 * t2;
+            let s = s_p / P;
+            return s.max(0).min(100) as u32;
+        }
+        history.get(n - 1).unwrap().score
+    }
+
+    /// Returns the configured interpolation method (`Linear` or `CubicSpline`).
+    pub fn get_interpolation_method(env: Env) -> InterpolationMethod {
+        storage::get_interpolation_method(&env)
+    }
+
+    /// Sets the interpolation method used by `get_interpolated_score`. Admin only.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    pub fn set_interpolation_method(
+        env: Env,
+        method: InterpolationMethod,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        let admin = storage::get_admin(&env);
+        admin.require_auth();
+        storage::set_interpolation_method(&env, &method);
+        Ok(())
     }
 
     /// Returns the total number of score submissions ever recorded for
@@ -6310,24 +6405,66 @@ impl LedgerLensScoreContract {
         )
     }
 
-    // ── Score Momentum Indicator (issue #206) ────────────────────────────────
+    // ── Score Momentum Indicator (issue #289) ────────────────────────────────
+
+    /// Sets the rolling window (in seconds) used by `get_score_momentum`.
+    /// Admin only. Defaults to 3600 s (1 hour) when unset.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    pub fn set_momentum_window(env: Env, secs: u64) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        let admin = storage::get_admin(&env);
+        admin.require_auth();
+        storage::set_momentum_window(&env, secs);
+        Ok(())
+    }
+
+    /// Returns the configured momentum rolling-window in seconds.
+    pub fn get_momentum_window(env: Env) -> u64 {
+        storage::get_momentum_window(&env)
+    }
+
+    /// Sets the momentum alert threshold. When `get_score_momentum` returns a
+    /// value exceeding this threshold the `momentum_threshold_crossed` event is
+    /// emitted. Admin only. A value of 0 (default) disables the alert.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    pub fn set_momentum_alert_threshold(env: Env, threshold: u32) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        let admin = storage::get_admin(&env);
+        admin.require_auth();
+        storage::set_momentum_alert_threshold(&env, threshold);
+        Ok(())
+    }
+
+    /// Returns the configured momentum alert threshold.
+    pub fn get_momentum_alert_threshold(env: Env) -> u32 {
+        storage::get_momentum_alert_threshold(&env)
+    }
 
     /// Computes the momentum (signed rate of change) of a wallet's score over
-    /// a configurable time window. Returns the average score change per second
-    /// within the most recent history entries that fall within the window.
+    /// the admin-configured rolling window (`set_momentum_window`).
+    ///
+    /// Momentum = `(latest_score - score_at_window_start) / window_secs`
+    /// in fixed-point (score units per second).
     ///
     /// Returns:
     /// - Positive: score is rising (deteriorating risk)
     /// - Negative: score is falling (improving risk)
-    /// - Zero: stable or insufficient history
+    /// - Zero: stable, embargoed, or insufficient history
     ///
-    /// # Errors
-    /// - [`Error::ScoreNotFound`] if fewer than 2 history entries exist.
+    /// Emits [`events::momentum_threshold_crossed`] when the computed
+    /// momentum exceeds the configured alert threshold.
     pub fn get_score_momentum(
         env: Env,
         wallet: Address,
         asset_pair: Symbol,
-        window_secs: u64,
     ) -> Result<i32, Error> {
         if storage::is_embargoed(&env, &wallet) {
             return Ok(0);
@@ -6338,20 +6475,9 @@ impl LedgerLensScoreContract {
             return Ok(0);
         }
 
-        let max_window = crate::constants::DEFAULT_STALENESS_WINDOW_SECS;
-        let window = if window_secs > max_window {
-            max_window
-        } else {
-            window_secs
-        };
-
-        // Get current timestamp and find entries within window
+        let window = storage::get_momentum_window(&env);
         let current_time = env.ledger().timestamp();
-        let window_start = if current_time >= window {
-            current_time - window
-        } else {
-            0
-        };
+        let window_start = current_time.saturating_sub(window);
 
         let mut windowed_entries: Vec<RiskScore> = Vec::new(&env);
         for entry in history.iter() {
@@ -6360,12 +6486,10 @@ impl LedgerLensScoreContract {
             }
         }
 
-        // Need at least 2 entries in window
         if windowed_entries.len() < 2 {
             return Ok(0);
         }
 
-        // Compute slope over the window
         let first = windowed_entries.get(0).unwrap();
         let last = windowed_entries.get(windowed_entries.len() - 1).unwrap();
 
@@ -6376,6 +6500,12 @@ impl LedgerLensScoreContract {
 
         let score_delta = (last.score as i32) - (first.score as i32);
         let momentum = score_delta / (time_delta as i32);
+
+        let alert_threshold = storage::get_momentum_alert_threshold(&env);
+        if alert_threshold > 0 && momentum > alert_threshold as i32 {
+            events::momentum_threshold_crossed(&env, &wallet, &asset_pair, momentum, alert_threshold);
+        }
+
         Ok(momentum)
     }
 
