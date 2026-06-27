@@ -320,8 +320,7 @@ impl LedgerLensScoreContract {
             }
         }
 
-        let risk_score =
-            RiskScore { score, benford_flag, ml_flag, timestamp, confidence, model_version };
+        let risk_score = RiskScore { score, benford_flag, ml_flag, timestamp, confidence, model_version };
 
         let buffer = storage::get_finality_buffer_secs(&env);
         if buffer == 0 {
@@ -345,10 +344,10 @@ impl LedgerLensScoreContract {
                 score,
                 benford_flag,
                 ml_flag,
-                timestamp,
+                submitted_at: now2,
                 confidence,
                 model_version,
-                submitted_at: now2,
+                timestamp,
                 commit_after,
                 submitted_by: if !storage::get_service_set(&env).is_empty() {
                     signers.get(0).unwrap_or_else(|| storage::get_service(&env))
@@ -496,6 +495,40 @@ impl LedgerLensScoreContract {
 
         let admin = storage::get_admin(&env);
         events::score_pending_cancelled(&env, &wallet, &asset_pair, &admin);
+        Ok(())
+    }
+
+    /// Rejects a pending score inside the finality buffer window. Requires
+    /// M-of-N admin co-signatures and emits a `score_vetoed` event with the
+    /// SHA-256 hash of the supplied `reason` payload.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::NoPendingScore`] if no pending score exists for
+    ///   `(wallet, asset_pair)`.
+    /// - [`Error::FinalityWindowNotElapsed`] if the score has already
+    ///   exited the veto window / is ready to commit.
+    pub fn veto_pending_score(
+        env: Env,
+        admin_signers: Vec<Address>,
+        wallet: Address,
+        asset_pair: Symbol,
+        reason: Bytes,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+
+        let pending = storage::get_pending_score(&env, &wallet, &asset_pair).ok_or(Error::NoPendingScore)?;
+        let now = env.ledger().timestamp();
+        if now >= pending.commit_after {
+            return Err(Error::FinalityWindowNotElapsed);
+        }
+
+        storage::clear_pending_score(&env, &wallet, &asset_pair);
+        let reason_hash = env.crypto().sha256(&reason).to_bytes();
+        events::score_vetoed(&env, &wallet, &asset_pair, &reason_hash);
         Ok(())
     }
 
