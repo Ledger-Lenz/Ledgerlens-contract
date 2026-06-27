@@ -102,6 +102,9 @@ mod test_total_wallets_scored;
 #[cfg(test)]
 mod test_cooldown_period;
 
+#[cfg(test)]
+mod test_signer_tier;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN, Env, Symbol,
     SymbolStr, TryFromVal, Vec,
@@ -115,7 +118,7 @@ pub use types::{
     EffectiveRiskScore, EmbargoExpiry, MaybeRiskScore, ModelSubmission, ModelVersionStats,
     PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput, ScoreDispute, ScoreFloorPolicy,
     ScoreHistogram, ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof, ScoreTrend,
-    ScoreVelocityCap, ThresholdAttestation, UpgradeProposal, ParameterProposal,
+    ScoreVelocityCap, ThresholdAttestation, TierBounds, UpgradeProposal, ParameterProposal,
     ParameterProposalRecord, ParameterProposalStatus,
 };
 /// The 32-byte all-zeros field element used as the value in non-membership proofs.
@@ -3285,6 +3288,82 @@ impl LedgerLensScoreContract {
     /// Returns the current signing threshold.
     pub fn get_service_threshold(env: Env) -> u32 {
         storage::get_service_threshold(&env)
+    }
+
+    // ── Signer tier bounds ───────────────────────────────────────────────────
+
+    /// Configure the score range `[min_score, max_score]` that `signer` is
+    /// authorised to attest. Admin only.
+    ///
+    /// Off-chain scoring services query their own tier bounds via
+    /// [`get_signer_tier`] before constructing a `submit_score` payload, so
+    /// they can confirm the score they intend to submit falls within their
+    /// authorised range.
+    ///
+    /// `signer` does not need to be a current member of the service set; tier
+    /// bounds may be configured ahead of onboarding a new signer.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::InvalidScore`] if either bound exceeds 100, or if
+    ///   `min_score > max_score`.
+    pub fn set_signer_tier(
+        env: Env,
+        admin_signers: Vec<Address>,
+        signer: Address,
+        min_score: u32,
+        max_score: u32,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if min_score > 100 || max_score > 100 || min_score > max_score {
+            return Err(Error::InvalidScore);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        let bounds = TierBounds { min_score, max_score };
+        storage::set_signer_tier(&env, &signer, &bounds);
+        Ok(())
+    }
+
+    /// Return the `(min_score, max_score)` score range that `signer` is
+    /// authorised to attest.
+    ///
+    /// Off-chain scoring services call this to discover their own tier bounds
+    /// before constructing a [`submit_score`] payload, ensuring the score
+    /// they intend to submit falls within the range their signature will be
+    /// accepted for.
+    ///
+    /// Returns `(0, 100)` — the full score range — when no tier has been
+    /// configured for `signer` via [`set_signer_tier`]. This default means a
+    /// signer whose tier has never been restricted is implicitly authorised
+    /// for the entire 0–100 range.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    ///
+    /// let signer = Address::generate(&env);
+    ///
+    /// // Before any configuration the full range is returned.
+    /// assert_eq!(client.get_signer_tier(&signer), (0_u32, 100_u32));
+    ///
+    /// // Admin restricts this signer to the high-risk band only.
+    /// client.set_signer_tier(&Vec::new(&env), &signer, &50, &100).unwrap();
+    /// assert_eq!(client.get_signer_tier(&signer), (50_u32, 100_u32));
+    /// ```
+    pub fn get_signer_tier(env: Env, signer: Address) -> (u32, u32) {
+        let bounds = storage::get_signer_tier(&env, &signer);
+        (bounds.min_score, bounds.max_score)
     }
 
     // ── Signer rotation TTL (Issue #79) ─────────────────────────────────────
