@@ -23,3 +23,16 @@ fn test_query_risk_gate_no_shards_returns_false() {
     let pair = symbol_short!("XLM_USDC");
     assert!(!client.query_risk_gate(&wallet, &pair, &75));
 }
+
+#[test]
+fn test_get_decay_rate() {
+    let env = TestEnv::default();
+    let contract_id = env.register_contract(None, LedgerLens);
+    let client = LedgerLensClient::new(&env, &contract_id);
+
+    let (numerator, denominator) = client.get_decay_rate();
+    
+    assert_eq!(numerator, 999);
+    assert_eq!(denominator, 1000);
+    assert!(numerator < denominator, "Decay rate should be < 1.0");
+}
