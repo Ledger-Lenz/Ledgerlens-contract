@@ -6,6 +6,10 @@ pub fn pair_weight_updated(env: &Env, asset_pair: &Symbol, weight: u32) {
     env.events().publish((symbol_short!("pw_upd"), asset_pair.clone()), weight);
 }
 
+pub fn pair_weight_reset(env: &Env, asset_pair: &Symbol) {
+    env.events().publish((symbol_short!("pw_rst"), asset_pair.clone()), ());
+}
+
 pub fn score_submitted(env: &Env, wallet: &Address, asset_pair: &Symbol, score: &RiskScore) {
     env.events().publish(
         (symbol_short!("score"), wallet.clone(), asset_pair.clone()),

@@ -555,6 +555,19 @@ pub fn set_pair_weight(env: &Env, asset_pair: &Symbol, weight: u32) {
     env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
 }
 
+/// Returns `true` when a custom weight has been set for `asset_pair`.
+pub fn has_pair_weight(env: &Env, asset_pair: &Symbol) -> bool {
+    let key = DataKey::PairWeight(asset_pair.clone());
+    env.storage().persistent().has(&key)
+}
+
+/// Removes the custom weight for `asset_pair`, causing `get_pair_weight` to
+/// fall back to the default of `1`.
+pub fn remove_pair_weight(env: &Env, asset_pair: &Symbol) {
+    let key = DataKey::PairWeight(asset_pair.clone());
+    env.storage().persistent().remove(&key);
+}
+
 pub fn set_aggregate_score(env: &Env, wallet: &Address, aggregate: &AggregateRiskScore) {
     let key = DataKey::AggregateScore(wallet.clone());
     env.storage().persistent().set(&key, aggregate);
