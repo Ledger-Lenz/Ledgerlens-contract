@@ -102,6 +102,18 @@ mod test_total_wallets_scored;
 #[cfg(test)]
 mod test_cooldown_period;
 
+#[cfg(test)]
+mod test_is_paused;
+
+#[cfg(test)]
+mod test_get_jump_threshold;
+
+#[cfg(test)]
+mod test_is_score_floor_enabled;
+
+#[cfg(test)]
+mod test_get_gate_callers;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN, Env, Symbol,
     SymbolStr, TryFromVal, Vec,
@@ -2936,6 +2948,69 @@ impl LedgerLensScoreContract {
     /// Returns the running total of fees collected via `query_risk_gate`.
     pub fn get_accumulated_fees(env: Env) -> i128 {
         storage::get_accumulated_fees(&env)
+    }
+
+    /// Returns the list of contracts authorized to invoke `query_risk_gate`.
+    ///
+    /// Integrators can verify their contract is in the allowlist before
+    /// attempting a gate call. Returns an empty `Vec` when no callers have
+    /// been explicitly authorized (advisory mode).
+    ///
+    /// # Examples
+    ///
+    /// `
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert!(client.get_gate_callers().is_empty());
+    /// `
+    pub fn get_gate_callers(env: Env) -> Vec<Address> {
+        storage::get_gate_callers(&env)
+    }
+
+    /// Replaces the authorized gate caller list. Admin only.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    pub fn set_gate_callers(
+        env: Env,
+        admin_signers: Vec<Address>,
+        callers: Vec<Address>,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_gate_callers(&env, &callers);
+        Ok(())
+    }
+
+    /// Returns `true` when strict gate enforcement is active.
+    pub fn get_gate_enforcement_mode(env: Env) -> bool {
+        storage::get_gate_enforcement_mode(&env)
+    }
+
+    /// Enables or disables strict gate enforcement. Admin only.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    pub fn set_gate_enforcement_mode(
+        env: Env,
+        admin_signers: Vec<Address>,
+        strict: bool,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_gate_enforcement_mode(&env, strict);
+        Ok(())
     }
 
     /// Confidence-aware variant of [`query_risk_gate`].
@@ -6039,6 +6114,31 @@ impl LedgerLensScoreContract {
     /// ```
     pub fn get_score_floor_policy(env: Env) -> ScoreFloorPolicy {
         storage::get_score_floor_policy(&env)
+    }
+
+    /// Returns `true` when the reputation laundering protection floor is active.
+    ///
+    /// Score consumers need to know if the floor policy is active to correctly
+    /// interpret scores that may have been clamped.
+    ///
+    /// # Examples
+    ///
+    /// `
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert!(!client.is_score_floor_enabled());
+    /// client.set_score_floor_policy(&Vec::new(&env), &true, &80, &20);
+    /// assert!(client.is_score_floor_enabled());
+    /// `
+    pub fn is_score_floor_enabled(env: Env) -> bool {
+        storage::get_score_floor_policy(&env).enabled
     }
 
     /// Returns the highest score ever recorded for `(wallet, asset_pair)`, or
