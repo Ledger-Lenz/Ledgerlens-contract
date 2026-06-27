@@ -6757,6 +6757,71 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
+    /// Deprecate multiple model versions in a single admin transaction.
+    ///
+    /// Each version in `versions` is deprecated independently.  Versions that
+    /// are already deprecated are silently skipped — the call succeeds as long
+    /// as admin auth passes and the contract is initialized.  One
+    /// `model_version_deprecated` event is emitted for every version that was
+    /// *newly* deprecated; already-deprecated versions produce no event.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::EmptyBatch`] if `versions` is empty.
+    /// - [`Error::BatchTooLarge`] if `versions.len() > MAX_BATCH_SIZE`.
+    /// - [`Error::ScoreNotFound`] if any version was never registered.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.register_model_version(&Vec::new(&env), &1);
+    /// client.register_model_version(&Vec::new(&env), &2);
+    /// let mut versions = Vec::new(&env);
+    /// versions.push_back(1u32);
+    /// versions.push_back(2u32);
+    /// client.bulk_deregister_model_version(&Vec::new(&env), &versions).unwrap();
+    /// assert!(!client.is_model_version_active(&1));
+    /// assert!(!client.is_model_version_active(&2));
+    /// ```
+    pub fn bulk_deregister_model_version(
+        env: Env,
+        admin_signers: Vec<Address>,
+        versions: Vec<u32>,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if versions.is_empty() {
+            return Err(Error::EmptyBatch);
+        }
+        if versions.len() > constants::MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        for i in 0..versions.len() {
+            let version = versions.get(i).unwrap();
+            if !storage::is_model_version_registered(&env, version) {
+                return Err(Error::ScoreNotFound);
+            }
+            if storage::is_model_version_deprecated(&env, version) {
+                continue;
+            }
+            storage::set_model_version_deprecated(&env, version);
+            events::model_version_deprecated(&env, version);
+        }
+        Ok(())
+    }
+
     /// Returns `true` only when `version` is registered **and** not yet
     /// deprecated.  Read-only, callable by any account or contract.
     pub fn is_model_version_active(env: Env, version: u32) -> bool {

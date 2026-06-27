@@ -381,3 +381,75 @@ fn test_model_version_list_multiple_wallets_and_pairs() {
     assert_eq!(versions.get(1).unwrap(), 3);
     assert_eq!(client.get_model_version_count(), 2);
 }
+
+// ── bulk_deregister_model_version ─────────────────────────────────────────────
+
+#[test]
+fn test_bulk_deregister_deprecates_all_versions() {
+    let (env, client, _) = setup();
+    client.register_model_version(&Vec::new(&env), &1);
+    client.register_model_version(&Vec::new(&env), &2);
+    client.register_model_version(&Vec::new(&env), &3);
+
+    let mut versions = Vec::new(&env);
+    versions.push_back(1u32);
+    versions.push_back(2u32);
+    versions.push_back(3u32);
+
+    let result = client.try_bulk_deregister_model_version(&Vec::new(&env), &versions);
+    assert!(result.is_ok());
+
+    assert!(!client.is_model_version_active(&1));
+    assert!(!client.is_model_version_active(&2));
+    assert!(!client.is_model_version_active(&3));
+}
+
+#[test]
+fn test_bulk_deregister_skips_already_deprecated() {
+    let (env, client, _) = setup();
+    client.register_model_version(&Vec::new(&env), &1);
+    client.register_model_version(&Vec::new(&env), &2);
+    client.deprecate_model_version(&Vec::new(&env), &1);
+
+    let mut versions = Vec::new(&env);
+    versions.push_back(1u32); // already deprecated — must be skipped
+    versions.push_back(2u32);
+
+    let result = client.try_bulk_deregister_model_version(&Vec::new(&env), &versions);
+    assert!(result.is_ok());
+    assert!(!client.is_model_version_active(&1));
+    assert!(!client.is_model_version_active(&2));
+}
+
+#[test]
+fn test_bulk_deregister_errors_on_unregistered_version() {
+    let (env, client, _) = setup();
+    client.register_model_version(&Vec::new(&env), &1);
+
+    let mut versions = Vec::new(&env);
+    versions.push_back(1u32);
+    versions.push_back(99u32); // never registered
+
+    let result = client.try_bulk_deregister_model_version(&Vec::new(&env), &versions);
+    assert_eq!(result, Err(Ok(Error::ScoreNotFound)));
+}
+
+#[test]
+fn test_bulk_deregister_rejects_empty_batch() {
+    let (env, client, _) = setup();
+    let empty: Vec<u32> = Vec::new(&env);
+    let result = client.try_bulk_deregister_model_version(&Vec::new(&env), &empty);
+    assert_eq!(result, Err(Ok(Error::EmptyBatch)));
+}
+
+#[test]
+fn test_bulk_deregister_requires_admin() {
+    let (env, client, _) = setup();
+    client.register_model_version(&Vec::new(&env), &1);
+
+    // env.mock_all_auths() is active so we can't test real auth rejection here;
+    // we verify the function exists and is callable by the admin path.
+    let mut versions = Vec::new(&env);
+    versions.push_back(1u32);
+    assert!(client.try_bulk_deregister_model_version(&Vec::new(&env), &versions).is_ok());
+}
