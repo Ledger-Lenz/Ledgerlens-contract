@@ -3570,8 +3570,37 @@ impl LedgerLensScoreContract {
 
     // ── Consensus configuration ─────────────────────────────────────────────
 
-    /// Sets the minimum agreeing model count (`k`) and maximum score
-    /// deviation (`epsilon`) used by `reveal_consensus`. Admin only.
+    /// Atomically update both consensus parameters in a single admin call.
+    ///
+    /// `k` is the minimum number of model submissions that must agree (within
+    /// `epsilon` percent deviation) before `reveal_consensus` accepts the
+    /// result.  `epsilon` is the maximum allowed percentage deviation between
+    /// any two agreeing scores (0 = exact match, 100 = any score qualifies).
+    ///
+    /// Updating `k` and `epsilon` in separate transactions would leave a window
+    /// where an inconsistent parameter combination is active; this atomic setter
+    /// eliminates that window.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::InvalidConsensusConfig`] if `k == 0` or `epsilon > 100`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_consensus_config(&3, &10).unwrap();
+    /// assert_eq!(client.get_consensus_config(), (3, 10));
+    /// ```
     pub fn set_consensus_config(env: Env, k: u32, epsilon: u32) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
