@@ -3308,7 +3308,29 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    /// Returns the current signer rotation TTL in seconds. Default is 30 days.
+    /// Returns the TTL in seconds after which a service signer is considered
+    /// expired and will be rejected on score submission.  Returns `0` when TTL
+    /// enforcement is disabled.  Default: 2 592 000 s (30 days).
+    ///
+    /// Signer operators should schedule key-refresh operations before this
+    /// deadline to avoid submission failures.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // Default is 30 days (2 592 000 s).
+    /// assert_eq!(client.get_signer_rotation_ttl(), 2_592_000);
+    /// ```
     pub fn get_signer_rotation_ttl(env: Env) -> u64 {
         storage::get_signer_rotation_ttl(&env)
     }
