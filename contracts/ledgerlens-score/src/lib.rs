@@ -4913,8 +4913,7 @@ impl LedgerLensScoreContract {
 
     // ── Hysteresis layer ─────────────────────────────────────────────────────
 
-    /// Set the hysteresis margin (0-50) used to widen the exit threshold
-    /// below the entry threshold, preventing event oscillation at the boundary.
+    /// Configure the exit-band margin at runtime without a contract upgrade.
     ///
     /// When `margin > 0`, a wallet that entered the high-risk band
     /// (`score >= risk_threshold`) only exits when
@@ -4922,13 +4921,40 @@ impl LedgerLensScoreContract {
     /// recovery before the band is cleared.  When `margin == 0` the exit
     /// threshold equals the entry threshold (no hysteresis).
     ///
-    /// The value is rejected with [`Error::InvalidThreshold`] when it
-    /// exceeds [`constants::MAX_HYSTERESIS_MARGIN`] (50). Admin only.
+    /// Emits a `hysteresis_margin_updated` (`hys_upd`) event on success.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::InvalidHysteresisMargin`] if `margin` exceeds
+    ///   [`constants::MAX_HYSTERESIS_MARGIN`] (50) or is `>=` the current
+    ///   risk threshold (which would invert the exit band).
+    /// - [`Error::Unauthorized`] if the caller is not the admin.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_hysteresis_margin(&10);
+    /// assert_eq!(client.get_hysteresis_margin(), 10);
+    /// ```
     pub fn set_hysteresis_margin(env: Env, margin: u32) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
         }
         if margin > constants::MAX_HYSTERESIS_MARGIN {
+            return Err(Error::InvalidHysteresisMargin);
+        }
+        let risk_threshold = storage::get_risk_threshold(&env);
+        if margin >= risk_threshold {
             return Err(Error::InvalidHysteresisMargin);
         }
         let admin = storage::get_admin(&env);
