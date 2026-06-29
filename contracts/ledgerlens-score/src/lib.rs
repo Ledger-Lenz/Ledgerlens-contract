@@ -789,28 +789,8 @@ impl LedgerLensScoreContract {
                             confidence: sub.confidence,
                             model_version: sub.model_version,
                         };
-                    storage::set_score(&env, &sub.wallet, &sub.asset_pair, &risk_score);
-                    storage::push_score_history(&env, &sub.wallet, &sub.asset_pair, &risk_score);
-                    storage::register_pair_for_wallet(&env, &sub.wallet, &sub.asset_pair);
-                    storage::increment_score_count(&env, &sub.wallet, &sub.asset_pair);
-                    storage::update_model_stats(&env, sub.model_version, sub.score);
-                    storage::update_historical_max_score(
-                        &env,
-                        &sub.wallet,
-                        &sub.asset_pair,
-                        sub.score,
-                    );
-                    storage::update_histogram_on_write(&env, previous_score, sub.score);
-                    Self::refresh_aggregate_cache(&env, &sub.wallet);
-                    Self::update_verkle_commitment(&env, &sub.wallet, &sub.asset_pair, &risk_score);
-
                         storage::set_score(&env, &sub.wallet, &sub.asset_pair, &risk_score);
-                        storage::push_score_history(
-                            &env,
-                            &sub.wallet,
-                            &sub.asset_pair,
-                            &risk_score,
-                        );
+                        storage::push_score_history(&env, &sub.wallet, &sub.asset_pair, &risk_score);
                         storage::register_pair_for_wallet(&env, &sub.wallet, &sub.asset_pair);
                         storage::increment_score_count(&env, &sub.wallet, &sub.asset_pair);
                         storage::update_model_stats(&env, sub.model_version, sub.score);
@@ -820,13 +800,9 @@ impl LedgerLensScoreContract {
                             &sub.asset_pair,
                             sub.score,
                         );
+                        storage::update_histogram_on_write(&env, previous_score, sub.score);
                         Self::refresh_aggregate_cache(&env, &sub.wallet);
-                        Self::update_verkle_commitment(
-                            &env,
-                            &sub.wallet,
-                            &sub.asset_pair,
-                            &risk_score,
-                        );
+                        Self::update_verkle_commitment(&env, &sub.wallet, &sub.asset_pair, &risk_score);
 
                         if sub.score >= threshold {
                             events::threshold_breached(

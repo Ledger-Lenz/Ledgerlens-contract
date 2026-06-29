@@ -271,6 +271,57 @@
             "key": {
               "vec": [
                 {
+                  "symbol": "BandEntryTime"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "symbol": "XLM_USDC"
+                }
+              ]
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "BandEntryTime"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    },
+                    {
+                      "symbol": "XLM_USDC"
+                    }
+                  ]
+                },
+                "durability": "temporary",
+                "val": {
+                  "u64": 3601
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          777600
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
                   "symbol": "BreachCount"
                 },
                 {
@@ -281,7 +332,7 @@
                 }
               ]
             },
-            "durability": "persistent"
+            "durability": "temporary"
           }
         },
         [
@@ -304,7 +355,7 @@
                     }
                   ]
                 },
-                "durability": "persistent",
+                "durability": "temporary",
                 "val": {
                   "u32": 1
                 }
@@ -312,7 +363,7 @@
             },
             "ext": "v0"
           },
-          777600
+          15
         ]
       ],
       [
@@ -847,6 +898,57 @@
         {
           "contract_data": {
             "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "VerkleLeaf"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "symbol": "XLM_USDC"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "VerkleLeaf"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    },
+                    {
+                      "symbol": "XLM_USDC"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "bytes": "43d2389daf8ee318c73ca49e3f6b582b0ace251242ba233e61cf4834203fed75"
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          777600
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
             "key": "ledger_key_contract_instance",
             "durability": "persistent"
           }
@@ -868,30 +970,6 @@
                     "storage": [
                       {
                         "key": {
-                          "symbol": "hist_b4"
-                        },
-                        "val": {
-                          "u32": 0
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "hist_b8"
-                        },
-                        "val": {
-                          "u32": 1
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "hist_tot"
-                        },
-                        "val": {
-                          "u32": 1
-                        }
-                      },
-                      {
-                        "key": {
                           "vec": [
                             {
                               "symbol": "Admin"
@@ -906,19 +984,24 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "AllModelVersions"
+                              "symbol": "LastGlobalSubmissionTime"
                             }
                           ]
                         },
                         "val": {
+                          "u64": 3601
+                        }
+                      },
+                      {
+                        "key": {
                           "vec": [
                             {
-                              "u32": 1
-                            },
-                            {
-                              "u32": 2
+                              "symbol": "LastServiceActivityAt"
                             }
                           ]
+                        },
+                        "val": {
+                          "u64": 3601
                         }
                       },
                       {
@@ -936,18 +1019,10 @@
                           "map": [
                             {
                               "key": {
-                                "symbol": "first_seen"
+                                "symbol": "average_score"
                               },
                               "val": {
-                                "u64": 0
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "last_seen"
-                              },
-                              "val": {
-                                "u64": 0
+                                "u32": 40
                               }
                             },
                             {
@@ -956,22 +1031,6 @@
                               },
                               "val": {
                                 "u32": 1
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "score_max"
-                              },
-                              "val": {
-                                "u32": 40
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "score_min"
-                              },
-                              "val": {
-                                "u32": 40
                               }
                             },
                             {
@@ -989,6 +1048,14 @@
                               "val": {
                                 "u32": 1
                               }
+                            },
+                            {
+                              "key": {
+                                "symbol": "total_submissions"
+                              },
+                              "val": {
+                                "u64": 1
+                              }
                             }
                           ]
                         }
@@ -1008,18 +1075,10 @@
                           "map": [
                             {
                               "key": {
-                                "symbol": "first_seen"
+                                "symbol": "average_score"
                               },
                               "val": {
-                                "u64": 3601
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "last_seen"
-                              },
-                              "val": {
-                                "u64": 3601
+                                "u32": 80
                               }
                             },
                             {
@@ -1028,22 +1087,6 @@
                               },
                               "val": {
                                 "u32": 2
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "score_max"
-                              },
-                              "val": {
-                                "u32": 80
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "score_min"
-                              },
-                              "val": {
-                                "u32": 80
                               }
                             },
                             {
@@ -1061,8 +1104,58 @@
                               "val": {
                                 "u32": 1
                               }
+                            },
+                            {
+                              "key": {
+                                "symbol": "total_submissions"
+                              },
+                              "val": {
+                                "u64": 1
+                              }
                             }
                           ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ScoreHistogramBucket"
+                            },
+                            {
+                              "u32": 4
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 0
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ScoreHistogramBucket"
+                            },
+                            {
+                              "u32": 8
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ScoreHistogramTotal"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 1
                         }
                       },
                       {
@@ -1075,6 +1168,18 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "VerkleCommitmentRaw"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "bytes": "00f6b1083faeacfeed94ff9eb1624d10dd00f3025e96d82daf68ed9417974bae"
                         }
                       }
                     ]
@@ -1563,7 +1668,7 @@
           "v0": {
             "topics": [
               {
-                "symbol": "jmp_ano"
+                "symbol": "jmp_anom"
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"

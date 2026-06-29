@@ -3,3 +3,4 @@
 .soroban
 *.wasm
 .env
+check.log
