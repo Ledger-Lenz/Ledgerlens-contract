@@ -3282,6 +3282,14 @@ impl LedgerLensScoreContract {
         storage::get_service_set(&env)
     }
 
+    /// Returns the number of addresses currently in the M-of-N service signer
+    /// set.  Returns `0` when no service set has been configured.  Cheaper
+    /// than `get_service_signers` for health-check / quorum-monitoring callers
+    /// that only need the count.
+    pub fn get_service_signer_count(env: Env) -> u32 {
+        storage::get_service_set(&env).len()
+    }
+
     /// Returns the current signing threshold.
     pub fn get_service_threshold(env: Env) -> u32 {
         storage::get_service_threshold(&env)
