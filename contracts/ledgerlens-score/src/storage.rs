@@ -878,6 +878,19 @@ pub fn clear_pair_cooldown_secs(env: &Env, asset_pair: &Symbol) {
     env.storage().instance().remove(&DataKey::PairCooldown(asset_pair.clone()));
 }
 
+// ── Adaptive rate limit ───────────────────────────────────────────────────────
+
+pub fn get_adaptive_rate_limit(env: &Env) -> AdaptiveRateLimit {
+    env.storage()
+        .instance()
+        .get(&DataKey::AdaptiveRateLimit)
+        .unwrap_or(AdaptiveRateLimit { enabled: false, variance_scale: 0 })
+}
+
+pub fn set_adaptive_rate_limit(env: &Env, config: &AdaptiveRateLimit) {
+    env.storage().instance().set(&DataKey::AdaptiveRateLimit, config);
+}
+
 // ── Score Velocity Cap ────────────────────────────────────────────────────────
 
 pub fn get_score_velocity_cap(env: &Env) -> ScoreVelocityCap {
