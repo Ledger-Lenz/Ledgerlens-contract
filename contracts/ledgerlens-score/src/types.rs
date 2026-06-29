@@ -184,6 +184,13 @@ pub struct PendingScoreEntry {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HllSketch {
+    pub precision: u8,
+    pub registers: Vec<u8>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelSubmission {
     pub model_version: u32,
     pub model: Address,
@@ -603,6 +610,7 @@ impl DataKey {
             DataKey::RevealWindowSecs => k0!("RevealWinSecs"),
             DataKey::FinalityBufferSecs => k0!("FinalityBufSec"),
             DataKey::PendingScore(a, s) => k2!("PendingScore", a, s),
+            DataKey::UniqueWalletsHll(s) => k1!("UniqueWalletsHll", s),
             DataKey::LastServiceActivityAt => k0!("LastSvcActivity"),
             DataKey::ServiceHeartbeatAlertThreshold => k0!("SvcHbAlert"),
             DataKey::ServiceSilentAlertEmitted => k0!("SvcSilentAlert"),

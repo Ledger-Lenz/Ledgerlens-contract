@@ -16,6 +16,9 @@ mod verkle;
 mod test;
 
 #[cfg(test)]
+mod test_hll;
+
+#[cfg(test)]
 mod test_upgrade;
 
 #[cfg(test)]
@@ -112,12 +115,7 @@ pub use errors::Error;
 pub use events::{ServiceResumedEvent, ServiceSilenceAlertEvent};
 pub use types::{
     AggregateRiskScore, BatchAttestation, BatchEntryResult, BatchResult, BatchScoreResult,
-    DecayCurve, EffectiveRiskScore, EmbargoExpiry, MaybeRiskScore, ModelSubmission,
-    ModelVersionStats, PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput,
-    ScoreDispute, ScoreFloorPolicy, ScoreHistogram, ScoreQuery, ScoreSubmission,
-    ScoreSubmissionWithProof, ScoreTrend, ScoreVelocityCap, ScoreWithFinality, StepWiseEntry,
-    SubscorePayload, ThresholdAttestation, UpgradeProposal,
-    EffectiveRiskScore, EmbargoExpiry, MaybeRiskScore, ModelSubmission, ModelVersionStats,
+    EffectiveRiskScore, EmbargoExpiry, HllSketch, MaybeRiskScore, ModelSubmission, ModelVersionStats,
     PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput, ScoreDispute, ScoreFloorPolicy,
     ScoreHistogram, ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof, ScoreTrend,
     ScoreVelocityCap, ThresholdAttestation, UpgradeProposal, ParameterProposal,
@@ -385,6 +383,11 @@ impl LedgerLensScoreContract {
         }
 
         let buffer = storage::get_finality_buffer_secs(&env);
+        // ── HLL first-time detection ──────────────────────────────────────────
+        if storage::get_score_count(&env, &wallet, &asset_pair) == 0 {
+            storage::hll_update(&env, &asset_pair, &wallet);
+        }
+
         if buffer == 0 {
             // Disabled — commit straight to live storage.
             Self::write_score_with_rate_limit(&env, &wallet, &asset_pair, &risk_score)?;
@@ -462,6 +465,34 @@ impl LedgerLensScoreContract {
     /// is disabled and `submit_score` commits immediately.
     pub fn get_finality_buffer(env: Env) -> u64 {
         storage::get_finality_buffer_secs(&env)
+    }
+
+    /// Alias for `set_finality_buffer`. Configures the escrow hold window in
+    /// seconds. `0` disables the hold window and causes `submit_score` to
+    /// commit immediately.
+    pub fn set_escrow_hold_window(
+        env: Env,
+        admin_signers: Vec<Address>,
+        secs: u64,
+    ) -> Result<(), Error> {
+        Self::set_finality_buffer(env, admin_signers, secs)
+    }
+
+    /// Public alias for `commit_pending_score`.
+    /// Callable by anyone once the escrow hold window has elapsed.
+    pub fn auto_commit_score(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        Self::commit_pending_score(env, wallet, asset_pair)
+    }
+
+    /// Returns an estimate of the number of unique wallets that have a live
+    /// score for `asset_pair`. Uses a per-pair HyperLogLog sketch to avoid
+    /// storing full wallet lists on-chain.
+    pub fn estimate_unique_wallets(env: Env, asset_pair: Symbol) -> u64 {
+        storage::estimate_unique_wallets(&env, &asset_pair)
     }
 
     /// Read-only lookup of the pending score held for `(wallet, asset_pair)`,
@@ -571,247 +602,35 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
-    // ── Issue #284: Ledger-depth finality gadget ─────────────────────────────
+    // ── HyperLogLog unique-wallet estimation ─────────────────────────────────
 
-    /// Sets the number of Stellar ledger closures that must elapse after a
-    /// score submission before it is considered final.  `0` (the default)
-    /// disables the depth check — `get_score_with_finality` always returns
-    /// `finality_pending: false`.  Admin only.
-    pub fn set_finality_depth(
+    /// Admin-only. Sets the HLL precision `p` ∈ [HLL_MIN_PRECISION, HLL_MAX_PRECISION].
+    pub fn set_hll_precision(
         env: Env,
         admin_signers: Vec<Address>,
-        ledgers: u32,
+        precision: u32,
     ) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
+        }
+        if precision < constants::HLL_MIN_PRECISION || precision > constants::HLL_MAX_PRECISION {
+            return Err(Error::InvalidThreshold);
         }
         Self::require_admin_auth(&env, &admin_signers)?;
-        storage::set_finality_depth(&env, ledgers);
+        storage::set_hll_precision(&env, precision);
         Ok(())
     }
 
-    /// Returns the configured finality depth in ledger closures.
-    /// `0` means the depth check is disabled.
-    pub fn get_finality_depth(env: Env) -> u32 {
-        storage::get_finality_depth(&env)
+    /// Returns the current HLL precision setting.
+    pub fn get_hll_precision(env: Env) -> u32 {
+        storage::get_hll_precision(&env)
     }
 
-    /// Returns the latest risk score for `wallet` / `asset_pair` together with
-    /// a `finality_pending` flag that is `true` when fewer than
-    /// `finality_depth` ledger closures have elapsed since the score was
-    /// submitted.  Consumers requiring confirmation-depth guarantees should
-    /// wait until `finality_pending` is `false` before acting on the score.
-    ///
-    /// # Errors
-    /// - [`Error::ScoreNotFound`] if no score has been submitted yet.
-    pub fn get_score_with_finality(
-        env: Env,
-        wallet: Address,
-        asset_pair: Symbol,
-    ) -> Result<ScoreWithFinality, Error> {
-        let score = storage::get_score(&env, &wallet, &asset_pair)
-            .ok_or(Error::ScoreNotFound)?;
-        let depth = storage::get_finality_depth(&env);
-        let finality_pending = if depth > 0 {
-            let sub_ledger =
-                storage::get_score_submission_ledger(&env, &wallet, &asset_pair);
-            let current_seq = env.ledger().sequence();
-            (sub_ledger as u64).saturating_add(depth as u64) > current_seq as u64
-        } else {
-            false
-        };
-        Ok(ScoreWithFinality { score, finality_pending })
+    /// Estimates the number of unique wallets scored for `asset_pair` using HyperLogLog.
+    pub fn estimate_unique_wallets(env: Env, asset_pair: Symbol) -> u64 {
+        storage::hll_estimate(&env, &asset_pair)
     }
 
-    // ── Issue #283: Dormancy decay with checkpoint snapshots ─────────────────
-
-    /// Configures the dormancy decay policy.
-    ///
-    /// - `inactivity_secs`: seconds of silence after the last score submission
-    ///   before a wallet is considered dormant.
-    /// - `decay_fraction_bps`: fraction of `(score − global_mean)` removed at
-    ///   each checkpoint, expressed in basis points (e.g. `500` = 5 %).
-    ///
-    /// Set both to `0` to disable dormancy decay.  Admin only.
-    pub fn set_dormancy_decay_config(
-        env: Env,
-        admin_signers: Vec<Address>,
-        inactivity_secs: u64,
-        decay_fraction_bps: u32,
-    ) -> Result<(), Error> {
-        if !storage::has_admin(&env) {
-            return Err(Error::NotInitialized);
-        }
-        Self::require_admin_auth(&env, &admin_signers)?;
-        storage::set_dormancy_inactivity_secs(&env, inactivity_secs);
-        storage::set_dormancy_decay_fraction_bps(&env, decay_fraction_bps);
-        Ok(())
-    }
-
-    /// Applies checkpoint-based dormancy decay to `wallet` / `asset_pair`.
-    ///
-    /// Callable by anyone.  No-ops when:
-    /// - dormancy decay is not configured,
-    /// - the wallet has no stored score, or
-    /// - the wallet has been active within `inactivity_secs`.
-    ///
-    /// For each elapsed inactivity period the stored score is pulled toward
-    /// the global mean (50) by `decay_fraction_bps` / 10 000.  Emits
-    /// `dormancy_decay_applied` once per successful decay application.
-    pub fn apply_dormancy_decay(
-        env: Env,
-        wallet: Address,
-        asset_pair: Symbol,
-    ) -> Result<(), Error> {
-        let inactivity_secs = storage::get_dormancy_inactivity_secs(&env);
-        let decay_fraction_bps = storage::get_dormancy_decay_fraction_bps(&env);
-        if inactivity_secs == 0 || decay_fraction_bps == 0 {
-            return Ok(());
-        }
-
-        let score = match storage::get_score(&env, &wallet, &asset_pair) {
-            Some(s) => s,
-            None => return Ok(()),
-        };
-
-        let now = env.ledger().timestamp();
-        let last_submit = storage::get_last_submit_time(&env, &wallet, &asset_pair);
-
-        if now.saturating_sub(last_submit) < inactivity_secs {
-            return Ok(());
-        }
-
-        let last_checkpoint = {
-            let cp = storage::get_decay_checkpoint(&env, &wallet, &asset_pair);
-            if cp == 0 { last_submit } else { cp }
-        };
-
-        let elapsed_since_checkpoint = now.saturating_sub(last_checkpoint);
-        let periods = (elapsed_since_checkpoint / inactivity_secs).min(200);
-        if periods == 0 {
-            return Ok(());
-        }
-
-        const GLOBAL_MEAN: u32 = 50;
-        let mut current_score = score.score;
-        for _ in 0..periods {
-            let delta = if current_score >= GLOBAL_MEAN {
-                ((current_score - GLOBAL_MEAN) as u64
-                    * decay_fraction_bps as u64
-                    / 10_000) as u32
-            } else {
-                ((GLOBAL_MEAN - current_score) as u64
-                    * decay_fraction_bps as u64
-                    / 10_000) as u32
-            };
-            if current_score >= GLOBAL_MEAN {
-                current_score = current_score.saturating_sub(delta);
-            } else {
-                current_score = (current_score + delta).min(GLOBAL_MEAN);
-            }
-        }
-
-        let new_checkpoint = last_checkpoint + periods * inactivity_secs;
-        storage::set_decay_checkpoint(&env, &wallet, &asset_pair, new_checkpoint);
-
-        let new_score = RiskScore { score: current_score, ..score };
-        storage::set_score(&env, &wallet, &asset_pair, &new_score);
-
-        events::dormancy_decay_applied(
-            &env,
-            &wallet,
-            &asset_pair,
-            current_score,
-            periods as u32,
-        );
-        Ok(())
-    }
-
-    /// Returns the timestamp of the last dormancy-decay checkpoint for
-    /// `wallet` / `asset_pair`.  Returns `0` when no decay has been applied yet.
-    pub fn get_decay_checkpoint(env: Env, wallet: Address, asset_pair: Symbol) -> u64 {
-        storage::get_decay_checkpoint(&env, &wallet, &asset_pair)
-    }
-
-    // ── Issue #285: Configurable non-linear decay curves ─────────────────────
-
-    /// Sets the decay curve used by `get_interpolated_score`.
-    /// Variants: `Exponential` (linear, default), `Quadratic`, `Logarithmic`,
-    /// `StepWise(Vec<StepWiseEntry>)`.  Admin only.
-    pub fn set_decay_curve(
-        env: Env,
-        admin_signers: Vec<Address>,
-        curve: DecayCurve,
-    ) -> Result<(), Error> {
-        if !storage::has_admin(&env) {
-            return Err(Error::NotInitialized);
-        }
-        Self::require_admin_auth(&env, &admin_signers)?;
-        storage::set_decay_curve(&env, &curve);
-        Ok(())
-    }
-
-    /// Returns the currently configured decay curve.
-    /// Defaults to `DecayCurve::Exponential` (backward-compatible linear
-    /// interpolation) when no curve has been set.
-    pub fn get_decay_curve(env: Env) -> DecayCurve {
-        storage::get_decay_curve(&env)
-    }
-
-    // ── Issue #286: Multi-dimensional score breakdown ─────────────────────────
-
-    /// Attaches optional sub-scores to an existing `(wallet, asset_pair)` entry.
-    ///
-    /// Off-chain models call this after `submit_score` to persist whichever
-    /// analysis dimensions they computed.  Existing score submissions that
-    /// omit sub-scores are unaffected — `get_score_breakdown` returns `None`
-    /// for them.  Requires service authentication.
-    pub fn submit_score_breakdown(
-        env: Env,
-        signers: Vec<Address>,
-        wallet: Address,
-        asset_pair: Symbol,
-        subscores: SubscorePayload,
-    ) -> Result<(), Error> {
-        if !storage::has_admin(&env) {
-            return Err(Error::NotInitialized);
-        }
-        if storage::is_paused(&env) {
-            return Err(Error::ContractPaused);
-        }
-        let service_set = storage::get_service_set(&env);
-        let threshold = storage::get_service_threshold(&env);
-        if !service_set.is_empty()
-            && threshold > 0
-            && !(signers.len() == 1
-                && signers.get(0).unwrap() == storage::get_service(&env))
-        {
-            if signers.len() < threshold {
-                return Err(Error::InsufficientSigners);
-            }
-            for i in 0..signers.len() {
-                let signer = signers.get(i).unwrap();
-                if !service_set.contains(&signer) {
-                    return Err(Error::UnauthorizedSigner);
-                }
-                signer.require_auth();
-            }
-        } else {
-            storage::get_service(&env).require_auth();
-        }
-        storage::set_score_breakdown(&env, &wallet, &asset_pair, &subscores);
-        Ok(())
-    }
-
-    /// Returns the sub-score breakdown for `wallet` / `asset_pair`, or `None`
-    /// if no breakdown has been submitted.
-    pub fn get_score_breakdown(
-        env: Env,
-        wallet: Address,
-        asset_pair: Symbol,
-    ) -> Option<SubscorePayload> {
-        storage::get_score_breakdown(&env, &wallet, &asset_pair)
-    }
 
     /// Register a consensus-backed score for `wallet` / `asset_pair` from
     /// multiple independently attested model outputs.
@@ -3608,6 +3427,14 @@ impl LedgerLensScoreContract {
     /// Returns the current M-of-N service signer set.
     pub fn get_service_signers(env: Env) -> Vec<Address> {
         storage::get_service_set(&env)
+    }
+
+    /// Returns the number of addresses currently in the M-of-N service signer
+    /// set.  Returns `0` when no service set has been configured.  Cheaper
+    /// than `get_service_signers` for health-check / quorum-monitoring callers
+    /// that only need the count.
+    pub fn get_service_signer_count(env: Env) -> u32 {
+        storage::get_service_set(&env).len()
     }
 
     /// Returns the current signing threshold.
