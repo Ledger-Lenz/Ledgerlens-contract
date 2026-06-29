@@ -16,6 +16,9 @@ mod verkle;
 mod test;
 
 #[cfg(test)]
+mod test_hll;
+
+#[cfg(test)]
 mod test_upgrade;
 
 #[cfg(test)]
@@ -112,7 +115,7 @@ pub use errors::Error;
 pub use events::{ServiceResumedEvent, ServiceSilenceAlertEvent};
 pub use types::{
     AggregateRiskScore, BatchAttestation, BatchEntryResult, BatchResult, BatchScoreResult,
-    EffectiveRiskScore, EmbargoExpiry, MaybeRiskScore, ModelSubmission, ModelVersionStats,
+    EffectiveRiskScore, EmbargoExpiry, HllSketch, MaybeRiskScore, ModelSubmission, ModelVersionStats,
     PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput, ScoreDispute, ScoreFloorPolicy,
     ScoreHistogram, ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof, ScoreTrend,
     ScoreVelocityCap, ThresholdAttestation, UpgradeProposal, ParameterProposal,
@@ -380,6 +383,11 @@ impl LedgerLensScoreContract {
         }
 
         let buffer = storage::get_finality_buffer_secs(&env);
+        // ── HLL first-time detection ──────────────────────────────────────────
+        if storage::get_score_count(&env, &wallet, &asset_pair) == 0 {
+            storage::hll_update(&env, &asset_pair, &wallet);
+        }
+
         if buffer == 0 {
             // Disabled — commit straight to live storage.
             Self::write_score_with_rate_limit(&env, &wallet, &asset_pair, &risk_score)?;
@@ -565,6 +573,36 @@ impl LedgerLensScoreContract {
         events::score_pending_cancelled(&env, &wallet, &asset_pair, &admin);
         Ok(())
     }
+
+    // ── HyperLogLog unique-wallet estimation ─────────────────────────────────
+
+    /// Admin-only. Sets the HLL precision `p` ∈ [HLL_MIN_PRECISION, HLL_MAX_PRECISION].
+    pub fn set_hll_precision(
+        env: Env,
+        admin_signers: Vec<Address>,
+        precision: u32,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if precision < constants::HLL_MIN_PRECISION || precision > constants::HLL_MAX_PRECISION {
+            return Err(Error::InvalidThreshold);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_hll_precision(&env, precision);
+        Ok(())
+    }
+
+    /// Returns the current HLL precision setting.
+    pub fn get_hll_precision(env: Env) -> u32 {
+        storage::get_hll_precision(&env)
+    }
+
+    /// Estimates the number of unique wallets scored for `asset_pair` using HyperLogLog.
+    pub fn estimate_unique_wallets(env: Env, asset_pair: Symbol) -> u64 {
+        storage::hll_estimate(&env, &asset_pair)
+    }
+
 
     /// Register a consensus-backed score for `wallet` / `asset_pair` from
     /// multiple independently attested model outputs.
