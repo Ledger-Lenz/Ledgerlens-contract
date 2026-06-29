@@ -3746,6 +3746,34 @@ impl LedgerLensScoreContract {
         (storage::get_consensus_threshold_k(&env), storage::get_consensus_epsilon(&env))
     }
 
+    /// Returns the consensus epsilon: the maximum absolute deviation from the
+    /// consensus median that a model submission may have and still be counted
+    /// toward agreement in `reveal_consensus`. Off-chain model operators read
+    /// this to learn the agreement band their submissions must fall within.
+    /// Defaults to [`constants::DEFAULT_CONSENSUS_EPSILON`] until changed via
+    /// `set_consensus_config`. Read-only, callable by any account or contract.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // Default epsilon before any override.
+    /// assert_eq!(client.get_consensus_epsilon(), 5);
+    /// client.set_consensus_config(&3, &8);
+    /// assert_eq!(client.get_consensus_epsilon(), 8);
+    /// ```
+    pub fn get_consensus_epsilon(env: Env) -> u32 {
+        storage::get_consensus_epsilon(&env)
+    }
+
     // ── Adaptive consensus epsilon (#287) ────────────────────────────────────
 
     /// Admin setter. Enables or disables adaptive epsilon and sets the scale

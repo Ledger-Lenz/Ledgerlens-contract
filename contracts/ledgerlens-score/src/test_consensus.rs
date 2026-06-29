@@ -36,6 +36,24 @@ fn signing_key(seed: u8) -> SigningKey {
     SigningKey::from_bytes((&bytes).into()).unwrap()
 }
 
+// ── Issue #241 — get_consensus_epsilon ────────────────────────────────────────
+
+#[test]
+fn test_get_consensus_epsilon_default_then_override() {
+    let (_env, client) = setup();
+
+    // Defaults to DEFAULT_CONSENSUS_EPSILON before any override.
+    assert_eq!(client.get_consensus_epsilon(), 5);
+
+    // Reflects the value set via set_consensus_config.
+    client.set_consensus_config(&3, &12);
+    assert_eq!(client.get_consensus_epsilon(), 12);
+
+    // Stays consistent with the epsilon component of get_consensus_config.
+    let (_k, epsilon) = client.get_consensus_config();
+    assert_eq!(client.get_consensus_epsilon(), epsilon);
+}
+
 fn pubkey_bytes(env: &Env, key: &SigningKey) -> Bytes {
     let point = key.verifying_key().to_encoded_point(true);
     Bytes::from_slice(env, point.as_bytes())
