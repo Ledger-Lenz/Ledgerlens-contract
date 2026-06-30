@@ -1,4 +1,4 @@
-#![cfg(test)]
+﻿#![cfg(test)]
 
 use soroban_sdk::{
     symbol_short,
@@ -33,20 +33,18 @@ fn submit(
     pair: &soroban_sdk::Symbol,
     score: u32,
 ) {
-    client
-        .submit_score(
-            &Vec::new(env),
-            wallet,
-            pair,
-            &score,
-            &false,
-            &false,
-            &(env.ledger().timestamp().max(1)),
-            &80,
-            &1,
-            &None,
-        )
-        ;
+    client.submit_score(
+        &Vec::new(env),
+        wallet,
+        pair,
+        &score,
+        &false,
+        &false,
+        &(env.ledger().timestamp().max(1)),
+        &80,
+        &1,
+        &None,
+    );
     env.ledger().with_mut(|l| l.timestamp += 3_601);
 }
 
@@ -614,7 +612,7 @@ fn test_entry_time_stable_during_sustained_high_risk() {
 fn test_entry_time_stable_during_hysteresis_hold() {
     let (env, client, _admin, _service) = setup();
     // threshold = 75, margin = 10 → exit_threshold = 65
-    client.set_hysteresis_margin(&10).unwrap();
+    client.set_hysteresis_margin(&10);
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
@@ -636,7 +634,7 @@ fn test_entry_time_stable_during_hysteresis_hold() {
 #[test]
 fn test_entry_time_cleared_on_band_exit() {
     let (env, client, _admin, _service) = setup();
-    client.set_hysteresis_margin(&10).unwrap();
+    client.set_hysteresis_margin(&10);
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
@@ -658,7 +656,7 @@ fn test_entry_time_cleared_on_band_exit() {
 #[test]
 fn test_entry_time_reset_on_reentry() {
     let (env, client, _admin, _service) = setup();
-    client.set_hysteresis_margin(&10).unwrap();
+    client.set_hysteresis_margin(&10);
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
@@ -703,123 +701,6 @@ fn test_entry_time_isolated_per_pair() {
     let pair_a = symbol_short!("XLM_USDC");
     let pair_b = symbol_short!("BTC_USDC");
 
-    submit(&env, &client, &wallet, &pair_a, 80);
-    assert!(client.get_risk_band_entry_time(&wallet, &pair_a).is_some());
-    assert_eq!(client.get_risk_band_entry_time(&wallet, &pair_b), None);
-}
-
-
-// ── get_risk_band_entry_time ──────────────────────────────────────────────────
-
-#[test]
-fn test_entry_time_none_before_band_entered() {
-    let (env, client, _admin, _service) = setup();
-    let wallet = Address::generate(&env);
-    let pair = symbol_short!("XLM_USDC");
-    assert_eq!(client.get_risk_band_entry_time(&wallet, &pair), None);
-}
-
-#[test]
-fn test_entry_time_none_while_below_threshold() {
-    let (env, client, _admin, _service) = setup();
-    let wallet = Address::generate(&env);
-    let pair = symbol_short!("XLM_USDC");
-    submit(&env, &client, &wallet, &pair, 74);
-    assert_eq!(client.get_risk_band_entry_time(&wallet, &pair), None);
-}
-
-#[test]
-fn test_entry_time_recorded_on_band_entry() {
-    let (env, client, _admin, _service) = setup();
-    let wallet = Address::generate(&env);
-    let pair = symbol_short!("XLM_USDC");
-    let entry_ts = env.ledger().timestamp();
-    submit(&env, &client, &wallet, &pair, 80);
-    assert_eq!(client.get_risk_band_entry_time(&wallet, &pair), Some(entry_ts));
-}
-
-#[test]
-fn test_entry_time_stable_during_sustained_high_risk() {
-    let (env, client, _admin, _service) = setup();
-    let wallet = Address::generate(&env);
-    let pair = symbol_short!("XLM_USDC");
-    let entry_ts = env.ledger().timestamp();
-    submit(&env, &client, &wallet, &pair, 80);
-    submit(&env, &client, &wallet, &pair, 85);
-    submit(&env, &client, &wallet, &pair, 90);
-    assert_eq!(
-        client.get_risk_band_entry_time(&wallet, &pair),
-        Some(entry_ts),
-        "entry timestamp must not change during sustained high risk"
-    );
-}
-
-#[test]
-fn test_entry_time_stable_during_hysteresis_hold() {
-    let (env, client, _admin, _service) = setup();
-    // threshold = 75, margin = 10 → exit_threshold = 65
-    client.set_hysteresis_margin(&10).unwrap();
-    let wallet = Address::generate(&env);
-    let pair = symbol_short!("XLM_USDC");
-    let entry_ts = env.ledger().timestamp();
-    submit(&env, &client, &wallet, &pair, 80);
-    // below threshold but above exit boundary — hysteresis holds
-    submit(&env, &client, &wallet, &pair, 70);
-    assert!(client.is_in_risk_band(&wallet, &pair));
-    assert_eq!(
-        client.get_risk_band_entry_time(&wallet, &pair),
-        Some(entry_ts),
-        "entry timestamp must not change while hysteresis is holding"
-    );
-}
-
-#[test]
-fn test_entry_time_cleared_on_band_exit() {
-    let (env, client, _admin, _service) = setup();
-    client.set_hysteresis_margin(&10).unwrap();
-    let wallet = Address::generate(&env);
-    let pair = symbol_short!("XLM_USDC");
-    submit(&env, &client, &wallet, &pair, 80);
-    assert!(client.get_risk_band_entry_time(&wallet, &pair).is_some());
-    // cross below exit_threshold (65)
-    submit(&env, &client, &wallet, &pair, 64);
-    assert!(!client.is_in_risk_band(&wallet, &pair));
-    assert_eq!(client.get_risk_band_entry_time(&wallet, &pair), None);
-}
-
-#[test]
-fn test_entry_time_reset_on_reentry() {
-    let (env, client, _admin, _service) = setup();
-    client.set_hysteresis_margin(&10).unwrap();
-    let wallet = Address::generate(&env);
-    let pair = symbol_short!("XLM_USDC");
-    let first_ts = env.ledger().timestamp();
-    submit(&env, &client, &wallet, &pair, 80);
-    submit(&env, &client, &wallet, &pair, 60); // exit (below exit_threshold 65)
-    assert_eq!(client.get_risk_band_entry_time(&wallet, &pair), None);
-    let second_ts = env.ledger().timestamp();
-    submit(&env, &client, &wallet, &pair, 80);
-    assert_eq!(client.get_risk_band_entry_time(&wallet, &pair), Some(second_ts));
-    assert_ne!(second_ts, first_ts, "re-entry timestamp must differ from first entry");
-}
-
-#[test]
-fn test_entry_time_isolated_per_wallet() {
-    let (env, client, _admin, _service) = setup();
-    let wallet_a = Address::generate(&env);
-    let wallet_b = Address::generate(&env);
-    let pair = symbol_short!("XLM_USDC");
-    submit(&env, &client, &wallet_a, &pair, 80);
-    assert!(client.get_risk_band_entry_time(&wallet_a, &pair).is_some());
-    assert_eq!(client.get_risk_band_entry_time(&wallet_b, &pair), None);
-}
-
-#[test]
-fn test_entry_time_isolated_per_pair() {
-    let (env, client, _admin, _service) = setup();
-    let wallet = Address::generate(&env);
-    let pair_a = symbol_short!("XLM_USDC");
-    let pair_b = symbol_short!("BTC_USDC");
     submit(&env, &client, &wallet, &pair_a, 80);
     assert!(client.get_risk_band_entry_time(&wallet, &pair_a).is_some());
     assert_eq!(client.get_risk_band_entry_time(&wallet, &pair_b), None);

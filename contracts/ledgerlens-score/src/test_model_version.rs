@@ -1,4 +1,4 @@
-//! Tests for the model version registry feature.
+﻿//! Tests for the model version registry feature.
 //!
 //! Covers: register_model_version, deprecate_model_version,
 //! is_model_version_active, get_model_versions, and version enforcement inside
@@ -49,10 +49,7 @@ fn test_empty_registry_allows_any_version() {
         &None,
     );
     assert!(result.is_ok());
-    assert_eq!(
-        client.get_score(&wallet, &symbol_short!("XLM_USDC")).model_version,
-        999
-    );
+    assert_eq!(client.get_score(&wallet, &symbol_short!("XLM_USDC")).model_version, 999);
 }
 
 // ── Active version ────────────────────────────────────────────────────────────
@@ -77,10 +74,7 @@ fn test_active_version_accepted() {
         &None,
     );
     assert!(result.is_ok());
-    assert_eq!(
-        client.get_score(&wallet, &symbol_short!("XLM_USDC")).model_version,
-        1
-    );
+    assert_eq!(client.get_score(&wallet, &symbol_short!("XLM_USDC")).model_version, 1);
 }
 
 // ── Unregistered version ──────────────────────────────────────────────────────
@@ -216,10 +210,7 @@ fn test_batch_deprecated_version_entry_rejected() {
     assert_eq!(entry1.rejection_code, 0);
 
     // Rejected entry must not have stored a score.
-    assert_eq!(
-        client.try_get_score(&wallet1, &pair),
-        Err(Ok(Error::ScoreNotFound))
-    );
+    assert_eq!(client.try_get_score(&wallet1, &pair), Err(Ok(Error::ScoreNotFound)));
     // Accepted entry's score is readable.
     assert_eq!(client.get_score(&wallet2, &pair).score, 30);
     assert_eq!(client.get_score(&wallet2, &pair).model_version, 2);
@@ -283,14 +274,36 @@ fn test_model_version_list_grows_with_submissions() {
     let pair = symbol_short!("XLM_USDC");
 
     // Submit with version 1
-    client.submit_score(&Vec::new(&env), &wallet, &pair, &50, &false, &false, &START_TS, &90, &1, &None);
+    client.submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &pair,
+        &50,
+        &false,
+        &false,
+        &START_TS,
+        &90,
+        &1,
+        &None,
+    );
     let versions = client.get_model_version_list();
     assert_eq!(versions.len(), 1);
     assert_eq!(versions.get(0).unwrap(), 1);
 
     // Submit with version 2 (advance ledger to pass cooldown)
     env.ledger().with_mut(|l| l.timestamp = START_TS + 3_601);
-    client.submit_score(&Vec::new(&env), &wallet, &pair, &60, &false, &false, &START_TS + 1, &95, &2, &None);
+    client.submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &pair,
+        &60,
+        &false,
+        &false,
+        &(START_TS + 1),
+        &95,
+        &2,
+        &None,
+    );
     let versions = client.get_model_version_list();
     assert_eq!(versions.len(), 2);
     assert_eq!(versions.get(0).unwrap(), 1);
@@ -298,7 +311,18 @@ fn test_model_version_list_grows_with_submissions() {
 
     // Submit with version 1 again (duplicate — not added)
     env.ledger().with_mut(|l| l.timestamp = START_TS + 7_202);
-    client.submit_score(&Vec::new(&env), &wallet, &pair, &55, &false, &false, &START_TS + 2, &92, &1, &None);
+    client.submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &pair,
+        &55,
+        &false,
+        &false,
+        &(START_TS + 2),
+        &92,
+        &1,
+        &None,
+    );
     let versions = client.get_model_version_list();
     assert_eq!(versions.len(), 2); // still 2 — no duplicate entry
     assert_eq!(client.get_model_version_count(), 2);
@@ -313,10 +337,43 @@ fn test_model_version_list_multiple_wallets_and_pairs() {
     let pair_y = symbol_short!("XLM_BTC");
 
     // Different wallets/pairs all contribute to the same global index
-    client.submit_score(&Vec::new(&env), &wallet_a, &pair_x, &50, &false, &false, &START_TS, &90, &1, &None);
-    client.submit_score(&Vec::new(&env), &wallet_a, &pair_y, &60, &false, &false, &START_TS, &90, &3, &None);
+    client.submit_score(
+        &Vec::new(&env),
+        &wallet_a,
+        &pair_x,
+        &50,
+        &false,
+        &false,
+        &START_TS,
+        &90,
+        &1,
+        &None,
+    );
+    client.submit_score(
+        &Vec::new(&env),
+        &wallet_a,
+        &pair_y,
+        &60,
+        &false,
+        &false,
+        &START_TS,
+        &90,
+        &3,
+        &None,
+    );
     env.ledger().with_mut(|l| l.timestamp = START_TS + 3_601);
-    client.submit_score(&Vec::new(&env), &wallet_b, &pair_x, &70, &false, &false, &START_TS + 1, &90, &1, &None);
+    client.submit_score(
+        &Vec::new(&env),
+        &wallet_b,
+        &pair_x,
+        &70,
+        &false,
+        &false,
+        &(START_TS + 1),
+        &90,
+        &1,
+        &None,
+    );
 
     let versions = client.get_model_version_list();
     assert_eq!(versions.len(), 2);

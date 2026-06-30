@@ -1,4 +1,4 @@
-#![cfg(test)]
+﻿#![cfg(test)]
 
 //! Tests for the Verkle / KZG polynomial commitment system.
 //!

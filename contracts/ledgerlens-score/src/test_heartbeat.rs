@@ -1,4 +1,4 @@
-//! Tests for the off-chain service heartbeat monitor: a global liveness
+﻿//! Tests for the off-chain service heartbeat monitor: a global liveness
 //! signal (`LastServiceActivityAt`) updated on every accepted submission or
 //! `ping_heartbeat`, queryable via `is_service_alive`, with a one-shot
 //! `ServiceSilenceAlertEvent` / `ServiceResumedEvent` pair marking the start

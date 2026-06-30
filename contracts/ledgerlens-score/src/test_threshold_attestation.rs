@@ -1,4 +1,4 @@
-#![cfg(test)]
+﻿#![cfg(test)]
 
 //! Tests for secp256k1 threshold signature aggregation:
 //! `set_aggregate_service_pubkey` / `get_aggregate_service_pubkey` and the
@@ -84,6 +84,7 @@ fn commitment(
             timestamp,
             confidence,
             model_version,
+            0, // nonce for test
         )
         .unwrap()
         .to_bytes()

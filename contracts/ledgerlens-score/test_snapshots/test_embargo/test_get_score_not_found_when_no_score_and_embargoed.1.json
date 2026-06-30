@@ -44,6 +44,49 @@
             "key": {
               "vec": [
                 {
+                  "symbol": "EmbargoedWIndex"
+                }
+              ]
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "EmbargoedWIndex"
+                    }
+                  ]
+                },
+                "durability": "temporary",
+                "val": {
+                  "vec": [
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          3110400
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
                   "symbol": "ScoreEmbargo"
                 },
                 {
@@ -377,7 +420,7 @@
             ],
             "data": {
               "error": {
-                "contract": 42
+                "contract": 37
               }
             }
           }
@@ -398,7 +441,7 @@
               },
               {
                 "error": {
-                  "contract": 42
+                  "contract": 37
                 }
               }
             ],
@@ -423,7 +466,7 @@
               },
               {
                 "error": {
-                  "contract": 42
+                  "contract": 37
                 }
               }
             ],

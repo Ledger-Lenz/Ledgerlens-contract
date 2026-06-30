@@ -1,4 +1,4 @@
-#![cfg(test)]
+﻿#![cfg(test)]
 
 //! Tests for the Merkle-root batch attestation entry point:
 //! `submit_scores_batch_attested` and the supporting internals
@@ -128,6 +128,7 @@ fn payload_commitment(
             timestamp,
             confidence,
             model_version,
+            0, // nonce for test
         )
         .unwrap()
         .to_bytes()
@@ -642,7 +643,7 @@ fn test_batch_attested_respects_rate_limit() {
         &100,
         &80,
         &1,
-        &None
+        &None,
     );
 
     let key = signing_key(1);

@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 4,
+    "address": 7,
     "nonce": 0
   },
   "auth": [
@@ -32,12 +32,96 @@
     [],
     [
       [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "commit_consensus",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "symbol": "XLM_USDC"
+                },
+                {
+                  "bytes": "8b20639d67667ebb491310cedbc497d328aba8fe98f34905168360efe857594d"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "commit_consensus",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "symbol": "XLM_USDC"
+                },
+                {
+                  "bytes": "d89744180e4981604771bcf4b6f33d3967737339b23df42f7fa4672e59429ed4"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "commit_consensus",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "symbol": "XLM_USDC"
+                },
+                {
+                  "bytes": "0c7af91093d1fde6687bff1fe753ea6537dda03af16aa388173a9fa0ef08677e"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
         {
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "submit_consensus_score",
+              "function_name": "reveal_consensus",
               "args": [
                 {
                   "vec": []
@@ -63,7 +147,15 @@
                                   "symbol": "commitment"
                                 },
                                 "val": {
-                                  "bytes": "fbfc86bd071ccf9d4a85f135257c2bb724ff8049601683e7574d6bd4a8027e62"
+                                  "bytes": "21794cd6b08624ddf64531d22c8f501f29eeabc18a723ae2a787bc3b3976e1d5"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "nonce"
+                                },
+                                "val": {
+                                  "u64": 0
                                 }
                               },
                               {
@@ -71,7 +163,7 @@
                                   "symbol": "signature"
                                 },
                                 "val": {
-                                  "bytes": "d41bd367e57898b465303983f519299aeb49d5ab017b17e011233bc290703ca96b22e3245b23ed6dfed74596849ab2571191877b1147a26ee420e106adc6bc3701"
+                                  "bytes": "813ee5f92538ee30a080e1938a014f330c23029b0e3c6f0c6af28d7701f32bc56fe8dc8bf6b5859650e86f2ca738c0b2a929fab36944ee58cb6bb786f5b6691601"
                                 }
                               }
                             ]
@@ -99,6 +191,14 @@
                           },
                           "val": {
                             "bool": false
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "model"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                           }
                         },
                         {
@@ -132,7 +232,15 @@
                                   "symbol": "commitment"
                                 },
                                 "val": {
-                                  "bytes": "68bd68017f8a5b71ab3bd8a50e44e4db87bddcdc36dd243051466afc1259d00d"
+                                  "bytes": "fcc0f193b39ebc5c2b2d2f139ae776b4f99d75402865e1ae824326f6e9fcbeaf"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "nonce"
+                                },
+                                "val": {
+                                  "u64": 0
                                 }
                               },
                               {
@@ -140,7 +248,7 @@
                                   "symbol": "signature"
                                 },
                                 "val": {
-                                  "bytes": "ef91a1bf996eb93d4c30ee4cb52c3b335413e2a7fa0e233ecd27fc3a2dffff2a1e624f4d4471a7ea5f41864db6f53c1203717bdcbdf14a4dfd2d9b81233ef0b901"
+                                  "bytes": "94463ad5517622911698033be44b43ee8af856c8dcfe8df360a6d5c7be0b5a6f4734c8ec6063f835cbd0d37e4245c7536452bd7d0ef02c22af037f3ec64b483401"
                                 }
                               }
                             ]
@@ -168,6 +276,14 @@
                           },
                           "val": {
                             "bool": false
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "model"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                           }
                         },
                         {
@@ -201,7 +317,15 @@
                                   "symbol": "commitment"
                                 },
                                 "val": {
-                                  "bytes": "c4bf796598fbf5f81efa0ca24503e9bab822cba35cf1576617338da8b8bde9f9"
+                                  "bytes": "6220a2de4fef7b476beca6d0a7dc6b3e22bfda968302cb60476f8f1164258888"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "nonce"
+                                },
+                                "val": {
+                                  "u64": 0
                                 }
                               },
                               {
@@ -209,7 +333,7 @@
                                   "symbol": "signature"
                                 },
                                 "val": {
-                                  "bytes": "2269cf5dd18e746111cd60f88153cda930c1f53e77819372265c74e6d09f416e1a3c35ecc65371ced2b4a1d838eccdaa62c92ec0691c425bc42dbd3f36f6370101"
+                                  "bytes": "20f7be739e857545a6811bca6f182d2c6009185ddca3c7f8b89105cc2b3cffab3b23e86eacea12e34e0613ebfec6b87831fae68688a718e6ee2a6602d80c595f01"
                                 }
                               }
                             ]
@@ -241,6 +365,14 @@
                         },
                         {
                           "key": {
+                            "symbol": "model"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
+                          }
+                        },
+                        {
+                          "key": {
                             "symbol": "model_version"
                           },
                           "val": {
@@ -256,6 +388,19 @@
                           }
                         }
                       ]
+                    }
+                  ]
+                },
+                {
+                  "vec": [
+                    {
+                      "u64": 1234
+                    },
+                    {
+                      "u64": 1235
+                    },
+                    {
+                      "u64": 1236
                     }
                   ]
                 },
@@ -460,7 +605,7 @@
                 }
               ]
             },
-            "durability": "persistent"
+            "durability": "temporary"
           }
         },
         [
@@ -483,7 +628,7 @@
                     }
                   ]
                 },
-                "durability": "persistent",
+                "durability": "temporary",
                 "val": {
                   "u32": 0
                 }
@@ -491,7 +636,7 @@
             },
             "ext": "v0"
           },
-          777600
+          15
         ]
       ],
       [
@@ -501,7 +646,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "HistoricalMaxScore"
+                  "symbol": "HistMaxScore"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -524,7 +669,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "HistoricalMaxScore"
+                      "symbol": "HistMaxScore"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -649,6 +794,12 @@
                     },
                     {
                       "key": {
+                        "symbol": "commitment"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
                         "symbol": "confidence"
                       },
                       "val": {
@@ -754,6 +905,107 @@
             "key": {
               "vec": [
                 {
+                  "symbol": "ScoreEntryIndex"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "ScoreEntryIndex"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "vec": [
+                    {
+                      "vec": [
+                        {
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                        },
+                        {
+                          "symbol": "XLM_USDC"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          777600
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "ScoreEntryLTL"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "symbol": "XLM_USDC"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "ScoreEntryLTL"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    },
+                    {
+                      "symbol": "XLM_USDC"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "u32": 0
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          777600
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
                   "symbol": "ScoreHistory"
                 },
                 {
@@ -799,6 +1051,12 @@
                           "val": {
                             "bool": true
                           }
+                        },
+                        {
+                          "key": {
+                            "symbol": "commitment"
+                          },
+                          "val": "void"
                         },
                         {
                           "key": {
@@ -923,6 +1181,57 @@
         {
           "contract_data": {
             "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "VerkleLeaf"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "symbol": "XLM_USDC"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "VerkleLeaf"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    },
+                    {
+                      "symbol": "XLM_USDC"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "bytes": "dc6979fa2ac9857d234faf25d8e85682f271cbdc3c1d434362470b5e4a9e844e"
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          4095
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
             "key": "ledger_key_contract_instance",
             "durability": "persistent"
           }
@@ -944,22 +1253,6 @@
                     "storage": [
                       {
                         "key": {
-                          "symbol": "hist_b7"
-                        },
-                        "val": {
-                          "u32": 1
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "hist_tot"
-                        },
-                        "val": {
-                          "u32": 1
-                        }
-                      },
-                      {
-                        "key": {
                           "vec": [
                             {
                               "symbol": "Admin"
@@ -974,16 +1267,57 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "AllModelVersions"
+                              "symbol": "LastGlobalSub"
                             }
                           ]
                         },
                         "val": {
+                          "u64": 1700000000
+                        }
+                      },
+                      {
+                        "key": {
                           "vec": [
                             {
-                              "u32": 0
+                              "symbol": "ModelPostWt"
+                            },
+                            {
+                              "u32": 51
                             }
                           ]
+                        },
+                        "val": {
+                          "u64": 999996
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ModelPostWt"
+                            },
+                            {
+                              "u32": 52
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 999999
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ModelPostWt"
+                            },
+                            {
+                              "u32": 53
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 1000000
                         }
                       },
                       {
@@ -1001,42 +1335,10 @@
                           "map": [
                             {
                               "key": {
-                                "symbol": "first_seen"
-                              },
-                              "val": {
-                                "u64": 1700000000
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "last_seen"
-                              },
-                              "val": {
-                                "u64": 1700000000
-                              }
-                            },
-                            {
-                              "key": {
                                 "symbol": "model_version"
                               },
                               "val": {
                                 "u32": 0
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "score_max"
-                              },
-                              "val": {
-                                "u32": 70
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "score_min"
-                              },
-                              "val": {
-                                "u32": 70
                               }
                             },
                             {
@@ -1054,6 +1356,65 @@
                               "val": {
                                 "u32": 1
                               }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "MvIndex"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "vec": [
+                            {
+                              "u32": 0
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ScoreHistogram"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "vec": [
+                            {
+                              "u64": 0
+                            },
+                            {
+                              "u64": 0
+                            },
+                            {
+                              "u64": 0
+                            },
+                            {
+                              "u64": 0
+                            },
+                            {
+                              "u64": 0
+                            },
+                            {
+                              "u64": 0
+                            },
+                            {
+                              "u64": 0
+                            },
+                            {
+                              "u64": 1
+                            },
+                            {
+                              "u64": 0
+                            },
+                            {
+                              "u64": 0
                             }
                           ]
                         }
@@ -1080,6 +1441,18 @@
                         },
                         "val": {
                           "bytes": "020cdf9d72a5557923dfcc007879a8345c29130c503dc6ad58a2ed90f8b1fd34d0"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "VerkleCommit"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "bytes": "3c985b0d790a54a628d7c26788e1785c9aadf2a8bcc069ea7cb0806de0bd4a15"
                         }
                       }
                     ]
@@ -1131,7 +1504,7 @@
             "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
             "key": {
               "ledger_key_nonce": {
-                "nonce": 5541220902715666415
+                "nonce": 2032731177588607455
               }
             },
             "durability": "temporary"
@@ -1146,7 +1519,106 @@
                 "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
                 "key": {
                   "ledger_key_nonce": {
+                    "nonce": 2032731177588607455
+                  }
+                },
+                "durability": "temporary",
+                "val": "void"
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
+            "key": {
+              "ledger_key_nonce": {
+                "nonce": 5541220902715666415
+              }
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
+                "key": {
+                  "ledger_key_nonce": {
                     "nonce": 5541220902715666415
+                  }
+                },
+                "durability": "temporary",
+                "val": "void"
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+            "key": {
+              "ledger_key_nonce": {
+                "nonce": 1033654523790656264
+              }
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+                "key": {
+                  "ledger_key_nonce": {
+                    "nonce": 1033654523790656264
+                  }
+                },
+                "durability": "temporary",
+                "val": "void"
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
+            "key": {
+              "ledger_key_nonce": {
+                "nonce": 4837995959683129791
+              }
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
+                "key": {
+                  "ledger_key_nonce": {
+                    "nonce": 4837995959683129791
                   }
                 },
                 "durability": "temporary",
@@ -1325,7 +1797,187 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "submit_consensus_score"
+                "symbol": "commit_consensus"
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "symbol": "XLM_USDC"
+                },
+                {
+                  "bytes": "8b20639d67667ebb491310cedbc497d328aba8fe98f34905168360efe857594d"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_return"
+              },
+              {
+                "symbol": "commit_consensus"
+              }
+            ],
+            "data": "void"
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_call"
+              },
+              {
+                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+              },
+              {
+                "symbol": "commit_consensus"
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "symbol": "XLM_USDC"
+                },
+                {
+                  "bytes": "d89744180e4981604771bcf4b6f33d3967737339b23df42f7fa4672e59429ed4"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_return"
+              },
+              {
+                "symbol": "commit_consensus"
+              }
+            ],
+            "data": "void"
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_call"
+              },
+              {
+                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+              },
+              {
+                "symbol": "commit_consensus"
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "symbol": "XLM_USDC"
+                },
+                {
+                  "bytes": "0c7af91093d1fde6687bff1fe753ea6537dda03af16aa388173a9fa0ef08677e"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_return"
+              },
+              {
+                "symbol": "commit_consensus"
+              }
+            ],
+            "data": "void"
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_call"
+              },
+              {
+                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+              },
+              {
+                "symbol": "reveal_consensus"
               }
             ],
             "data": {
@@ -1354,7 +2006,15 @@
                                   "symbol": "commitment"
                                 },
                                 "val": {
-                                  "bytes": "fbfc86bd071ccf9d4a85f135257c2bb724ff8049601683e7574d6bd4a8027e62"
+                                  "bytes": "21794cd6b08624ddf64531d22c8f501f29eeabc18a723ae2a787bc3b3976e1d5"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "nonce"
+                                },
+                                "val": {
+                                  "u64": 0
                                 }
                               },
                               {
@@ -1362,7 +2022,7 @@
                                   "symbol": "signature"
                                 },
                                 "val": {
-                                  "bytes": "d41bd367e57898b465303983f519299aeb49d5ab017b17e011233bc290703ca96b22e3245b23ed6dfed74596849ab2571191877b1147a26ee420e106adc6bc3701"
+                                  "bytes": "813ee5f92538ee30a080e1938a014f330c23029b0e3c6f0c6af28d7701f32bc56fe8dc8bf6b5859650e86f2ca738c0b2a929fab36944ee58cb6bb786f5b6691601"
                                 }
                               }
                             ]
@@ -1390,6 +2050,14 @@
                           },
                           "val": {
                             "bool": false
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "model"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                           }
                         },
                         {
@@ -1423,7 +2091,15 @@
                                   "symbol": "commitment"
                                 },
                                 "val": {
-                                  "bytes": "68bd68017f8a5b71ab3bd8a50e44e4db87bddcdc36dd243051466afc1259d00d"
+                                  "bytes": "fcc0f193b39ebc5c2b2d2f139ae776b4f99d75402865e1ae824326f6e9fcbeaf"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "nonce"
+                                },
+                                "val": {
+                                  "u64": 0
                                 }
                               },
                               {
@@ -1431,7 +2107,7 @@
                                   "symbol": "signature"
                                 },
                                 "val": {
-                                  "bytes": "ef91a1bf996eb93d4c30ee4cb52c3b335413e2a7fa0e233ecd27fc3a2dffff2a1e624f4d4471a7ea5f41864db6f53c1203717bdcbdf14a4dfd2d9b81233ef0b901"
+                                  "bytes": "94463ad5517622911698033be44b43ee8af856c8dcfe8df360a6d5c7be0b5a6f4734c8ec6063f835cbd0d37e4245c7536452bd7d0ef02c22af037f3ec64b483401"
                                 }
                               }
                             ]
@@ -1459,6 +2135,14 @@
                           },
                           "val": {
                             "bool": false
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "model"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                           }
                         },
                         {
@@ -1492,7 +2176,15 @@
                                   "symbol": "commitment"
                                 },
                                 "val": {
-                                  "bytes": "c4bf796598fbf5f81efa0ca24503e9bab822cba35cf1576617338da8b8bde9f9"
+                                  "bytes": "6220a2de4fef7b476beca6d0a7dc6b3e22bfda968302cb60476f8f1164258888"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "nonce"
+                                },
+                                "val": {
+                                  "u64": 0
                                 }
                               },
                               {
@@ -1500,7 +2192,7 @@
                                   "symbol": "signature"
                                 },
                                 "val": {
-                                  "bytes": "2269cf5dd18e746111cd60f88153cda930c1f53e77819372265c74e6d09f416e1a3c35ecc65371ced2b4a1d838eccdaa62c92ec0691c425bc42dbd3f36f6370101"
+                                  "bytes": "20f7be739e857545a6811bca6f182d2c6009185ddca3c7f8b89105cc2b3cffab3b23e86eacea12e34e0613ebfec6b87831fae68688a718e6ee2a6602d80c595f01"
                                 }
                               }
                             ]
@@ -1532,6 +2224,14 @@
                         },
                         {
                           "key": {
+                            "symbol": "model"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
+                          }
+                        },
+                        {
+                          "key": {
                             "symbol": "model_version"
                           },
                           "val": {
@@ -1547,6 +2247,19 @@
                           }
                         }
                       ]
+                    }
+                  ]
+                },
+                {
+                  "vec": [
+                    {
+                      "u64": 1234
+                    },
+                    {
+                      "u64": 1235
+                    },
+                    {
+                      "u64": 1236
                     }
                   ]
                 },
@@ -1692,7 +2405,7 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "submit_consensus_score"
+                "symbol": "reveal_consensus"
               }
             ],
             "data": "void"
@@ -1758,6 +2471,12 @@
                   "val": {
                     "bool": true
                   }
+                },
+                {
+                  "key": {
+                    "symbol": "commitment"
+                  },
+                  "val": "void"
                 },
                 {
                   "key": {
@@ -1921,6 +2640,12 @@
                       "val": {
                         "bool": true
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "commitment"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {

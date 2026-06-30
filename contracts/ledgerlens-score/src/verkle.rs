@@ -136,7 +136,11 @@ const DOMAIN_NONMEMBER: u8 = 0x07;
 /// preimage = DOMAIN_EVAL_POINT || wallet_bytes[..56] || pair_bytes[..9]
 /// z        = SHA-256(preimage) with top-3 bits zeroed (field reduction)
 /// ```
-pub fn derive_evaluation_point(env: &Env, wallet_bytes: &[u8; 56], pair_bytes: &[u8; 9]) -> [u8; 32] {
+pub fn derive_evaluation_point(
+    env: &Env,
+    wallet_bytes: &[u8; 56],
+    pair_bytes: &[u8; 9],
+) -> [u8; 32] {
     let mut buf = [0u8; 66]; // 1 + 56 + 9
     buf[0] = DOMAIN_EVAL_POINT;
     buf[1..57].copy_from_slice(wallet_bytes);
@@ -154,12 +158,7 @@ pub fn derive_evaluation_point(env: &Env, wallet_bytes: &[u8; 56], pair_bytes: &
 /// preimage = DOMAIN_VALUE || score_le[4] || timestamp_le[8] || z[32]
 /// v        = SHA-256(preimage) with top-3 bits zeroed (field reduction)
 /// ```
-pub fn derive_value_element(
-    env: &Env,
-    score: u32,
-    timestamp: u64,
-    z: &[u8; 32],
-) -> [u8; 32] {
+pub fn derive_value_element(env: &Env, score: u32, timestamp: u64, z: &[u8; 32]) -> [u8; 32] {
     let mut buf = [0u8; 45]; // 1 + 4 + 8 + 32
     buf[0] = DOMAIN_VALUE;
     buf[1..5].copy_from_slice(&score.to_le_bytes());
@@ -259,11 +258,7 @@ pub fn compute_membership_witness(
 /// ```text
 /// witness = SHA-256(0x07 || commitment || z)
 /// ```
-pub fn compute_nonmembership_witness(
-    env: &Env,
-    commitment: &[u8; 32],
-    z: &[u8; 32],
-) -> [u8; 32] {
+pub fn compute_nonmembership_witness(env: &Env, commitment: &[u8; 32], z: &[u8; 32]) -> [u8; 32] {
     let mut buf = [0u8; 65]; // 1 + 32 + 32
     buf[0] = DOMAIN_NONMEMBER;
     buf[1..33].copy_from_slice(commitment);

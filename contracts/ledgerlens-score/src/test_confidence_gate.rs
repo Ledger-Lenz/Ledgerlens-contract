@@ -1,4 +1,4 @@
-#![cfg(test)]
+﻿#![cfg(test)]
 
 //! Tests for `query_risk_gate_with_confidence` and the admin-configurable
 //! global minimum confidence floor (`set_global_min_confidence` /

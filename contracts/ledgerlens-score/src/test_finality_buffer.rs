@@ -1,11 +1,11 @@
-//! Tests for the finality buffer: holding submitted scores in a pending,
+﻿//! Tests for the finality buffer: holding submitted scores in a pending,
 //! admin-cancellable state for a configurable window before they take
 //! effect on the live read path.
 
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events as _, Ledger as _},
-    Address, Env, IntoVal, Vec,
+    Address, Bytes, Env, IntoVal, Vec,
 };
 
 use crate::{
@@ -90,8 +90,7 @@ fn test_set_and_get_finality_buffer() {
 #[test]
 fn test_set_finality_buffer_rejects_above_max() {
     let (env, client, _admin, _service) = setup();
-    let result =
-        client.try_set_finality_buffer(&Vec::new(&env), &(MAX_FINALITY_BUFFER_SECS + 1));
+    let result = client.try_set_finality_buffer(&Vec::new(&env), &(MAX_FINALITY_BUFFER_SECS + 1));
     assert_eq!(result, Err(Ok(Error::InvalidFinalityBuffer)));
 }
 
@@ -213,6 +212,60 @@ fn test_commit_pending_score_is_permissionless() {
 }
 
 #[test]
+fn test_auto_commit_score_after_window_succeeds() {
+    let (env, client, _admin, _service) = setup();
+    client.set_escrow_hold_window(&Vec::new(&env), &60).unwrap();
+
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+    submit(&env, &client, &wallet, &pair, 55);
+    advance_to(&env, START_TS + 60);
+
+    client.auto_commit_score(&wallet, &pair).unwrap();
+    assert_eq!(client.get_score(&wallet, &pair).score, 55);
+    assert!(client.get_pending_score(&wallet, &pair).is_none());
+}
+
+#[test]
+fn test_auto_commit_score_fails_after_cancel() {
+    let (env, client, _admin, _service) = setup();
+    client.set_escrow_hold_window(&Vec::new(&env), &300).unwrap();
+
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+    submit(&env, &client, &wallet, &pair, 70);
+    advance_to(&env, START_TS + 100);
+    client.cancel_pending_score(&Vec::new(&env), &wallet, &pair).unwrap();
+
+    advance_to(&env, START_TS + 300);
+    let result = client.try_auto_commit_score(&wallet, &pair);
+    assert_eq!(result, Err(Ok(Error::NoPendingScore)));
+    assert!(client.try_get_score(&wallet, &pair).is_err());
+}
+
+#[test]
+fn test_replacement_submission_during_escrow_updates_pending() {
+    let (env, client, _admin, _service) = setup();
+    client.set_escrow_hold_window(&Vec::new(&env), &300).unwrap();
+
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+    submit(&env, &client, &wallet, &pair, 10);
+
+    advance_to(&env, START_TS + 3_601);
+    submit(&env, &client, &wallet, &pair, 80);
+
+    let pending = client.get_pending_score(&wallet, &pair).unwrap();
+    assert_eq!(pending.score, 80);
+    assert_eq!(pending.submitted_at, START_TS + 3_601);
+
+    advance_to(&env, START_TS + 3_601 + 300);
+    client.auto_commit_score(&wallet, &pair).unwrap();
+    assert_eq!(client.get_score(&wallet, &pair).score, 80);
+    assert_eq!(client.get_score_count(&wallet, &pair), 1);
+}
+
+#[test]
 fn test_commit_with_no_pending_score_fails() {
     let (env, client, _admin, _service) = setup();
     let wallet = Address::generate(&env);
@@ -303,6 +356,59 @@ fn test_score_pending_cancelled_event_emitted() {
         cancelled_by == admin
     });
     assert!(found, "expected a scr_canc event naming the cancelling admin");
+}
+
+#[test]
+fn test_veto_before_window_removes_pending() {
+    let (env, client, _admin, _service) = setup();
+    client.set_finality_buffer(&Vec::new(&env), &300);
+
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+    submit(&env, &client, &wallet, &pair, 99);
+
+    advance_to(&env, START_TS + 100);
+    client.veto_pending_score(&Vec::new(&env), &wallet, &pair, &Bytes::from_slice(&env, b"veto reason"));
+
+    assert!(client.get_pending_score(&wallet, &pair).is_none());
+    let result = client.try_commit_pending_score(&wallet, &pair);
+    assert_eq!(result, Err(Ok(Error::NoPendingScore)));
+}
+
+#[test]
+fn test_veto_after_window_fails() {
+    let (env, client, _admin, _service) = setup();
+    client.set_finality_buffer(&Vec::new(&env), &300);
+
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+    submit(&env, &client, &wallet, &pair, 99);
+
+    advance_to(&env, START_TS + 300);
+    let result = client.try_veto_pending_score(&Vec::new(&env), &wallet, &pair, &Bytes::from_slice(&env, b"late veto"));
+    assert_eq!(result, Err(Ok(Error::FinalityWindowNotElapsed)));
+}
+
+#[test]
+fn test_score_vetoed_event_emitted() {
+    let (env, client, _admin, _service) = setup();
+    client.set_finality_buffer(&Vec::new(&env), &300);
+
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+    submit(&env, &client, &wallet, &pair, 60);
+    client.veto_pending_score(&Vec::new(&env), &wallet, &pair, &Bytes::from_slice(&env, b"bad score"));
+
+    let contract_id = client.address.clone();
+    let topic = (symbol_short!("scr_veto"), wallet.clone(), pair.clone());
+    let found = env.events().all().iter().any(|(addr, topics, data)| {
+        if addr != contract_id || topics != topic.clone().into_val(&env) {
+            return false;
+        }
+        let reason_hash: soroban_sdk::BytesN<32> = data.into_val(&env);
+        reason_hash == env.crypto().sha256(&Bytes::from_slice(&env, b"bad score"))
+    });
+    assert!(found, "expected a scr_veto event with the veto reason hash");
 }
 
 // ── Replacement semantics ─────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ use soroban_sdk::contracterror;
 pub enum Error {
     AlreadyInitialized = 1,
     NotInitialized = 2,
-    NotFound = 3,
+    Unauthorized = 3,
     InvalidScore = 4,
     InvalidConfidence = 5,
     ScoreNotFound = 6,
@@ -34,53 +34,67 @@ pub enum Error {
     InvalidAttestation = 27,
     InvalidPubkeyLength = 28,
     InvalidHistoryDepth = 29,
-    PairPaused = 30,
-    PausedPairIndexFull = 31,
-    BelowScoreFloor = 32,
-    InvalidScoreFloorPolicy = 33,
-    InvalidMinConfidence = 34,
-    InvalidHysteresisMargin = 35,
-    ScoreVelocityExceeded = 36,
-    InsufficientConsensus = 37,
-    CommitmentMismatch = 38,
-    RevealWindowExpired = 39,
-    DisputeAlreadyOpen = 40,
-    DisputeNotFound = 41,
-    InvalidDisputeBond = 42,
-    InvalidFinalityBuffer = 43,
-    NoPendingScore = 44,
-    FinalityWindowNotElapsed = 45,
-    ScoreEmbargoed = 46,
-    InvalidDecayRate = 47,
-    CyclicDelegation = 48,
-    AdminSetFull = 49,
-    FeeTokenNotSet = 50,
+    InsufficientConsensus = 30,
+    ConsensusInputEmpty = 31,
+    InvalidConsensusConfig = 32,
+    AdminSetFull = 33,
+    AdminSignerNotInSet = 34,
+    InsufficientAdminSigners = 35,
+    CyclicDelegation = 36,
+    ScoreEmbargoed = 37,
+    FeeTokenNotSet = 38,
+    QuorumFailureWindowNotElapsed = 39,
+    RevealWindowExpired = 40,
+    CommitmentMismatch = 41,
+    InvalidFinalityBuffer = 42,
+    NoPendingScore = 43,
+    FinalityWindowNotElapsed = 44,
+    InvalidDisputeBond = 45,
+    DisputeAlreadyOpen = 46,
+    DisputeNotFound = 47,
+    DisputeNotYetTimedOut = 48,
+    InvalidHysteresisMargin = 49,
+    InvalidModelPriorWeight = 50,
 }
 
-// Aliases for variants that exceed the 50-variant XDR limit.
-// These resolve to the closest semantically-equivalent core variant.
 #[allow(non_upper_case_globals)]
 impl Error {
-    pub const AdminSignerNotInSet: Error = Error::UnauthorizedSigner;
-    pub const AggregatePubkeyNotSet: Error = Error::ServicePubkeyNotSet;
+    pub const InvalidMinConfidence: Error = Error::InvalidConfidence;
+    pub const InvalidWithdrawalAmount: Error = Error::InvalidThreshold;
+    pub const WithdrawalInProgress: Error = Error::Unauthorized;
+    pub const PairPaused: Error = Error::ContractPaused;
+    pub const PausedPairIndexFull: Error = Error::ServiceSetFull;
+    pub const DelegateNotFound: Error = Error::ScoreNotFound;
+    pub const InvalidDecayRate: Error = Error::InvalidThreshold;
     pub const CounterpartyLinkFull: Error = Error::ServiceSetFull;
-    pub const DelegateNotFound: Error = Error::NotFound;
-    pub const DisputeIndexFull: Error = Error::BatchTooLarge;
-    pub const DisputeNotYetTimedOut: Error = Error::FinalityWindowNotElapsed;
-    pub const HighRiskWallet: Error = Error::ContractPaused;
-    pub const InsufficientAdminSigners: Error = Error::InsufficientSigners;
-    pub const InsufficientThresholdSigners: Error = Error::InsufficientSigners;
-    pub const InvalidConsensusConfig: Error = Error::InvalidThreshold;
+    pub const CounterpartyNotFound: Error = Error::ScoreNotFound;
+    pub const SelfLink: Error = Error::InvalidScore;
+    pub const ScoreVelocityExceeded: Error = Error::RateLimitExceeded;
     pub const InvalidEscalation: Error = Error::InvalidThreshold;
     pub const InvalidJump: Error = Error::InvalidScore;
-    pub const InvalidParameter: Error = Error::InvalidThreshold;
-    pub const InvalidThresholdSignature: Error = Error::InvalidAttestation;
-    pub const InvalidWithdrawalAmount: Error = Error::InvalidScore;
+    pub const BelowScoreFloor: Error = Error::InvalidScore;
+    pub const InvalidScoreFloorPolicy: Error = Error::InvalidThreshold;
+    pub const DisputeIndexFull: Error = Error::ServiceSetFull;
+    pub const EmbargoedWalletIndexFull: Error = Error::ServiceSetFull;
+
+    pub const ModelVersionNotRegistered: Error = Error::InvalidScore;
+    pub const ModelVersionDeprecated: Error = Error::Unauthorized;
     pub const ModelVersionAlreadyDeprecated: Error = Error::AlreadyInitialized;
-    pub const ModelVersionAlreadyRegistered: Error = Error::AlreadyInitialized;
-    pub const ModelVersionDeprecated: Error = Error::NotFound;
-    pub const ModelVersionNotRegistered: Error = Error::NotFound;
+    pub const ModelVersionAlreadyRegistered: Error = Error::SignerAlreadyInSet;
     pub const ModelVersionRegistryFull: Error = Error::ServiceSetFull;
-    pub const ThresholdSignerNotInSet: Error = Error::SignerNotInSet;
-    pub const WithdrawalInProgress: Error = Error::ContractPaused;
+
+    pub const NotFound: Error = Error::ScoreNotFound;
+    pub const FeeRecipientNotSet: Error = Error::FeeTokenNotSet;
+    pub const FeeRecipientMismatch: Error = Error::Unauthorized;
+
+    pub const ParameterProposalNotFound: Error = Error::ScoreNotFound;
+    pub const ParameterProposalNotReady: Error = Error::UpgradeNotReady;
+    pub const ParameterProposalVetoPeriodEnded: Error = Error::QuorumFailureWindowNotElapsed;
+    pub const ParameterProposalExpired: Error = Error::RevealWindowExpired;
+    pub const TooManyPendingParameterProposals: Error = Error::ServiceSetFull;
+    pub const ParameterProposalAlreadyExecuted: Error = Error::AlreadyInitialized;
+    pub const ParameterProposalVetoed: Error = Error::DisputeAlreadyOpen;
+    pub const InvalidParameterKey: Error = Error::InvalidThreshold;
+    pub const InvalidParameterValue: Error = Error::InvalidScore;
+    pub const InvalidParameterTimeLock: Error = Error::InvalidUpgradeDelay;
 }

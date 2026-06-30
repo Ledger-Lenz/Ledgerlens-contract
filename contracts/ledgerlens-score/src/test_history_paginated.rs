@@ -1,4 +1,4 @@
-//! Boundary tests for `get_score_history_paginated` — the windowed,
+﻿//! Boundary tests for `get_score_history_paginated` — the windowed,
 //! most-recent-first view over the score-history ring buffer (issue #108).
 //!
 //! These pin the read semantics third parties rely on: `offset` counted from

@@ -5,6 +5,8 @@ use std::io::{BufRead, BufReader};
 use std::collections::HashMap;
 
 use soroban_sdk::{Env, Address, Vec as SVec, Symbol};
+use soroban_sdk::testutils::Address as _;
+
 use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreSubmission};
 
 #[derive(Debug, Deserialize)]

@@ -113,7 +113,7 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "ScoreFloorConfig"
+                              "symbol": "FloorConfig"
                             }
                           ]
                         },

@@ -122,6 +122,8 @@ capabilities (all `symbol_short!`):
 | `gate`          | `query_risk_gate`                                                    |
 | `aggr`          | `get_aggregate_score` (cross-asset aggregate risk)                   |
 | `batch_attested`| `submit_scores_batch_attested` (Merkle-root attestation)             |
+| `emb`           | `set_score_embargo` / `lift_score_embargo`                          |
+| `cons`          | `commit_consensus` / `reveal_consensus` / `set_consensus_config`     |
 
 Unrecognised capabilities return `false`.
 
@@ -315,6 +317,40 @@ through.
 If your integration depends on, say, aggregate risk, gate the code path on
 `supports_interface(symbol_short!("aggr"))` so it degrades gracefully against
 an older deployment instead of trapping on a missing function.
+
+---
+
+## Composability Examples
+
+### AMM liquidity provision (score + confidence gate)
+
+The mock AMM in `contracts/mock-amm/` demonstrates gating liquidity provision
+with `query_risk_gate_with_confidence` — stricter than the swap path, which uses
+score-only `query_risk_gate`. The gate runs **before** any pool state changes:
+
+```rust
+let client = LedgerLensScoreContractClient::new(&env, &ledgerlens_id);
+let is_safe = client.query_risk_gate_with_confidence(
+    &provider,
+    &symbol_short!("XLM_USDC"),
+    &75,  // gate_threshold
+    &50,  // min_confidence
+);
+if !is_safe {
+    return Err(AmmError::HighRiskWallet);
+}
+// ... proceed with liquidity mint / reserve update ...
+```
+
+**No-score policy:** when LedgerLens has no score for the provider,
+`query_risk_gate_with_confidence` returns `false` (fail closed). Liquidity is
+rejected — the same conservative default as swap gating.
+
+Reference implementations:
+
+- [`examples/amm_gate_example.rs`](../examples/amm_gate_example.rs) — standalone example contract
+- [`contracts/mock-amm/src/lib.rs`](../contracts/mock-amm/src/lib.rs) — `provide_liquidity_gated` + `set_risk_oracle`
+- Cross-contract tests: `contracts/mock-amm/src/test.rs`, `tests/composability/`
 
 ---
 

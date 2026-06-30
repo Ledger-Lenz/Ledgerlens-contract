@@ -1,4 +1,4 @@
-//! Tests for the per-asset-pair circuit breaker (`set_pair_paused` /
+﻿//! Tests for the per-asset-pair circuit breaker (`set_pair_paused` /
 //! `is_pair_paused` / `get_paused_pairs`).
 
 use soroban_sdk::{
@@ -65,7 +65,7 @@ fn test_pair_pause_blocks_submit_score() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
     assert_eq!(result, Err(Ok(Error::PairPaused)));
 }
@@ -86,7 +86,7 @@ fn test_pair_pause_allows_read() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
 
     client.set_pair_paused(&pair, &true);
@@ -126,7 +126,7 @@ fn test_pair_unpause_restores_submissions() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
     assert_eq!(blocked, Err(Ok(Error::PairPaused)));
 
@@ -141,7 +141,7 @@ fn test_pair_unpause_restores_submissions() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
     assert_eq!(client.get_score(&wallet, &pair).score, 50);
 }
@@ -219,7 +219,7 @@ fn test_global_pause_takes_precedence_over_pair_pause() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
     assert_eq!(result, Err(Ok(Error::ContractPaused)));
 }

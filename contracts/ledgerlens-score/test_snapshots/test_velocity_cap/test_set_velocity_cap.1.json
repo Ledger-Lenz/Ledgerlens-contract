@@ -85,7 +85,19 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "ScoreVelocityCapEnabled"
+                              "symbol": "Service"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "VelCapEnabled"
                             }
                           ]
                         },
@@ -97,24 +109,12 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "ScoreVelocityCapPointsPerHour"
+                              "symbol": "VelCapPPH"
                             }
                           ]
                         },
                         "val": {
                           "u32": 10
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "Service"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                         }
                       }
                     ]

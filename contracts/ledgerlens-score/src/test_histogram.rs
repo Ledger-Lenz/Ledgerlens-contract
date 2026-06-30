@@ -1,12 +1,10 @@
-use soroban_sdk::{
+﻿use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Ledger as _},
     Address, Env, Vec,
 };
 
-use crate::{
-    Error, LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreHistogram,
-};
+use crate::{Error, LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreHistogram};
 
 fn initialized<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address, Address) {
     let env = Env::default();
@@ -127,11 +125,25 @@ fn test_relative_gate_top_20() {
     let (env, client, _admin, _service) = initialized();
     let pair = symbol_short!("XLM_USDC");
 
-    let wallets = [Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env)];
+    let wallets = [
+        Address::generate(&env),
+        Address::generate(&env),
+        Address::generate(&env),
+        Address::generate(&env),
+        Address::generate(&env),
+    ];
     for (i, w) in wallets.iter().enumerate() {
         client.submit_score(
-            &Vec::new(&env), w, &pair, &(10 + i as u32 * 20),
-            &false, &false, &1, &90, &1, &None,
+            &Vec::new(&env),
+            w,
+            &pair,
+            &(10 + i as u32 * 20),
+            &false,
+            &false,
+            &1,
+            &90,
+            &1,
+            &None,
         );
     }
     assert!(client.query_risk_gate_relative(&wallets[4], &pair, &20));
@@ -267,8 +279,5 @@ fn test_percentile_score_not_found() {
     let (env, client, _admin, _service) = initialized();
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
-    assert_eq!(
-        client.try_get_score_percentile(&wallet, &pair),
-        Err(Ok(Error::ScoreNotFound))
-    );
+    assert_eq!(client.try_get_score_percentile(&wallet, &pair), Err(Ok(Error::ScoreNotFound)));
 }

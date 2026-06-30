@@ -1,4 +1,4 @@
-//! Tests for the time-locked upgrade governance mechanism.
+﻿//! Tests for the time-locked upgrade governance mechanism.
 //!
 //! Time is simulated with `env.ledger().with_mut(|l| l.timestamp = ...)`; the
 //! contract derives every deadline from `env.ledger().timestamp()`, which is

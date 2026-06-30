@@ -2,7 +2,10 @@
 resolver = "2"
 members = [
     "contracts/ledgerlens-score",
+    "contracts/mock-amm",
+    "contracts/mock-lending",
     "tools/replay",
+    "tests/composability",
 ]
 
 [profile.release]

@@ -48,7 +48,7 @@ fn test_query_risk_gate_safe_wallet() {
         &1_700_000_000,
         &90,
         &1,
-        &None
+        &None,
     );
 
     assert!(client.query_risk_gate(&wallet, &pair, &75));
@@ -71,7 +71,7 @@ fn test_query_risk_gate_risky_wallet() {
         &1_700_000_000,
         &90,
         &1,
-        &None
+        &None,
     );
 
     assert!(!client.query_risk_gate(&wallet, &pair, &75));
@@ -94,7 +94,7 @@ fn test_query_risk_gate_at_threshold() {
         &1_700_000_000,
         &90,
         &1,
-        &None
+        &None,
     );
 
     assert!(!client.query_risk_gate(&wallet, &pair, &75));
@@ -156,7 +156,7 @@ fn test_query_risk_gate_never_panics() {
             &1_700_000_000,
             &50,
             &1,
-            &None
+            &None,
         );
 
         let threshold = next() % 200; // intentionally also exceeds the 0-100 range
@@ -181,7 +181,7 @@ fn test_supports_interface_score() {
 #[test]
 fn test_supports_interface_all_registered() {
     let (env, client, _admin, _service) = setup();
-    for cap in ["score", "history", "batch", "gate", "aggr"] {
+    for cap in ["score", "history", "batch", "gate", "aggr", "pr_rd"] {
         let sym = Symbol::new(&env, cap);
         assert!(client.supports_interface(&sym), "capability `{cap}` should be supported");
     }
@@ -191,6 +191,24 @@ fn test_supports_interface_all_registered() {
 fn test_supports_interface_unknown() {
     let (_env, client, _admin, _service) = setup();
     assert!(!client.supports_interface(&symbol_short!("foobar")));
+}
+
+#[test]
+fn test_supports_interface_emb() {
+    let (_env, client, _admin, _service) = setup();
+    assert!(client.supports_interface(&symbol_short!("emb")));
+}
+
+#[test]
+fn test_supports_interface_cons() {
+    let (_env, client, _admin, _service) = setup();
+    assert!(client.supports_interface(&symbol_short!("cons")));
+}
+
+#[test]
+fn test_supports_interface_pr_rd() {
+    let (_env, client, _admin, _service) = setup();
+    assert!(client.supports_interface(&symbol_short!("pr_rd")));
 }
 
 // ── RiskScore XDR layout stability ────────────────────────────────────────────
@@ -206,6 +224,7 @@ fn test_risk_score_xdr_stability() {
         timestamp: 1_700_000_000,
         confidence: 92,
         model_version: 3,
+        commitment: None,
     };
 
     // Round-trip through the host `Val` representation. This exercises the
@@ -251,30 +270,32 @@ fn test_error_codes_stable() {
 #[test]
 fn test_delegation_3_cycle_vulnerability() {
     let (env, client, _admin, _service) = setup();
-    
+
     let w1 = Address::generate(&env);
     let w2 = Address::generate(&env);
     let w3 = Address::generate(&env);
 
     // The contract currently only prevents 1-cycles (w1 -> w1) and 2-cycles (w1 -> w2 -> w1).
     // A 3-cycle (w1 -> w2 -> w3 -> w1) is not prevented by the acyclicity check in `set_score_delegate`.
-    
+
     // 1. w1 -> w2
     client.set_score_delegate(&w1, &w2);
-    
+
     // 2. w2 -> w3
     client.set_score_delegate(&w2, &w3);
-    
+
     // 3. w3 -> w1
     // The TLC model checker found this exact trace violating DelegationAcyclicity.
     // We expect this to return an error, but because of the vulnerability it succeeds.
     // Asserting for the error will cause the test to fail, demonstrating the vulnerability.
-    let result = env.try_invoke_contract::<(), _>(
+    let result = env.try_invoke_contract::<(), crate::Error>(
         &client.address,
         &soroban_sdk::Symbol::new(&env, "set_score_delegate"),
         (w3.clone(), w1.clone()).into_val(&env),
     );
 
-    assert!(result.is_err(), "Vulnerability: 3-cycle delegation succeeded when it should have failed!");
+    assert!(
+        result.is_err(),
+        "Vulnerability: 3-cycle delegation succeeded when it should have failed!"
+    );
 }
-

@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
     use soroban_sdk::{Env, Address, Vec as SVec, Symbol};
+    use soroban_sdk::testutils::Address as _;
     use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreSubmission};
-    use std::collections::HashMap;
 
-    fn init_contract(env: &Env) -> (LedgerLensScoreContractClient, Address, Address) {
+    fn init_contract(env: &Env) -> (LedgerLensScoreContractClient<'_>, Address, Address) {
         env.mock_all_auths();
         let contract_id = env.register_contract(None, LedgerLensScoreContract);
         let client = LedgerLensScoreContractClient::new(env, &contract_id);
@@ -39,7 +39,7 @@ mod tests {
         assert_eq!(result.rejected_count, 0);
         
         let score = client.get_score(&wallet, &pair);
-        assert!(score.score >= 0 && score.score <= 100, "score must be in [0, 100]");
+        assert!(score.score <= 100, "score must be in [0, 100]");
     }
 
     #[test]
@@ -76,12 +76,15 @@ mod tests {
 
     #[test]
     fn test_replay_respects_rate_limit() {
+        use soroban_sdk::testutils::Ledger as _;
         let env = Env::default();
         let (client, _admin, _service) = init_contract(&env);
         
         let wallet = Address::generate(&env);
         let pair = Symbol::new(&env, "XLM_USDC");
         let ts = 1_000_000u64;
+        
+        env.ledger().with_mut(|l| l.timestamp = ts);
         
         // First submission should succeed
         let mut batch1: SVec<ScoreSubmission> = SVec::new(&env);
@@ -97,6 +100,8 @@ mod tests {
         });
         let result1 = client.submit_scores_batch(&batch1);
         assert_eq!(result1.accepted_count, 1);
+        
+        env.ledger().with_mut(|l| l.timestamp = ts + 100);
         
         // Second submission with same (wallet, pair) within cooldown should be rejected
         let mut batch2: SVec<ScoreSubmission> = SVec::new(&env);

@@ -1,0 +1,20 @@
+[package]
+name = "mock-lending"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Minimal mock lending protocol that gates borrows on LedgerLens's query_risk_gate_with_confidence, used by the cross-contract composability integration suite"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = "21.0.0"
+ledgerlens-score = { path = "../ledgerlens-score" }
+
+[dev-dependencies]
+soroban-sdk = { version = "21.0.0", features = ["testutils"] }
+
+[features]
+testutils = ["soroban-sdk/testutils"]

@@ -51,7 +51,7 @@ fn test_get_last_submit_time_initial_zero() {
     let (env, client, _admin) = setup();
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
-    assert_eq!(client.get_last_submit_time(&wallet, &pair), 0);
+    assert!(client.get_last_submit_time(&wallet, &pair).is_none());
 }
 
 // ── Core cooldown enforcement ─────────────────────────────────────────────────
@@ -72,10 +72,10 @@ fn test_first_submit_always_accepted() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
     assert!(result.is_ok());
-    assert_eq!(client.get_last_submit_time(&wallet, &pair), START_TS);
+    assert_eq!(client.get_last_submit_time(&wallet, &pair), Some(START_TS));
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn test_second_submit_within_cooldown_rejected() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
 
     advance_to(&env, START_TS + DEFAULT_COOLDOWN_SECS - 1);
@@ -108,7 +108,7 @@ fn test_second_submit_within_cooldown_rejected() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
     assert_eq!(result, Err(Ok(Error::RateLimitExceeded)));
 
@@ -132,7 +132,7 @@ fn test_second_submit_after_cooldown_accepted() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
 
     advance_to(&env, START_TS + DEFAULT_COOLDOWN_SECS + 1);
@@ -146,7 +146,7 @@ fn test_second_submit_after_cooldown_accepted() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
     assert_eq!(client.get_score(&wallet, &pair).score, 60);
 }
@@ -167,7 +167,7 @@ fn test_cooldown_exactly_at_boundary() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
 
     // now == last_submit + cooldown exactly — must be accepted (strict `<` rejects).
@@ -182,7 +182,7 @@ fn test_cooldown_exactly_at_boundary() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
     assert!(result.is_ok());
     assert_eq!(client.get_score(&wallet, &pair).score, 60);
@@ -207,7 +207,7 @@ fn test_batch_rate_limited_entry_skipped() {
         &START_TS,
         &50,
         &1,
-        &None
+        &None,
     );
 
     advance_to(&env, START_TS + 10); // still well within the default cooldown
@@ -309,11 +309,11 @@ fn test_admin_override_clears_cooldown() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
 
-    client.override_rate_limit(&Vec::new(&env), &wallet, &pair);
-    assert_eq!(client.get_last_submit_time(&wallet, &pair), 0);
+    client.override_rate_limit(&Vec::new(&env), &wallet, &pair, &soroban_sdk::Bytes::from_slice(&env, b"admin"));
+    assert!(client.get_last_submit_time(&wallet, &pair).is_none());
 
     // Still at START_TS, but immediately accepted since the cooldown was cleared.
     client.submit_score(
@@ -326,7 +326,7 @@ fn test_admin_override_clears_cooldown() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
     assert_eq!(client.get_score(&wallet, &pair).score, 70);
 }
@@ -340,7 +340,7 @@ fn test_override_rate_limit_before_init_fails() {
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
-    let result = client.try_override_rate_limit(&Vec::new(&env), &wallet, &pair);
+    let result = client.try_override_rate_limit(&Vec::new(&env), &wallet, &pair, &soroban_sdk::Bytes::from_slice(&env, b"admin"));
     assert_eq!(result, Err(Ok(Error::NotInitialized)));
 }
 
@@ -378,7 +378,7 @@ fn test_set_cooldown_within_bounds_applied() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
 
     advance_to(&env, START_TS + MIN_COOLDOWN_SECS);
@@ -392,7 +392,7 @@ fn test_set_cooldown_within_bounds_applied() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
     assert_eq!(client.get_score(&wallet, &pair).score, 60);
 }
@@ -427,7 +427,7 @@ fn test_cooldown_is_per_pair() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
 
     // Still within pair_a's cooldown, but pair_b has never been submitted.
@@ -441,7 +441,7 @@ fn test_cooldown_is_per_pair() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
     assert!(result.is_ok());
 }
@@ -463,7 +463,7 @@ fn test_cooldown_is_per_wallet() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
 
     let result = client.try_submit_score(
@@ -476,7 +476,7 @@ fn test_cooldown_is_per_wallet() {
         &START_TS,
         &90,
         &1,
-        &None
+        &None,
     );
     assert!(result.is_ok());
 }
@@ -516,9 +516,7 @@ fn test_pair_cooldown_override_takes_precedence() {
             &90,
             &1,
             &None,
-        )
-        .unwrap();
-
+        );
     advance_to(&env, START_TS + MIN_COOLDOWN_SECS);
     assert!(client
         .try_submit_score(
@@ -567,13 +565,11 @@ fn test_batch_override_rate_limit_single_entry() {
             &90,
             &1,
             &None,
-        )
-        .unwrap();
-
+        );
     let mut entries: Vec<(Address, soroban_sdk::Symbol)> = Vec::new(&env);
     entries.push_back((wallet.clone(), pair.clone()));
     assert_eq!(client.batch_override_rate_limit(&Vec::new(&env), &entries), 1);
-    assert_eq!(client.get_last_submit_time(&wallet, &pair), 0);
+    assert!(client.get_last_submit_time(&wallet, &pair).is_none());
 }
 
 #[test]
@@ -596,8 +592,7 @@ fn test_batch_override_rate_limit_multiple_entries() {
             &90,
             &1,
             &None,
-        )
-        .unwrap();
+        );
     client
         .submit_score(
             &Vec::new(&env),
@@ -610,16 +605,14 @@ fn test_batch_override_rate_limit_multiple_entries() {
             &90,
             &1,
             &None,
-        )
-        .unwrap();
-
+        );
     let mut entries: Vec<(Address, soroban_sdk::Symbol)> = Vec::new(&env);
     entries.push_back((wallet1.clone(), pair1.clone()));
     entries.push_back((wallet2.clone(), pair2.clone()));
 
     assert_eq!(client.batch_override_rate_limit(&Vec::new(&env), &entries), 2);
-    assert_eq!(client.get_last_submit_time(&wallet1, &pair1), 0);
-    assert_eq!(client.get_last_submit_time(&wallet2, &pair2), 0);
+    assert!(client.get_last_submit_time(&wallet1, &pair1).is_none());
+    assert!(client.get_last_submit_time(&wallet2, &pair2).is_none());
 }
 
 #[test]

@@ -102,7 +102,23 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "ModelVersionDeprecated"
+                              "symbol": "AllModelVers"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "vec": [
+                            {
+                              "u32": 1
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "MvStatus"
                             },
                             {
                               "u32": 1
@@ -110,23 +126,7 @@
                           ]
                         },
                         "val": {
-                          "bool": true
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "ModelVersionSet"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "vec": [
-                            {
-                              "u32": 1
-                            }
-                          ]
+                          "u32": 1
                         }
                       },
                       {
@@ -411,7 +411,7 @@
           "v0": {
             "topics": [
               {
-                "symbol": "mv_dep"
+                "symbol": "mv_depr"
               }
             ],
             "data": {
@@ -493,7 +493,7 @@
             ],
             "data": {
               "error": {
-                "contract": 46
+                "contract": 1
               }
             }
           }
@@ -514,7 +514,7 @@
               },
               {
                 "error": {
-                  "contract": 46
+                  "contract": 1
                 }
               }
             ],
@@ -539,7 +539,7 @@
               },
               {
                 "error": {
-                  "contract": 46
+                  "contract": 1
                 }
               }
             ],
@@ -618,7 +618,7 @@
             ],
             "data": {
               "error": {
-                "contract": 45
+                "contract": 18
               }
             }
           }
@@ -639,7 +639,7 @@
               },
               {
                 "error": {
-                  "contract": 45
+                  "contract": 18
                 }
               }
             ],
@@ -664,7 +664,7 @@
               },
               {
                 "error": {
-                  "contract": 45
+                  "contract": 18
                 }
               }
             ],

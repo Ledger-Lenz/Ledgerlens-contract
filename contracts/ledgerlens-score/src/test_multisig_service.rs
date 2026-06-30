@@ -1,11 +1,8 @@
-#![cfg(test)]
+﻿#![cfg(test)]
 
 use soroban_sdk::{testutils::Address as _, vec, Address, Env, Symbol};
 
-use crate::{
-    errors::Error,
-    LedgerLensScoreContract, LedgerLensScoreContractClient,
-};
+use crate::{errors::Error, LedgerLensScoreContract, LedgerLensScoreContractClient};
 
 fn setup_env<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address, Address) {
     let env = Env::default();
@@ -32,20 +29,21 @@ fn submit(
     wallet: &Address,
     pair: &Symbol,
     score: u32,
-) -> Result<(), soroban_sdk::InvokeError> {
-    client.try_submit_score(
-        signers,
-        wallet,
-        pair,
-        &score,
-        &false,
-        &false,
-        &1_700_000_000u64,
-        &80u32,
-        &1u32,
-        &None,
-    )
-    .map(|_| ())
+) -> Result<(), Result<crate::Error, soroban_sdk::InvokeError>> {
+    client
+        .try_submit_score(
+            signers,
+            wallet,
+            pair,
+            &score,
+            &false,
+            &false,
+            &1_700_000_000u64,
+            &80u32,
+            &1u32,
+            &None,
+        )
+        .map(|_| ())
 }
 
 fn contract_error(err: soroban_sdk::InvokeError) -> u32 {
@@ -113,7 +111,7 @@ fn fewer_than_threshold_fails_with_insufficient_signers() {
     let pair = dummy_pair(&env);
     let signers = vec![&env, signer_a.clone()];
     let err = submit(&client, &signers, &wallet, &pair, 40).unwrap_err();
-    assert_eq!(contract_error(err), Error::InsufficientSigners as u32);
+    assert_eq!(err, Ok(Error::InsufficientSigners));
 }
 
 #[test]
@@ -129,7 +127,7 @@ fn unknown_signer_fails_with_unauthorized_signer() {
     let stranger = Address::generate(&env);
     let signers = vec![&env, stranger];
     let err = submit(&client, &signers, &wallet, &pair, 50).unwrap_err();
-    assert_eq!(contract_error(err), Error::UnauthorizedSigner as u32);
+    assert_eq!(err, Ok(Error::UnauthorizedSigner));
 }
 
 #[test]

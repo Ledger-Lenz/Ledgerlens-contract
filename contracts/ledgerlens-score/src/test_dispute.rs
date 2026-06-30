@@ -1,4 +1,4 @@
-#![cfg(test)]
+﻿#![cfg(test)]
 
 //! Tests for the stake-backed score dispute mechanism:
 //! `open_score_dispute`, `resolve_dispute_admin`, `resolve_dispute_timeout`,
@@ -10,7 +10,7 @@
 
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Ledger as _},
+    testutils::{Address as _, Events as _, Ledger as _},
     token::{StellarAssetClient, TokenClient},
     Address, Env, Symbol, Vec,
 };
@@ -85,8 +85,7 @@ fn seed_score(f: &Fixture, score: u32) {
             &90,
             &1,
             &None,
-        )
-        .unwrap();
+        );
 }
 
 // ── open_score_dispute ──────────────────────────────────────────────────────
@@ -174,8 +173,7 @@ fn test_resolve_admin_returns_bond_and_corrects_score() {
 #[test]
 fn test_resolve_admin_nonexistent_dispute_rejected() {
     let f = setup(1_000_000, 1_000_000);
-    let res =
-        f.client.try_resolve_dispute_admin(&Vec::new(&f.env), &f.challenger, &f.pair, &25);
+    let res = f.client.try_resolve_dispute_admin(&Vec::new(&f.env), &f.challenger, &f.pair, &25);
     assert_eq!(res, Err(Ok(Error::DisputeNotFound)));
 }
 
@@ -183,8 +181,7 @@ fn test_resolve_admin_nonexistent_dispute_rejected() {
 fn test_resolve_admin_invalid_score_rejected() {
     let f = setup(1_000_000, 1_000_000);
     f.client.open_score_dispute(&f.challenger, &f.pair, &10_000);
-    let res =
-        f.client.try_resolve_dispute_admin(&Vec::new(&f.env), &f.challenger, &f.pair, &101);
+    let res = f.client.try_resolve_dispute_admin(&Vec::new(&f.env), &f.challenger, &f.pair, &101);
     assert_eq!(res, Err(Ok(Error::InvalidScore)));
 }
 
