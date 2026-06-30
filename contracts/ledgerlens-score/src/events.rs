@@ -595,3 +595,21 @@ pub fn governance_action_appended(env: &Env, new_head: &soroban_sdk::BytesN<32>)
 pub fn gate_enforcement_mode_set(env: &Env, strict: bool) {
     env.events().publish((symbol_short!("gate_enf"),), strict);
 }
+
+// ── #289: Score momentum ──────────────────────────────────────────────────────
+
+/// Emitted by `get_score_momentum` when the computed momentum exceeds the
+/// configured alert threshold. `momentum` is the signed rate of change
+/// (score units / second, positive = rising risk).
+pub fn momentum_threshold_crossed(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    momentum: i32,
+    threshold: u32,
+) {
+    env.events().publish(
+        (symbol_short!("mom_cross"), wallet.clone()),
+        (asset_pair.clone(), momentum, threshold),
+    );
+}

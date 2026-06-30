@@ -2254,3 +2254,34 @@ pub fn increment_total_wallets_scored(env: &Env) {
 pub fn get_total_wallets_scored(env: &Env) -> u64 {
     env.storage().instance().get(&DataKey::TotalWalletsScored).unwrap_or(0)
 }
+
+// ── Score Momentum Window (issue #289) ───────────────────────────────────────
+
+pub fn set_momentum_window(env: &Env, secs: u64) {
+    env.storage().instance().set(&DataKey::MomentumWindow, &secs);
+}
+
+pub fn get_momentum_window(env: &Env) -> u64 {
+    env.storage().instance().get(&DataKey::MomentumWindow).unwrap_or(3600)
+}
+
+pub fn set_momentum_alert_threshold(env: &Env, threshold: u32) {
+    env.storage().instance().set(&DataKey::MomentumAlertThreshold, &threshold);
+}
+
+pub fn get_momentum_alert_threshold(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::MomentumAlertThreshold).unwrap_or(0)
+}
+
+// ── Interpolation Method (issue #290) ────────────────────────────────────────
+
+pub fn set_interpolation_method(env: &Env, method: &InterpolationMethod) {
+    env.storage().instance().set(&DataKey::InterpolationMethod, method);
+}
+
+pub fn get_interpolation_method(env: &Env) -> InterpolationMethod {
+    env.storage()
+        .instance()
+        .get(&DataKey::InterpolationMethod)
+        .unwrap_or(InterpolationMethod::Linear)
+}

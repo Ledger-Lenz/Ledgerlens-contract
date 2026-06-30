@@ -538,6 +538,14 @@ pub enum DataKey {
     /// Running total of unique (wallet, asset_pair) combinations ever scored.
     /// Incremented on the *first* successful submission for each new combination.
     TotalWalletsScored,
+    /// Global configuration for adaptive rate limiting (issue #275).
+    AdaptiveRateLimit,
+    /// Configurable rolling window (seconds) for score momentum computation (issue #289).
+    MomentumWindow,
+    /// Alert threshold for momentum — emits `momentum_threshold_crossed` when exceeded (issue #289).
+    MomentumAlertThreshold,
+    /// Configured interpolation method for `get_interpolated_score` (issue #290).
+    InterpolationMethod,
 }
 
 impl DataKey {
@@ -665,6 +673,10 @@ impl DataKey {
             DataKey::ScoreBreakdown(a, s) => k2!("ScoreBreak", a, s),
             DataKey::PairScoreCount(s) => k1!("PairScoreCnt", s),
             DataKey::TotalWalletsScored => k0!("TotalWalletsScored"),
+            DataKey::AdaptiveRateLimit => k0!("AdaptiveRateLimit"),
+            DataKey::MomentumWindow => k0!("MomentumWindow"),
+            DataKey::MomentumAlertThreshold => k0!("MomentumAlertThr"),
+            DataKey::InterpolationMethod => k0!("InterpMethod"),
         }
     }
 }
@@ -765,4 +777,20 @@ pub enum DecayProfile {
     Linear { lambda_num: u32, lambda_den: u32 },
     Exponential { half_life_secs: u64 },
     Step { steps: Vec<(u64, u32)> },
+}
+
+/// Configuration for adaptive rate limiting based on score variance (issue #275).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdaptiveRateLimit {
+    pub enabled: bool,
+    pub variance_scale: u32,
+}
+
+/// Interpolation method for `get_interpolated_score` (issue #290).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InterpolationMethod {
+    Linear,
+    CubicSpline,
 }
