@@ -6,10 +6,12 @@ use crate::constants::{
 };
 use crate::errors::Error;
 use crate::types::{
-    AdaptiveRateLimit, AggregateRiskScore, DataKey, EmbargoExpiry, GateDataKey,
-    InterpolationMethod, JumpStats, ModelVersionStats, ParameterProposalRecord,
-    ParameterProposalStatus, PendingScoreEntry, RiskScore, ScoreDispute, ScoreFloorPolicy,
-    ScoreHistogram, ScoreTrend, ScoreVelocityCap, UpgradeProposal,
+    AggregateRiskScore, DataKey, DecayCurve, EmbargoExpiry, GateDataKey, JumpStats,
+    ModelVersionStats, PendingScoreEntry, RiskScore, ScoreDispute, ScoreFloorPolicy,
+    ScoreHistogram, ScoreTrend, ScoreVelocityCap, SubscorePayload, UpgradeProposal,
+    AggregateRiskScore, DataKey, EmbargoExpiry, GateDataKey, JumpStats, ModelVersionStats,
+    ParameterProposalRecord, ParameterProposalStatus, PendingScoreEntry, RiskScore, ScoreDispute,
+    ScoreFloorPolicy, ScoreHistogram, ScoreTrend, ScoreVelocityCap, UpgradeProposal,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Symbol, Vec};
 
@@ -843,6 +845,14 @@ pub fn get_last_submit_time(env: &Env, wallet: &Address, asset_pair: &Symbol) ->
     result.unwrap_or(0)
 }
 
+/// Returns the last accepted submission timestamp as `Some(ts)`, or `None` if
+/// no submission has ever been recorded for `(wallet, asset_pair)`.
+/// Does not extend the storage TTL.
+pub fn get_last_submit_time_opt(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<u64> {
+    let key = DataKey::LastSubmitTime(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().get(&key)
+}
+
 pub fn set_last_submit_time(env: &Env, wallet: &Address, asset_pair: &Symbol, timestamp: u64) {
     let key = DataKey::LastSubmitTime(wallet.clone(), asset_pair.clone());
     env.storage().persistent().set(&key, &timestamp);
@@ -948,6 +958,115 @@ pub fn get_score_count(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 
     env.storage().persistent().get(&key).unwrap_or(0)
 }
 
+pub fn get_unique_wallets_hll(env: &Env, asset_pair: &Symbol) -> Option<HllSketch> {
+    let key = DataKey::UniqueWalletsHll(asset_pair.clone());
+    let sketch: Option<HllSketch> = env.storage().persistent().get(&key);
+    if sketch.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    sketch
+}
+
+pub fn set_unique_wallets_hll(env: &Env, asset_pair: &Symbol, sketch: &HllSketch) {
+    let key = DataKey::UniqueWalletsHll(asset_pair.clone());
+    env.storage().persistent().set(&key, sketch);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+fn hll_default_precision() -> u8 {
+    8
+}
+
+fn hll_new_sketch(env: &Env, precision: u8) -> HllSketch {
+    let mut registers: Vec<u8> = Vec::new(env);
+    let len = 1u32 << precision;
+    for _ in 0..len {
+        registers.push_back(0);
+    }
+    HllSketch { precision, registers }
+}
+
+fn hll_hash_wallet(env: &Env, wallet: &Address) -> [u8; 32] {
+    let mut wallet_buf = [0u8; 56];
+    let wallet_str = wallet.to_string();
+    wallet_str.copy_into_slice(&mut wallet_buf);
+    let len = wallet_str.len().min(56) as usize;
+    let bytes = soroban_sdk::Bytes::from_slice(env, &wallet_buf[..len]);
+    env.crypto().sha256(&bytes).to_bytes()
+}
+
+fn hll_register_index(hash: &[u8; 32], precision: u8) -> u32 {
+    let mut index = 0u32;
+    for bit in 0..precision as usize {
+        let byte = hash[bit / 8];
+        let bit_in_byte = 7 - (bit % 8);
+        index = (index << 1) | (((byte >> bit_in_byte) & 1) as u32);
+    }
+    index
+}
+
+fn hll_rho(hash: &[u8; 32], precision: u8) -> u8 {
+    let mut count = 1u8;
+    let mut bit_pos = precision as usize;
+    while bit_pos < 256 {
+        let byte = hash[bit_pos / 8];
+        let bit_in_byte = 7 - (bit_pos % 8);
+        if ((byte >> bit_in_byte) & 1) == 1 {
+            return count;
+        }
+        count = count.saturating_add(1);
+        bit_pos += 1;
+    }
+    count
+}
+
+fn hll_alpha(precision: u8) -> f64 {
+    let m = 1u64 << precision;
+    let m_f = m as f64;
+    0.7213 / (1.0 + 1.079 / m_f)
+}
+
+pub fn estimate_unique_wallets(env: &Env, asset_pair: &Symbol) -> u64 {
+    let sketch = match get_unique_wallets_hll(env, asset_pair) {
+        Some(s) => s,
+        None => return 0,
+    };
+    if sketch.precision == 0 || sketch.registers.len() == 0 {
+        return 0;
+    }
+    let m = 1u64 << sketch.precision;
+    let mut sum = 0.0f64;
+    let mut zeros = 0u32;
+    for i in 0..sketch.registers.len() {
+        let r = sketch.registers.get(i).unwrap();
+        if *r == 0 {
+            zeros += 1;
+        }
+        sum += 2.0_f64.powf(-(*r as f64));
+    }
+    let estimate = hll_alpha(sketch.precision) * (m as f64).powi(2) / sum;
+    if zeros > 0 && estimate <= 2.5 * (m as f64) {
+        let corrected = (m as f64) * ((m as f64) / (zeros as f64)).ln();
+        corrected.round() as u64
+    } else {
+        estimate.round() as u64
+    }
+}
+
+fn update_unique_wallets_hll(env: &Env, asset_pair: &Symbol, wallet: &Address) {
+    let mut sketch = get_unique_wallets_hll(env, asset_pair)
+        .unwrap_or_else(|| hll_new_sketch(env, hll_default_precision()));
+    let hash = hll_hash_wallet(env, wallet);
+    let idx = hll_register_index(&hash, sketch.precision) as u32;
+    let rank = hll_rho(&hash, sketch.precision);
+    if let Some(current) = sketch.registers.get(idx) {
+        if rank > *current {
+            sketch.registers.set(idx, rank);
+            set_unique_wallets_hll(env, asset_pair, &sketch);
+        }
+    }
+}
+
 // ── Score trend state ─────────────────────────────────────────────────────────
 
 pub fn get_trend_state(env: &Env, wallet: &Address, asset_pair: &Symbol) -> ScoreTrend {
@@ -957,6 +1076,18 @@ pub fn get_trend_state(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Scor
         env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
     }
     result.unwrap_or(ScoreTrend { trend: 0, consecutive: 0 })
+}
+
+/// Like [`get_trend_state`] but preserves the distinction between "no trend
+/// recorded yet" (`None`) and a stored trend, instead of collapsing the unset
+/// case to a default flat trend.
+pub fn get_trend_state_opt(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<ScoreTrend> {
+    let key = DataKey::TrendState(wallet.clone(), asset_pair.clone());
+    let result: Option<ScoreTrend> = env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    result
 }
 
 pub fn set_trend_state(env: &Env, wallet: &Address, asset_pair: &Symbol, state: &ScoreTrend) {
@@ -1199,6 +1330,21 @@ pub fn get_historical_max_score(env: &Env, wallet: &Address, asset_pair: &Symbol
         env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
     }
     result.unwrap_or(0)
+}
+
+/// Like [`get_historical_max_score`] but returns `None` when no score has ever
+/// been recorded for the pair instead of collapsing that case to `0`.
+pub fn get_historical_max_score_opt(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) -> Option<u32> {
+    let key = DataKey::HistoricalMaxScore(wallet.clone(), asset_pair.clone());
+    let result: Option<u32> = env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    result
 }
 
 pub fn update_historical_max_score(env: &Env, wallet: &Address, asset_pair: &Symbol, score: u32) {
@@ -1760,7 +1906,21 @@ pub fn get_reveal_window_secs(env: &Env) -> u64 {
 
 // ── Signer expiry ─────────────────────────────────────────────────────────────
 
-pub fn check_signer_expired(_env: &Env, _signer: &Address) -> Result<(), crate::errors::Error> {
+pub fn check_signer_expired(env: &Env, signer: &Address) -> Result<(), crate::errors::Error> {
+    let ttl = get_signer_rotation_ttl(env);
+    if ttl == 0 {
+        return Ok(());
+    }
+    if let Some(age) = get_signer_age(env, signer) {
+        let grace = get_signer_grace_period(env);
+        if age > ttl + grace {
+            crate::events::signer_expired(env, signer);
+            return Err(crate::errors::Error::UnauthorizedSigner);
+        }
+        if age > ttl {
+            crate::events::signer_expiring(env, signer);
+        }
+    }
     Ok(())
 }
 
@@ -1968,6 +2128,89 @@ pub fn set_reveal_window_secs(env: &Env, secs: u64) {
     env.storage().instance().set(&DataKey::RevealWindowSecs, &secs);
 }
 
+// ── Issue #285: Decay curve ──────────────────────────────────────────────────
+
+pub fn set_decay_curve(env: &Env, curve: &DecayCurve) {
+    env.storage().instance().set(&DataKey::DecayCurveConfig, curve);
+}
+
+pub fn get_decay_curve(env: &Env) -> DecayCurve {
+    env.storage()
+        .instance()
+        .get(&DataKey::DecayCurveConfig)
+        .unwrap_or(DecayCurve::Exponential)
+}
+
+// ── Issue #283: Dormancy decay ───────────────────────────────────────────────
+
+pub fn set_dormancy_inactivity_secs(env: &Env, secs: u64) {
+    env.storage().instance().set(&DataKey::DormancyInactivitySecs, &secs);
+}
+
+pub fn get_dormancy_inactivity_secs(env: &Env) -> u64 {
+    env.storage().instance().get(&DataKey::DormancyInactivitySecs).unwrap_or(0)
+}
+
+pub fn set_dormancy_decay_fraction_bps(env: &Env, bps: u32) {
+    env.storage().instance().set(&DataKey::DormancyDecayFractionBps, &bps);
+}
+
+pub fn get_dormancy_decay_fraction_bps(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::DormancyDecayFractionBps).unwrap_or(0)
+}
+
+pub fn set_decay_checkpoint(env: &Env, wallet: &Address, asset_pair: &Symbol, ts: u64) {
+    let key = DataKey::DecayCheckpoint(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, &ts);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+pub fn get_decay_checkpoint(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u64 {
+    let key = DataKey::DecayCheckpoint(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+// ── Issue #284: Finality depth ───────────────────────────────────────────────
+
+pub fn set_finality_depth(env: &Env, ledgers: u32) {
+    env.storage().instance().set(&DataKey::FinalityDepth, &ledgers);
+}
+
+pub fn get_finality_depth(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::FinalityDepth).unwrap_or(0)
+}
+
+pub fn set_score_submission_ledger(env: &Env, wallet: &Address, asset_pair: &Symbol, seq: u32) {
+    let key = DataKey::ScoreSubmissionLedger(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, &seq);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+pub fn get_score_submission_ledger(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 {
+    let key = DataKey::ScoreSubmissionLedger(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+// ── Issue #286: Score breakdown ──────────────────────────────────────────────
+
+pub fn set_score_breakdown(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    payload: &SubscorePayload,
+) {
+    let key = DataKey::ScoreBreakdown(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, payload);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+pub fn get_score_breakdown(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) -> Option<SubscorePayload> {
+    let key = DataKey::ScoreBreakdown(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().get(&key)
 // ── Per-pair score submission counter ────────────────────────────────────────
 
 /// Increments the running total of successful score submissions for
