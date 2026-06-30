@@ -61,7 +61,7 @@ fn submit(
             }
         }
         let dig = commitment(env, &client.address, wallet, pair, score, START_TS, 90, 1);
-        Some(crate::ScoreAttestationInput::Single(attest(env, &key, dig)))
+        Some(crate::ScoreAttestationInput { attestation: crate::MaybeScoreAttestation::Some(attest(env, &key, dig)), threshold_attestation: crate::MaybeThresholdAttestation::None, commitment: None })
     } else {
         None
     };
@@ -101,7 +101,7 @@ fn try_submit(
             }
         }
         let dig = commitment(env, &client.address, wallet, pair, score, START_TS, 90, 1);
-        Some(crate::ScoreAttestationInput::Single(attest(env, &key, dig)))
+        Some(crate::ScoreAttestationInput { attestation: crate::MaybeScoreAttestation::Some(attest(env, &key, dig)), threshold_attestation: crate::MaybeThresholdAttestation::None, commitment: None })
     } else {
         None
     };

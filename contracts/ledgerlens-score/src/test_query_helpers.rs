@@ -119,37 +119,44 @@ fn test_get_score_age_unknown_pair_returns_zero() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Issue #246 – get_counterparty_list
+// Issue #244 – get_trend_state
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn test_get_counterparty_list_empty_when_no_links() {
+fn test_get_trend_state_unset_returns_none() {
     let (env, client, _admin, _service) = setup();
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
 
-    // No links recorded → empty list.
-    assert_eq!(client.get_counterparty_list(&wallet, &pair), Vec::new(&env));
+    // No submission has ever recorded a trend → None.
+    assert_eq!(client.get_trend_state(&wallet, &pair), None);
 }
 
 #[test]
-fn test_get_counterparty_list_returns_bidirectional_links() {
+fn test_get_trend_state_set_returns_some() {
     let (env, client, _admin, _service) = setup();
-    let alice = Address::generate(&env);
-    let bob = Address::generate(&env);
-    let carol = Address::generate(&env);
+    let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
 
-    client.add_counterparty_link(&alice, &bob, &pair);
-    client.add_counterparty_link(&alice, &carol, &pair);
+    env.ledger().with_mut(|l| l.timestamp = 1_000_000);
 
-    // Alice is linked to both bob and carol.
-    let alice_links = client.get_counterparty_list(&alice, &pair);
-    assert_eq!(alice_links.len(), 2);
-    assert!(alice_links.contains(&bob));
-    assert!(alice_links.contains(&carol));
+    // First submission persists the trend state (flat on the first point).
+    client.submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &pair,
+        &40,
+        &false,
+        &false,
+        &1_700_000_000,
+        &90,
+        &1,
+        &None,
+    );
 
-    // Links are bidirectional: bob and carol each list alice back.
-    assert_eq!(client.get_counterparty_list(&bob, &pair), Vec::from_array(&env, [alice.clone()]));
-    assert_eq!(client.get_counterparty_list(&carol, &pair), Vec::from_array(&env, [alice]));
+    let trend = client
+        .get_trend_state(&wallet, &pair)
+        .expect("trend should be recorded after a submission");
+    assert_eq!(trend.trend, 0);
+    assert_eq!(trend.consecutive, 0);
 }

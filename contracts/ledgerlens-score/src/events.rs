@@ -487,6 +487,15 @@ pub fn score_pending_cancelled(
     );
 }
 
+/// Emitted when an admin vetoes a pending score inside the finality buffer
+/// window.
+pub fn score_vetoed(env: &Env, wallet: &Address, asset_pair: &Symbol, reason_hash: &BytesN<32>) {
+    env.events().publish(
+        (symbol_short!("scr_veto"), wallet.clone(), asset_pair.clone()),
+        reason_hash.clone(),
+    );
+}
+
 // ── Service heartbeat monitor ────────────────────────────────────────────
 
 /// Emitted (by the `get_score` read path) the first time the off-chain
@@ -544,6 +553,17 @@ pub fn entry_ttls_extended(env: &Env, renewed: u32, requested: u32) {
     env.events().publish((symbol_short!("ttl_ext"),), (renewed, requested));
 }
 
+pub fn dormancy_decay_applied(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    new_score: u32,
+    periods: u32,
+) {
+    env.events().publish(
+        (symbol_short!("drm_dec"), wallet.clone(), asset_pair.clone()),
+        (new_score, periods),
+    );
 // ── #297: IQR outlier rejection ───────────────────────────────────────────────
 
 pub fn consensus_signer_rejected(env: &Env, signer: &Address, deviation: u32) {

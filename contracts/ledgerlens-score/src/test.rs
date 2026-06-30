@@ -1964,6 +1964,37 @@ fn test_remove_signer_reduces_set() {
     assert_eq!(client.get_score(&wallet, &pair).score, 33);
 }
 
+#[test]
+fn test_get_service_signer_count_zero() {
+    // No signers added — count must be 0.
+    let (env, client, admin, service) = setup();
+    client.initialize(&admin, &service);
+    assert_eq!(client.get_service_signer_count(), 0);
+}
+
+#[test]
+fn test_get_service_signer_count_one() {
+    let (env, client, admin, service) = setup();
+    client.initialize(&admin, &service);
+    let s1 = Address::generate(&env);
+    client.add_service_signer(&Vec::new(&env), &s1);
+    assert_eq!(client.get_service_signer_count(), 1);
+}
+
+#[test]
+fn test_get_service_signer_count_n() {
+    let (env, client, admin, service) = setup();
+    client.initialize(&admin, &service);
+    for _ in 0..3 {
+        client.add_service_signer(&Vec::new(&env), &Address::generate(&env));
+    }
+    assert_eq!(client.get_service_signer_count(), 3);
+    // Count decreases on removal.
+    let signers = client.get_service_signers();
+    client.remove_service_signer(&Vec::new(&env), &signers.get(0).unwrap());
+    assert_eq!(client.get_service_signer_count(), 2);
+}
+
 // ── Staleness window ──────────────────────────────────────────────────────────
 
 #[test]
