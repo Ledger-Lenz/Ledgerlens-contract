@@ -117,3 +117,46 @@ fn test_get_score_age_unknown_pair_returns_zero() {
     // other_pair was never scored → age is 0.
     assert_eq!(client.get_score_age(&wallet, &other_pair), 0);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Issue #244 – get_trend_state
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_get_trend_state_unset_returns_none() {
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    // No submission has ever recorded a trend → None.
+    assert_eq!(client.get_trend_state(&wallet, &pair), None);
+}
+
+#[test]
+fn test_get_trend_state_set_returns_some() {
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    env.ledger().with_mut(|l| l.timestamp = 1_000_000);
+
+    // First submission persists the trend state (flat on the first point).
+    client.submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &pair,
+        &40,
+        &false,
+        &false,
+        &1_700_000_000,
+        &90,
+        &1,
+        &None,
+    );
+
+    let trend = client
+        .get_trend_state(&wallet, &pair)
+        .expect("trend should be recorded after a submission");
+    assert_eq!(trend.trend, 0);
+    assert_eq!(trend.consecutive, 0);
+}

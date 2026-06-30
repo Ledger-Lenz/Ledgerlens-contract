@@ -1070,6 +1070,18 @@ pub fn get_trend_state(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Scor
     result.unwrap_or(ScoreTrend { trend: 0, consecutive: 0 })
 }
 
+/// Like [`get_trend_state`] but preserves the distinction between "no trend
+/// recorded yet" (`None`) and a stored trend, instead of collapsing the unset
+/// case to a default flat trend.
+pub fn get_trend_state_opt(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<ScoreTrend> {
+    let key = DataKey::TrendState(wallet.clone(), asset_pair.clone());
+    let result: Option<ScoreTrend> = env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    result
+}
+
 pub fn set_trend_state(env: &Env, wallet: &Address, asset_pair: &Symbol, state: &ScoreTrend) {
     let key = DataKey::TrendState(wallet.clone(), asset_pair.clone());
     env.storage().persistent().set(&key, state);

@@ -6462,6 +6462,37 @@ impl LedgerLensScoreContract {
         storage::get_trend_state(&env, &wallet, &asset_pair)
     }
 
+    /// Returns the stored [`ScoreTrend`] for `(wallet, asset_pair)`, or `None`
+    /// if no trend has ever been recorded for the pair.
+    ///
+    /// Unlike [`get_score_trend`](Self::get_score_trend), which substitutes a
+    /// default flat trend (`trend = 0`, `consecutive = 0`) when nothing is
+    /// stored, this getter preserves the unset case as `None` so risk analytics
+    /// systems can read the trend metadata directly without conflating "no
+    /// history" with an actual flat trend. Read-only, callable by any account.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// // No submission yet → no trend recorded.
+    /// assert_eq!(client.get_trend_state(&wallet, &pair), None);
+    /// ```
+    pub fn get_trend_state(env: Env, wallet: Address, asset_pair: Symbol) -> Option<ScoreTrend> {
+        storage::get_trend_state_opt(&env, &wallet, &asset_pair)
+    }
+
     /// Returns the population variance of the wallet/pair score history,
     /// scaled by 100 (fixed-point). Returns 0 if embargoed or fewer than 2
     /// history entries exist.
