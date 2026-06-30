@@ -332,6 +332,10 @@ pub struct ScoreVelocityCap {
 pub enum GateDataKey {
     GateCallers,
     GateOpen,
+    GateEnforcementMode,
+    GateQueryFee,
+    AccumulatedFees,
+    GateReadLedger(Address, Symbol),
 }
 
 #[derive(Clone)]
@@ -758,11 +762,37 @@ pub struct ScoreWithFinality {
     pub finality_pending: bool,
 /// Configurable score decay profile.
 #[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum FlashProtectionMode {
+    Warn,
+    Reject,
+}
+
+/// Signer accuracy record: tracks MAD (mean absolute deviation) scaled by 1000
+/// and the total number of consensus submissions by this signer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SignerAccuracyRecord {
+    pub mad_scaled: u32,
+    pub count: u32,
+}
+
+/// Running state for Welford online variance on per-pair scores.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PairVolatilityState {
+    pub count: i64,
+    pub mean_scaled: i64,
+    pub m2_scaled: i64,
+    pub last_updated: u64,
+}
+
+/// Configurable score decay profile.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DecayProfile {
-    Linear { lambda_num: u32, lambda_den: u32 },
-    Exponential { half_life_secs: u64 },
-    Step { steps: Vec<(u64, u32)> },
+    Linear(u32, u32),
+    Exponential(u64),
+    Step(Vec<(u64, u32)>),
 }
 
 /// Configuration for adaptive rate limiting based on score variance (issue #275).

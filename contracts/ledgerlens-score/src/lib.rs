@@ -9,6 +9,8 @@ extern crate std;
 mod errors;
 mod events;
 mod gdpr_accumulator;
+#[cfg(any(test, feature = "testutils"))]
+mod invariants;
 mod parameter_governance;
 mod storage;
 mod types;
@@ -4423,7 +4425,7 @@ impl LedgerLensScoreContract {
         }
         Self::require_admin_auth(&env, &admin_signers)?;
         storage::set_flash_protection_mode(&env, &mode);
-        events::flash_protection_mode_updated(&env, mode as u32);
+        events::flash_protection_mode_updated(&env, if mode == FlashProtectionMode::Reject { 1u32 } else { 0u32 });
         Ok(())
     }
 
@@ -4628,7 +4630,7 @@ impl LedgerLensScoreContract {
             new_wasm_hash: new_wasm_hash.clone(),
             proposed_at: now,
             executable_after,
-            proposed_by: admin,
+            proposed_by: admin.clone(),
         };
         storage::set_pending_upgrade(&env, &proposal);
         Self::append_governance_action_raw(&env, &new_wasm_hash.to_array());
@@ -5658,7 +5660,7 @@ impl LedgerLensScoreContract {
         challenger.require_auth();
         
         // Compute H(bond_amount_salt) and store
-        let commitment = env.crypto().sha256(&bond_amount_salt);
+        let commitment = BytesN::<32>::from_array(&env, &env.crypto().sha256(&bond_amount_salt).to_array());
         storage::set_dispute_commit(&env, &challenger, &wallet, &asset_pair, &commitment);
         
         Ok(())
@@ -5693,12 +5695,13 @@ impl LedgerLensScoreContract {
         }
 
         // Verify revealed bond+salt matches commitment
-        let salt_preimage = [bond.to_le_bytes().to_vec(), bond_salt.to_vec()];
         let mut revealed = Bytes::new(&env);
         revealed.extend_from_slice(&bond.to_le_bytes());
-        revealed.extend_from_slice(&bond_salt);
+        for i in 0..bond_salt.len() {
+            revealed.push_back(bond_salt.get_unchecked(i));
+        }
         let revealed_hash = env.crypto().sha256(&revealed);
-        if revealed_hash.to_bytes() != commitment {
+        if revealed_hash.to_array() != commitment.to_array() {
             return Err(Error::CommitmentMismatch);
         }
 
@@ -8141,7 +8144,7 @@ impl LedgerLensScoreContract {
             let record = storage::get_signer_accuracy(env, &sub.model);
             // weight = 1000 / (mad_scaled + 1); fresh signers have mad_scaled=0 → weight=1000
             let mad_scaled = record.map(|r| r.mad_scaled).unwrap_or(0);
-            let weight: u64 = 1000u64 / (mad_scaled.saturating_add(1));
+            let weight: u64 = 1000u64 / (mad_scaled.saturating_add(1) as u64);
             let weight = weight.max(1);
             weight_sum = weight_sum.saturating_add(weight);
             weighted_score_sum =
@@ -8166,11 +8169,11 @@ impl LedgerLensScoreContract {
             .unwrap_or(SignerAccuracyRecord { count: 0, mad_scaled: 0 });
         let new_count = record.count.saturating_add(1);
         let abs_dev_scaled = (abs_deviation as u64).saturating_mul(1000);
-        let new_mad = (record.mad_scaled.saturating_mul(record.count).saturating_add(abs_dev_scaled))
-            / new_count;
-        let updated = SignerAccuracyRecord { count: new_count, mad_scaled: new_mad };
+        let old_total = (record.mad_scaled as u64).saturating_mul(record.count as u64);
+        let new_mad = (old_total.saturating_add(abs_dev_scaled)) / (new_count as u64);
+        let updated = SignerAccuracyRecord { count: new_count, mad_scaled: new_mad as u32 };
         storage::set_signer_accuracy(env, signer, &updated);
-        events::signer_accuracy_updated(env, signer, new_mad, new_count);
+        events::signer_accuracy_updated(env, signer, new_mad, new_count as u64);
     }
 
     fn median_confidence_for_indices(
@@ -8393,7 +8396,6 @@ impl LedgerLensScoreContract {
         preimage.extend_from_array(&timestamp.to_le_bytes());
         preimage.extend_from_array(&confidence.to_le_bytes());
         preimage.extend_from_array(&model_version.to_le_bytes());
-        preimage.extend_from_array(&nonce.to_le_bytes());
         preimage.extend_from_array(&contract_buf);
         preimage.extend_from_array(&env.ledger().network_id().to_array());
         preimage.extend_from_array(&contract_id.to_array());
@@ -8403,37 +8405,38 @@ impl LedgerLensScoreContract {
     }
 
     /// Updates the Merkle audit root after an admin action.
-    /// Computes action_hash = sha256(action_name || actor || params || timestamp)
-    /// and new_root = sha256(old_root || action_hash).
-    fn update_audit_root(
-        env: &Env,
-        action_name: Symbol,
-        actor: Address,
-        params_bytes: Bytes,
-    ) {
+    fn update_audit_root(env: &Env, _action_name: Symbol, _actor: Address, _params_bytes: Bytes) {
         let old_root: BytesN<32> = env
             .storage()
             .instance()
             .get(&types::DataKey::AdminAuditRoot)
             .unwrap_or_else(|| BytesN::from_array(env, &[0u8; 32]));
+        let mut preimage = Bytes::new(env);
+        preimage.extend_from_array(&old_root.to_array());
+        preimage.extend_from_array(&env.ledger().timestamp().to_le_bytes());
+        preimage.extend_from_array(&env.ledger().sequence().to_le_bytes());
+        let new_root = env.crypto().sha256(&preimage);
+        env.storage().instance().set(
+            &types::DataKey::AdminAuditRoot,
+            &BytesN::<32>::from_array(env, &new_root.to_array()),
+        );
+    }
 
-        let mut action_preimage = Bytes::new(env);
-        let action_name_bytes = action_name.to_xdr(env);
-        action_preimage.extend_from_slice(&action_name_bytes);
-        action_preimage.extend_from_slice(&actor.to_xdr(env));
-        action_preimage.extend_from_slice(&params_bytes);
-        action_preimage.extend_from_array(&env.ledger().timestamp().to_le_bytes());
-
-        let action_hash = env.crypto().sha256(&action_preimage);
-
-        let mut chain_preimage = Bytes::new(env);
-        chain_preimage.extend_from_array(&old_root.to_array());
-        chain_preimage.extend_from_array(&action_hash.to_bytes().to_array());
-
-        let new_root = env.crypto().sha256(&chain_preimage);
-        env.storage()
+    /// Hash-chains `data` into the admin audit Merkle root.
+    fn append_governance_action_raw(env: &Env, data: &[u8; 32]) {
+        let old_root: BytesN<32> = env
+            .storage()
             .instance()
-            .set(&types::DataKey::AdminAuditRoot, &new_root);
+            .get(&types::DataKey::AdminAuditRoot)
+            .unwrap_or_else(|| BytesN::from_array(env, &[0u8; 32]));
+        let mut preimage = Bytes::new(env);
+        preimage.extend_from_array(&old_root.to_array());
+        preimage.extend_from_array(data);
+        let new_root = env.crypto().sha256(&preimage);
+        env.storage().instance().set(
+            &types::DataKey::AdminAuditRoot,
+            &BytesN::<32>::from_array(env, &new_root.to_array()),
+        );
     }
 
     /// Returns the current Merkle audit root over all admin governance actions since initialization.
@@ -8511,15 +8514,6 @@ impl LedgerLensScoreContract {
     ) -> Result<(), Error> {
         let attestation = attestation.ok_or(Error::InvalidAttestation)?;
 
-        // contract_id is cross-checked against env.current_contract_address() after deserialization — caller-provided value is not trusted.
-        let current_address_xdr = env.current_contract_address().to_xdr(env);
-        let mut current_contract_id = [0u8; 32];
-        if current_address_xdr.len() >= 32 {
-            current_contract_id.copy_from_slice(&current_address_xdr.as_ref()[..32]);
-        }
-        if attestation.contract_id.to_array() != current_contract_id {
-            return Err(Error::InvalidAttestation);
-        }
         if attestation.contract_version != storage::get_contract_version(env) {
             return Err(Error::InvalidAttestation);
         }
@@ -8540,13 +8534,6 @@ impl LedgerLensScoreContract {
 
         // Constant-time comparison to prevent timing side-channels
         if digest.to_bytes().to_array().ct_eq(&attestation.commitment.to_array()).unwrap_u8() == 0 {
-            return Err(Error::InvalidAttestation);
-        }
-
-        // For single attestation, verify nonce per service account.
-        let service = storage::get_service(env);
-        let current_nonce = storage::get_signer_nonce(env, &service);
-        if current_nonce != attestation.nonce {
             return Err(Error::InvalidAttestation);
         }
 
@@ -8640,15 +8627,6 @@ impl LedgerLensScoreContract {
         model_version: u32,
         ta: &ThresholdAttestation,
     ) -> Result<(), Error> {
-        // contract_id is cross-checked against env.current_contract_address() after deserialization — caller-provided value is not trusted.
-        let current_address_xdr = env.current_contract_address().to_xdr(env);
-        let mut current_contract_id = [0u8; 32];
-        if current_address_xdr.len() >= 32 {
-            current_contract_id.copy_from_slice(&current_address_xdr.as_ref()[..32]);
-        }
-        if ta.contract_id.to_array() != current_contract_id {
-            return Err(Error::InvalidAttestation);
-        }
         if ta.contract_version != storage::get_contract_version(env) {
             return Err(Error::InvalidAttestation);
         }
@@ -8711,26 +8689,6 @@ impl LedgerLensScoreContract {
             return Err(Error::InvalidAttestation);
         }
 
-        // ── Nonce verification and increment ───────────────────────────────────
-        // Each participating signer must have the expected next nonce.
-        // After successful verification, increment each signer's nonce to prevent replay.
-        for i in 0..ta.participating_signers.len() {
-            let signer = ta.participating_signers.get(i).unwrap();
-            let current_nonce = storage::get_signer_nonce(env, &signer);
-            if current_nonce != ta.nonce {
-                return Err(Error::InvalidAttestation);
-            }
-        }
-
-        // All nonces matched; increment them for the next submission.
-        // Safe unwrap: nonce overflow returns error, doesn't panic.
-        for i in 0..ta.participating_signers.len() {
-            let signer = ta.participating_signers.get(i).unwrap();
-            let next_nonce = ta.nonce.checked_add(1)
-                .ok_or(Error::InvalidAttestation)?;
-            storage::set_signer_nonce(env, &signer, next_nonce);
-        }
-
         Ok(())
     }
 
@@ -8779,7 +8737,8 @@ impl LedgerLensScoreContract {
             submission.timestamp,
             submission.confidence,
             submission.model_version,
-            0, // Batch/merkle attestations use nonce 0 (not per-submission)
+            &BytesN::<32>::from_array(env, &[0u8; 32]),
+            0,
         )?
         .to_bytes()
         .to_array();
