@@ -66,7 +66,7 @@ fn setup_no_token<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address) {
 fn test_set_fee_token_success() {
     let (env, client, _admin, token_address, _contract_id) = setup_with_token(0);
     client.set_fee_token(&token_address);
-    assert_eq!(client.get_fee_token(), token_address);
+    assert_eq!(client.get_fee_token(), Some(token_address));
     let _ = (env,); // suppress unused warning
 }
 
@@ -91,7 +91,7 @@ fn test_set_fee_token_can_be_updated() {
     let token2 = sac2.address();
 
     client.set_fee_token(&token2);
-    assert_eq!(client.get_fee_token(), token2);
+    assert_eq!(client.get_fee_token(), Some(token2));
 }
 
 // ── get_fee_token ─────────────────────────────────────────────────────────────
@@ -99,8 +99,7 @@ fn test_set_fee_token_can_be_updated() {
 #[test]
 fn test_get_fee_token_not_set() {
     let (_env, client, _admin) = setup_no_token();
-    let result = client.try_get_fee_token();
-    assert_eq!(result, Err(Ok(Error::FeeTokenNotSet)));
+    assert_eq!(client.get_fee_token(), None);
 }
 
 // ── set_fee_recipient / get_fee_recipient ─────────────────────────────────────

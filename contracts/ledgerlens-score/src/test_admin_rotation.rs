@@ -145,7 +145,7 @@ fn test_pending_admin_visible_before_acceptance() {
 
     // Before acceptance: pending admin is visible, current admin unchanged.
     assert!(client.has_pending_admin_transfer());
-    assert_eq!(client.get_pending_admin(), new_admin);
+    assert_eq!(client.get_pending_admin(), Some(new_admin));
 
     client.accept_admin();
 

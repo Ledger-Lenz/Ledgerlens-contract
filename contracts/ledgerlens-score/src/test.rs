@@ -592,11 +592,10 @@ fn test_new_admin_can_manage_service_after_transfer() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #8)")]
 fn test_get_pending_admin_no_transfer() {
     let (_, client, _, _) = initialized();
 
-    let _ = client.get_pending_admin();
+    assert_eq!(client.get_pending_admin(), None);
 }
 
 #[test]
@@ -611,11 +610,10 @@ fn test_get_pending_admin_returns_nominee() {
 
     let pending_admin = client.get_pending_admin();
 
-    assert_eq!(pending_admin, new_admin);
+    assert_eq!(pending_admin, Some(new_admin));
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #8)")]
 fn test_get_pending_admin_cleared_after_accept() {
     let (env, client, admin, _service) = initialized();
 
@@ -628,11 +626,10 @@ fn test_get_pending_admin_cleared_after_accept() {
     client.accept_admin();
     assert_eq!(client.get_admin(), new_admin);
 
-    let _ = client.get_pending_admin();
+    assert_eq!(client.get_pending_admin(), None);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #8)")]
 fn test_get_pending_admin_cleared_after_cancel() {
     let (env, client, admin, _service) = initialized();
 
@@ -644,7 +641,7 @@ fn test_get_pending_admin_cleared_after_cancel() {
 
     client.cancel_admin_transfer(&Vec::new(&env));
 
-    let _ = client.get_pending_admin();
+    assert_eq!(client.get_pending_admin(), None);
 }
 
 #[test]
@@ -672,10 +669,9 @@ fn test_has_pending_admin_transfer_true_during() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #2)")]
-fn test_get_pending_admin_before_init_fails() {
+fn test_get_pending_admin_before_init_is_none() {
     let (_, client, _, _) = setup();
-    let _ = client.get_pending_admin();
+    assert_eq!(client.get_pending_admin(), None);
 }
 
 // ── Watchlist management ──────────────────────────────────────────────────────
