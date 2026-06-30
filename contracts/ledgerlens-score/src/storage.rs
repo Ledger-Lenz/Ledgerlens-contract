@@ -6,6 +6,9 @@ use crate::constants::{
 };
 use crate::errors::Error;
 use crate::types::{
+    AggregateRiskScore, DataKey, DecayCurve, EmbargoExpiry, GateDataKey, JumpStats,
+    ModelVersionStats, PendingScoreEntry, RiskScore, ScoreDispute, ScoreFloorPolicy,
+    ScoreHistogram, ScoreTrend, ScoreVelocityCap, SubscorePayload, UpgradeProposal,
     AggregateRiskScore, DataKey, EmbargoExpiry, GateDataKey, JumpStats, ModelVersionStats,
     ParameterProposalRecord, ParameterProposalStatus, PendingScoreEntry, RiskScore, ScoreDispute,
     ScoreFloorPolicy, ScoreHistogram, ScoreTrend, ScoreVelocityCap, UpgradeProposal,
@@ -69,6 +72,16 @@ pub fn set_service(env: &Env, service: &Address) {
 
 pub fn get_service(env: &Env) -> Address {
     env.storage().instance().get(&DataKey::Service).unwrap()
+}
+
+// ── Differential privacy ─────────────────────────────────────────────────────
+
+pub fn set_privacy_epsilon(env: &Env, epsilon_scaled: u32) {
+    env.storage().instance().set(&ExtDataKey::PrivacyEpsilon, &epsilon_scaled);
+}
+
+pub fn get_privacy_epsilon(env: &Env) -> u32 {
+    env.storage().instance().get(&ExtDataKey::PrivacyEpsilon).unwrap_or(0)
 }
 
 // ── Latest score ─────────────────────────────────────────────────────────────
@@ -555,6 +568,19 @@ pub fn set_pair_weight(env: &Env, asset_pair: &Symbol, weight: u32) {
     env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
 }
 
+/// Returns `true` when a custom weight has been set for `asset_pair`.
+pub fn has_pair_weight(env: &Env, asset_pair: &Symbol) -> bool {
+    let key = DataKey::PairWeight(asset_pair.clone());
+    env.storage().persistent().has(&key)
+}
+
+/// Removes the custom weight for `asset_pair`, causing `get_pair_weight` to
+/// fall back to the default of `1`.
+pub fn remove_pair_weight(env: &Env, asset_pair: &Symbol) {
+    let key = DataKey::PairWeight(asset_pair.clone());
+    env.storage().persistent().remove(&key);
+}
+
 pub fn set_aggregate_score(env: &Env, wallet: &Address, aggregate: &AggregateRiskScore) {
     let key = DataKey::AggregateScore(wallet.clone());
     env.storage().persistent().set(&key, aggregate);
@@ -752,6 +778,12 @@ pub fn get_signer_tier(env: &Env, signer: &Address) -> crate::types::TierBounds 
         .unwrap_or(crate::types::TierBounds { min_score: 0, max_score: 100 })
 }
 
+pub fn set_signer_tier(env: &Env, signer: &Address, bounds: &crate::types::TierBounds) {
+    env.storage()
+        .instance()
+        .set(&DataKey::SignerTier(signer.clone()), bounds);
+}
+
 pub fn set_service_threshold(env: &Env, threshold: u32) {
     env.storage().instance().set(&DataKey::ServiceThreshold, &threshold);
 }
@@ -763,37 +795,43 @@ pub fn get_service_threshold(env: &Env) -> u32 {
 // ── Escalation / breach count ─────────────────────────────────────────────────
 
 pub fn get_escalation_threshold(env: &Env) -> u32 {
-    env.storage().instance().get(&DataKey::EscalationThreshold).unwrap_or(3)
+    env.storage().instance().get(&ExtDataKey::EscalationThreshold).unwrap_or(3)
 }
 
 pub fn set_escalation_threshold(env: &Env, n: u32) {
-    env.storage().instance().set(&DataKey::EscalationThreshold, &n);
+    env.storage().instance().set(&ExtDataKey::EscalationThreshold, &n);
 }
 
 pub fn get_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 {
-    let key = DataKey::BreachCount(wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::BreachCount(wallet.clone(), asset_pair.clone());
     env.storage().temporary().get(&key).unwrap_or(0)
 }
 
 pub fn set_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol, count: u32) {
-    let key = DataKey::BreachCount(wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::BreachCount(wallet.clone(), asset_pair.clone());
     env.storage().temporary().set(&key, &count);
 }
 
 pub fn clear_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) {
-    let key = DataKey::BreachCount(wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::BreachCount(wallet.clone(), asset_pair.clone());
     env.storage().temporary().remove(&key);
 }
 
 // ── Model stats ───────────────────────────────────────────────────────────────
 
 pub fn update_model_stats(env: &Env, model_version: u32, score: u32) {
-    let key = DataKey::ModelStats(model_version);
+    let key = ExtDataKey::ModelStats(model_version);
     let mut stats: ModelVersionStats = env
         .storage()
         .instance()
         .get(&key)
-        .unwrap_or(ModelVersionStats { model_version, submission_count: 0, score_sum: 0 });
+        .unwrap_or(ModelVersionStats {
+            model_version,
+            submission_count: 0,
+            score_sum: 0,
+            total_submissions: 0,
+            average_score: 0,
+        });
     stats.submission_count += 1;
     stats.score_sum += score as u64;
     env.storage().instance().set(&key, &stats);
@@ -813,7 +851,7 @@ pub fn update_model_stats(env: &Env, model_version: u32, score: u32) {
 }
 
 pub fn get_model_stats(env: &Env, model_version: u32) -> Option<ModelVersionStats> {
-    env.storage().instance().get(&DataKey::ModelStats(model_version))
+    env.storage().instance().get(&ExtDataKey::ModelStats(model_version))
 }
 
 pub fn get_all_model_versions(env: &Env) -> Vec<u32> {
@@ -842,6 +880,14 @@ pub fn get_last_submit_time(env: &Env, wallet: &Address, asset_pair: &Symbol) ->
     result.unwrap_or(0)
 }
 
+/// Returns the last accepted submission timestamp as `Some(ts)`, or `None` if
+/// no submission has ever been recorded for `(wallet, asset_pair)`.
+/// Does not extend the storage TTL.
+pub fn get_last_submit_time_opt(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<u64> {
+    let key = DataKey::LastSubmitTime(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().get(&key)
+}
+
 pub fn set_last_submit_time(env: &Env, wallet: &Address, asset_pair: &Symbol, timestamp: u64) {
     let key = DataKey::LastSubmitTime(wallet.clone(), asset_pair.clone());
     env.storage().persistent().set(&key, &timestamp);
@@ -866,16 +912,16 @@ pub fn set_cooldown_secs(env: &Env, secs: u64) {
 pub fn get_pair_cooldown_secs(env: &Env, asset_pair: &Symbol) -> u64 {
     env.storage()
         .instance()
-        .get(&DataKey::PairCooldown(asset_pair.clone()))
+        .get(&ExtDataKey::PairCooldown(asset_pair.clone()))
         .unwrap_or_else(|| get_cooldown_secs(env))
 }
 
 pub fn set_pair_cooldown_secs(env: &Env, asset_pair: &Symbol, secs: u64) {
-    env.storage().instance().set(&DataKey::PairCooldown(asset_pair.clone()), &secs);
+    env.storage().instance().set(&ExtDataKey::PairCooldown(asset_pair.clone()), &secs);
 }
 
 pub fn clear_pair_cooldown_secs(env: &Env, asset_pair: &Symbol) {
-    env.storage().instance().remove(&DataKey::PairCooldown(asset_pair.clone()));
+    env.storage().instance().remove(&ExtDataKey::PairCooldown(asset_pair.clone()));
 }
 
 // ── Adaptive rate limit ───────────────────────────────────────────────────────
@@ -947,6 +993,115 @@ pub fn get_score_count(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 
     env.storage().persistent().get(&key).unwrap_or(0)
 }
 
+pub fn get_unique_wallets_hll(env: &Env, asset_pair: &Symbol) -> Option<HllSketch> {
+    let key = DataKey::UniqueWalletsHll(asset_pair.clone());
+    let sketch: Option<HllSketch> = env.storage().persistent().get(&key);
+    if sketch.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    sketch
+}
+
+pub fn set_unique_wallets_hll(env: &Env, asset_pair: &Symbol, sketch: &HllSketch) {
+    let key = DataKey::UniqueWalletsHll(asset_pair.clone());
+    env.storage().persistent().set(&key, sketch);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+fn hll_default_precision() -> u8 {
+    8
+}
+
+fn hll_new_sketch(env: &Env, precision: u8) -> HllSketch {
+    let mut registers: Vec<u8> = Vec::new(env);
+    let len = 1u32 << precision;
+    for _ in 0..len {
+        registers.push_back(0);
+    }
+    HllSketch { precision, registers }
+}
+
+fn hll_hash_wallet(env: &Env, wallet: &Address) -> [u8; 32] {
+    let mut wallet_buf = [0u8; 56];
+    let wallet_str = wallet.to_string();
+    wallet_str.copy_into_slice(&mut wallet_buf);
+    let len = wallet_str.len().min(56) as usize;
+    let bytes = soroban_sdk::Bytes::from_slice(env, &wallet_buf[..len]);
+    env.crypto().sha256(&bytes).to_bytes()
+}
+
+fn hll_register_index(hash: &[u8; 32], precision: u8) -> u32 {
+    let mut index = 0u32;
+    for bit in 0..precision as usize {
+        let byte = hash[bit / 8];
+        let bit_in_byte = 7 - (bit % 8);
+        index = (index << 1) | (((byte >> bit_in_byte) & 1) as u32);
+    }
+    index
+}
+
+fn hll_rho(hash: &[u8; 32], precision: u8) -> u8 {
+    let mut count = 1u8;
+    let mut bit_pos = precision as usize;
+    while bit_pos < 256 {
+        let byte = hash[bit_pos / 8];
+        let bit_in_byte = 7 - (bit_pos % 8);
+        if ((byte >> bit_in_byte) & 1) == 1 {
+            return count;
+        }
+        count = count.saturating_add(1);
+        bit_pos += 1;
+    }
+    count
+}
+
+fn hll_alpha(precision: u8) -> f64 {
+    let m = 1u64 << precision;
+    let m_f = m as f64;
+    0.7213 / (1.0 + 1.079 / m_f)
+}
+
+pub fn estimate_unique_wallets(env: &Env, asset_pair: &Symbol) -> u64 {
+    let sketch = match get_unique_wallets_hll(env, asset_pair) {
+        Some(s) => s,
+        None => return 0,
+    };
+    if sketch.precision == 0 || sketch.registers.len() == 0 {
+        return 0;
+    }
+    let m = 1u64 << sketch.precision;
+    let mut sum = 0.0f64;
+    let mut zeros = 0u32;
+    for i in 0..sketch.registers.len() {
+        let r = sketch.registers.get(i).unwrap();
+        if *r == 0 {
+            zeros += 1;
+        }
+        sum += 2.0_f64.powf(-(*r as f64));
+    }
+    let estimate = hll_alpha(sketch.precision) * (m as f64).powi(2) / sum;
+    if zeros > 0 && estimate <= 2.5 * (m as f64) {
+        let corrected = (m as f64) * ((m as f64) / (zeros as f64)).ln();
+        corrected.round() as u64
+    } else {
+        estimate.round() as u64
+    }
+}
+
+fn update_unique_wallets_hll(env: &Env, asset_pair: &Symbol, wallet: &Address) {
+    let mut sketch = get_unique_wallets_hll(env, asset_pair)
+        .unwrap_or_else(|| hll_new_sketch(env, hll_default_precision()));
+    let hash = hll_hash_wallet(env, wallet);
+    let idx = hll_register_index(&hash, sketch.precision) as u32;
+    let rank = hll_rho(&hash, sketch.precision);
+    if let Some(current) = sketch.registers.get(idx) {
+        if rank > *current {
+            sketch.registers.set(idx, rank);
+            set_unique_wallets_hll(env, asset_pair, &sketch);
+        }
+    }
+}
+
 // ── Score trend state ─────────────────────────────────────────────────────────
 
 pub fn get_trend_state(env: &Env, wallet: &Address, asset_pair: &Symbol) -> ScoreTrend {
@@ -956,6 +1111,18 @@ pub fn get_trend_state(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Scor
         env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
     }
     result.unwrap_or(ScoreTrend { trend: 0, consecutive: 0 })
+}
+
+/// Like [`get_trend_state`] but preserves the distinction between "no trend
+/// recorded yet" (`None`) and a stored trend, instead of collapsing the unset
+/// case to a default flat trend.
+pub fn get_trend_state_opt(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<ScoreTrend> {
+    let key = DataKey::TrendState(wallet.clone(), asset_pair.clone());
+    let result: Option<ScoreTrend> = env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    result
 }
 
 pub fn set_trend_state(env: &Env, wallet: &Address, asset_pair: &Symbol, state: &ScoreTrend) {
@@ -991,28 +1158,42 @@ pub fn set_gate_callers(env: &Env, callers: &Vec<Address>) {
 }
 
 pub fn get_gate_callers(env: &Env) -> Vec<Address> {
-    env.storage().instance().get(&GateDataKey::GateCallers).unwrap_or_else(|| Vec::new(env))
+    env.storage().instance().get(&ExtDataKey::GateCallers).unwrap_or_else(|| Vec::new(env))
 }
 
 pub fn set_gate_open(env: &Env, open: bool) {
-    env.storage().instance().set(&GateDataKey::GateOpen, &open);
+    env.storage().instance().set(&ExtDataKey::GateOpen, &open);
 }
 
 pub fn get_gate_open(env: &Env) -> bool {
-    env.storage().instance().get(&GateDataKey::GateOpen).unwrap_or(true)
+    env.storage().instance().get(&ExtDataKey::GateOpen).unwrap_or(true)
+}
+
+pub fn get_gate_enforcement_mode(env: &Env) -> bool {
+    env.storage().instance().get(&GateDataKey::GateOpen).unwrap_or(false)
+}
+
+pub fn set_gate_enforcement_mode(env: &Env, strict: bool) {
+    env.storage().instance().set(&GateDataKey::GateOpen, &strict);
 }
 
 // ── Time-weighted exponential decay ──────────────────────────────────────────
 
-pub fn get_decay_rate(env: &Env) -> (u32, u32) {
-    env.storage().instance().get::<_, (u32, u32)>(&DataKey::DecayRate).unwrap_or((
+pub fn get_decay_rate(env: &Env) -> (u64, u64) {
+    env.storage().instance().get::<_, (u64, u64)>(&DataKey::DecayRate).unwrap_or((
         crate::constants::DEFAULT_DECAY_LAMBDA_NUM,
         crate::constants::DEFAULT_DECAY_LAMBDA_DEN,
     ))
 }
 
-pub fn set_decay_rate(env: &Env, numerator: u32, denominator: u32) {
+pub fn set_decay_rate(env: &Env, numerator: u64, denominator: u64) {
     env.storage().instance().set(&DataKey::DecayRate, &(numerator, denominator));
+}
+
+pub fn set_signer_tier(env: &Env, signer: &Address, min_score: u32, max_score: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::SignerTier(signer.clone()), &crate::types::TierBounds { min_score, max_score });
 }
 
 // ── Global minimum confidence floor ──────────────────────────────────────────
@@ -1198,6 +1379,21 @@ pub fn get_historical_max_score(env: &Env, wallet: &Address, asset_pair: &Symbol
         env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
     }
     result.unwrap_or(0)
+}
+
+/// Like [`get_historical_max_score`] but returns `None` when no score has ever
+/// been recorded for the pair instead of collapsing that case to `0`.
+pub fn get_historical_max_score_opt(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) -> Option<u32> {
+    let key = DataKey::HistoricalMaxScore(wallet.clone(), asset_pair.clone());
+    let result: Option<u32> = env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    result
 }
 
 pub fn update_historical_max_score(env: &Env, wallet: &Address, asset_pair: &Symbol, score: u32) {
@@ -1432,7 +1628,7 @@ pub fn reset_active_embargo_count(env: &Env) {
 /// band (never entered, or the entry time has been cleared on exit). Extends
 /// TTL on read so active band memberships keep their entry time alive.
 pub fn get_band_entry_time(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<u64> {
-    let key = DataKey::BandEntryTime(wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::BandEntryTime(wallet.clone(), asset_pair.clone());
     let result: Option<u64> = env.storage().temporary().get(&key);
     if result.is_some() {
         env.storage().temporary().extend_ttl(
@@ -1448,7 +1644,7 @@ pub fn get_band_entry_time(env: &Env, wallet: &Address, asset_pair: &Symbol) -> 
 /// band for `asset_pair`. Uses the same TTL constants as `RiskBandState` so
 /// both keys expire together if they go cold.
 pub fn set_band_entry_time(env: &Env, wallet: &Address, asset_pair: &Symbol, timestamp: u64) {
-    let key = DataKey::BandEntryTime(wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::BandEntryTime(wallet.clone(), asset_pair.clone());
     env.storage().temporary().set(&key, &timestamp);
     env.storage().temporary().extend_ttl(&key, BAND_STATE_TTL_THRESHOLD, BAND_STATE_TTL_EXTEND_TO);
 }
@@ -1457,7 +1653,7 @@ pub fn set_band_entry_time(env: &Env, wallet: &Address, asset_pair: &Symbol, tim
 /// the wallet exits the high-risk band so the key is absent whenever the
 /// wallet is not in the band.
 pub fn clear_band_entry_time(env: &Env, wallet: &Address, asset_pair: &Symbol) {
-    let key = DataKey::BandEntryTime(wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::BandEntryTime(wallet.clone(), asset_pair.clone());
     env.storage().temporary().remove(&key);
 }
 
@@ -1593,22 +1789,22 @@ pub fn remove_from_dispute_index(env: &Env, wallet: &Address, asset_pair: &Symbo
 // ── MEV-Resistant Commit-Reveal ──────────────────────────────────────────────
 
 pub fn get_last_global_submission_time(env: &Env) -> u64 {
-    env.storage().instance().get(&DataKey::LastGlobalSubmissionTime).unwrap_or(0)
+    env.storage().instance().get(&ExtDataKey::LastGlobalSubmissionTime).unwrap_or(0)
 }
 
 pub fn set_last_global_submission_time(env: &Env, timestamp: u64) {
-    env.storage().instance().set(&DataKey::LastGlobalSubmissionTime, &timestamp);
+    env.storage().instance().set(&ExtDataKey::LastGlobalSubmissionTime, &timestamp);
 }
 
 pub fn get_quorum_failure_window(env: &Env) -> u64 {
     env.storage()
         .instance()
-        .get(&DataKey::QuorumFailureWindow)
+        .get(&ExtDataKey::QuorumFailureWindow)
         .unwrap_or(DEFAULT_QUORUM_FAILURE_WINDOW_SECS)
 }
 
 pub fn set_quorum_failure_window(env: &Env, window_secs: u64) {
-    env.storage().instance().set(&DataKey::QuorumFailureWindow, &window_secs);
+    env.storage().instance().set(&ExtDataKey::QuorumFailureWindow, &window_secs);
 }
 
 pub fn set_consensus_commitment(
@@ -1618,7 +1814,7 @@ pub fn set_consensus_commitment(
     asset_pair: &Symbol,
     commitment: &soroban_sdk::BytesN<32>,
 ) {
-    let key = DataKey::ConsensusCommitment(model.clone(), wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::ConsensusCommitment(model.clone(), wallet.clone(), asset_pair.clone());
     let ttl = get_reveal_window_secs(env) as u32;
     let ledgers_to_live = (ttl / 5).max(12);
     env.storage().temporary().set(&key, commitment);
@@ -1631,12 +1827,12 @@ pub fn get_consensus_commitment(
     wallet: &Address,
     asset_pair: &Symbol,
 ) -> Option<soroban_sdk::BytesN<32>> {
-    let key = DataKey::ConsensusCommitment(model.clone(), wallet.clone(), asset_pair.clone());
+    let key = ExtDataKey::ConsensusCommitment(model.clone(), wallet.clone(), asset_pair.clone());
     env.storage().temporary().get(&key)
 }
 
 pub fn set_original_service_threshold(env: &Env, threshold: u32) {
-    env.storage().instance().set(&DataKey::OriginalServiceThreshold, &threshold);
+    env.storage().instance().set(&ExtDataKey::OriginalServiceThreshold, &threshold);
 }
 
 pub fn clear_original_service_threshold(env: &Env) {
@@ -1648,11 +1844,11 @@ pub fn clear_original_service_threshold(env: &Env) {
 /// Returns the admin-configured finality buffer in seconds, defaulting to `0`
 /// (disabled) until `set_finality_buffer` is called.
 pub fn get_finality_buffer_secs(env: &Env) -> u64 {
-    env.storage().instance().get(&DataKey::FinalityBufferSecs).unwrap_or(0)
+    env.storage().instance().get(&ExtDataKey::FinalityBufferSecs).unwrap_or(0)
 }
 
 pub fn set_finality_buffer_secs(env: &Env, secs: u64) {
-    env.storage().instance().set(&DataKey::FinalityBufferSecs, &secs);
+    env.storage().instance().set(&ExtDataKey::FinalityBufferSecs, &secs);
 }
 
 /// Returns the pending score held for `(wallet, asset_pair)`, if any.
@@ -1709,26 +1905,224 @@ pub fn set_last_service_activity(env: &Env, timestamp: u64) {
 pub fn get_heartbeat_alert_threshold(env: &Env) -> u64 {
     env.storage()
         .instance()
-        .get(&DataKey::ServiceHeartbeatAlertThreshold)
+        .get(&ExtDataKey::ServiceHeartbeatAlertThreshold)
         .unwrap_or(crate::constants::DEFAULT_HEARTBEAT_ALERT_THRESHOLD_SECS)
 }
 
 pub fn set_heartbeat_alert_threshold(env: &Env, secs: u64) {
-    env.storage().instance().set(&DataKey::ServiceHeartbeatAlertThreshold, &secs);
+    env.storage().instance().set(&ExtDataKey::ServiceHeartbeatAlertThreshold, &secs);
 }
 
 /// Returns `true` once a `ServiceSilenceAlertEvent` has been emitted for the
 /// current silence window and not yet cleared by a resumed submission.
 pub fn is_silent_alert_emitted(env: &Env) -> bool {
-    env.storage().instance().get(&DataKey::ServiceSilentAlertEmitted).unwrap_or(false)
+    env.storage().instance().get(&ExtDataKey::ServiceSilentAlertEmitted).unwrap_or(false)
 }
 
 pub fn set_silent_alert_emitted(env: &Env) {
-    env.storage().instance().set(&DataKey::ServiceSilentAlertEmitted, &true);
+    env.storage().instance().set(&ExtDataKey::ServiceSilentAlertEmitted, &true);
 }
 
 pub fn clear_silent_alert_emitted(env: &Env) {
-    env.storage().instance().remove(&DataKey::ServiceSilentAlertEmitted);
+    env.storage().instance().remove(&ExtDataKey::ServiceSilentAlertEmitted);
+}
+
+// ── Failover contract ────────────────────────────────────────────────────────
+
+pub fn set_failover_contract(env: &Env, contract_id: &Address) {
+    env.storage().instance().set(&DataKey::FailoverContract, contract_id);
+}
+
+pub fn get_failover_contract(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::FailoverContract)
+}
+
+// ── Aggregate service pubkey ──────────────────────────────────────────────────
+
+pub fn get_aggregate_service_pubkey(env: &Env) -> Option<soroban_sdk::Bytes> {
+    env.storage().instance().get(&ExtDataKey::AggregatePubKey)
+}
+
+pub fn set_aggregate_service_pubkey(env: &Env, pubkey: &Bytes) {
+    env.storage().instance().set(&ExtDataKey::AggregatePubKey, pubkey);
+}
+
+// ── Reveal window ─────────────────────────────────────────────────────────────
+
+pub fn get_reveal_window_secs(env: &Env) -> u64 {
+    env.storage().instance().get(&ExtDataKey::RevealWindowSecs).unwrap_or(3600)
+}
+
+pub fn set_reveal_window_secs(env: &Env, secs: u64) {
+    env.storage().instance().set(&ExtDataKey::RevealWindowSecs, &secs);
+}
+
+pub fn remove_consensus_commitment(
+    env: &Env,
+    model: &Address,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) {
+    let key = ExtDataKey::ConsensusCommitment(model.clone(), wallet.clone(), asset_pair.clone());
+    env.storage().temporary().remove(&key);
+}
+
+// ── Model version set ─────────────────────────────────────────────────────────
+
+pub fn get_model_version_set(env: &Env) -> soroban_sdk::Vec<u32> {
+    env.storage().instance().get(&ExtDataKey::ModelVersionSet).unwrap_or_else(|| soroban_sdk::Vec::new(env))
+}
+
+pub fn set_model_version_set(env: &Env, set: &soroban_sdk::Vec<u32>) {
+    env.storage().instance().set(&ExtDataKey::ModelVersionSet, set);
+}
+
+pub fn is_model_version_registered(env: &Env, version: u32) -> bool {
+    get_model_version_set(env).contains(&version)
+}
+
+pub fn is_model_version_deprecated(env: &Env, version: u32) -> bool {
+    let key = ExtDataKey::ModelVersionDeprecated(version);
+    env.storage().instance().get::<_, bool>(&key).unwrap_or(false)
+}
+
+pub fn set_model_version_deprecated(env: &Env, version: u32) {
+    let key = ExtDataKey::ModelVersionDeprecated(version);
+    env.storage().instance().set(&key, &true);
+}
+
+// ── Model posterior weight ────────────────────────────────────────────────────
+
+pub fn get_model_posterior_weight(env: &Env, version: u32) -> u64 {
+    let key = ExtDataKey::ModelPosteriorWeight(version);
+    env.storage().instance().get(&key).unwrap_or(1)
+}
+
+pub fn set_model_posterior_weight(env: &Env, version: u32, weight: u64) {
+    let key = ExtDataKey::ModelPosteriorWeight(version);
+    env.storage().instance().set(&key, &weight);
+}
+
+// ── Signer rotation ───────────────────────────────────────────────────────────
+
+pub fn get_signer_rotation_ttl(env: &Env) -> u64 {
+    env.storage().instance().get(&ExtDataKey::SignerRotationTtl).unwrap_or(0)
+}
+
+pub fn set_signer_rotation_ttl(env: &Env, secs: u64) {
+    env.storage().instance().set(&ExtDataKey::SignerRotationTtl, &secs);
+}
+
+pub fn set_signer_rotation_grace(env: &Env, secs: u64) {
+    env.storage().instance().set(&ExtDataKey::SignerRotationGrace, &secs);
+}
+
+pub fn set_signer_added_at(env: &Env, signer: &Address, timestamp: u64) {
+    let key = ExtDataKey::SignerAddedAt(signer.clone());
+    env.storage().instance().set(&key, &timestamp);
+}
+
+pub fn remove_signer_added_at(env: &Env, signer: &Address) {
+    let key = ExtDataKey::SignerAddedAt(signer.clone());
+    env.storage().instance().remove(&key);
+}
+
+pub fn get_signer_age(env: &Env, signer: &Address) -> u64 {
+    let key = ExtDataKey::SignerAddedAt(signer.clone());
+    let added_at: Option<u64> = env.storage().instance().get(&key);
+    match added_at {
+        Some(t) => env.ledger().timestamp().saturating_sub(t),
+        None => u64::MAX,
+    }
+}
+
+pub fn check_signer_expired(env: &Env, signer: &Address) -> bool {
+    let ttl = get_signer_rotation_ttl(env);
+    if ttl == 0 {
+        return false;
+    }
+    get_signer_age(env, signer) > ttl
+}
+
+// ── Score histogram ───────────────────────────────────────────────────────────
+
+pub fn get_histogram_bucket(env: &Env, bucket: u32) -> u32 {
+    env.storage().instance().get(&ExtDataKey::ScoreHistogramBucket(bucket)).unwrap_or(0)
+}
+
+pub fn get_histogram_total(env: &Env) -> u64 {
+    env.storage().instance().get(&ExtDataKey::ScoreHistogramTotal).unwrap_or(0)
+}
+
+pub fn update_histogram_on_write(env: &Env, previous_score: Option<u32>, new_score: u32) {
+    if let Some(prev) = previous_score {
+        let old_bucket = prev / 10;
+        let key = ExtDataKey::ScoreHistogramBucket(old_bucket);
+        let count: u32 = env.storage().instance().get(&key).unwrap_or(0);
+        if count > 0 { env.storage().instance().set(&key, &(count - 1)); }
+        let total: u64 = env.storage().instance().get(&ExtDataKey::ScoreHistogramTotal).unwrap_or(0);
+        if total > 0 { env.storage().instance().set(&ExtDataKey::ScoreHistogramTotal, &(total - 1)); }
+    }
+    let bucket = new_score / 10;
+    let key = ExtDataKey::ScoreHistogramBucket(bucket);
+    let count: u32 = env.storage().instance().get(&key).unwrap_or(0);
+    env.storage().instance().set(&key, &(count + 1));
+    let total: u64 = env.storage().instance().get(&ExtDataKey::ScoreHistogramTotal).unwrap_or(0);
+    env.storage().instance().set(&ExtDataKey::ScoreHistogramTotal, &(total + 1));
+}
+
+pub fn update_histogram_on_clear(env: &Env, score: u32) {
+    let bucket = score / 10;
+    let key = ExtDataKey::ScoreHistogramBucket(bucket);
+    let count: u32 = env.storage().instance().get(&key).unwrap_or(0);
+    if count > 0 {
+        env.storage().instance().set(&key, &(count - 1));
+    }
+    let total: u64 = env.storage().instance().get(&ExtDataKey::ScoreHistogramTotal).unwrap_or(0);
+    if total > 0 {
+        env.storage().instance().set(&ExtDataKey::ScoreHistogramTotal, &(total - 1));
+    }
+}
+
+pub fn get_score_histogram(env: &Env) -> crate::types::ScoreHistogram {
+    let mut buckets = soroban_sdk::Vec::new(env);
+    for i in 0..=10u32 {
+        buckets.push_back(get_histogram_bucket(env, i));
+    }
+    crate::types::ScoreHistogram { buckets, total: get_histogram_total(env) }
+}
+
+// ── Verkle commitment ─────────────────────────────────────────────────────────
+
+pub fn get_verkle_commitment_raw(env: &Env) -> Option<[u8; 32]> {
+    let b: Option<soroban_sdk::Bytes> = env.storage().instance().get(&ExtDataKey::VerkleCommitmentRaw);
+    b.map(|bytes| {
+        let mut arr = [0u8; 32];
+        for (i, byte) in bytes.iter().enumerate().take(32) { arr[i] = byte; }
+        arr
+    })
+}
+
+pub fn set_verkle_commitment_raw(env: &Env, commitment: &[u8; 32]) {
+    let bytes = soroban_sdk::Bytes::from_array(env, commitment);
+    env.storage().instance().set(&ExtDataKey::VerkleCommitmentRaw, &bytes);
+}
+
+pub fn get_verkle_leaf(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<[u8; 32]> {
+    let key = ExtDataKey::VerkleLeaf(wallet.clone(), asset_pair.clone());
+    let b: Option<soroban_sdk::Bytes> = env.storage().persistent().get(&key);
+    b.map(|bytes| {
+        let mut arr = [0u8; 32];
+        for (i, byte) in bytes.iter().enumerate().take(32) { arr[i] = byte; }
+        arr
+    })
+}
+
+pub fn set_verkle_leaf(env: &Env, wallet: &Address, asset_pair: &Symbol, leaf: &[u8; 32]) {
+    let key = ExtDataKey::VerkleLeaf(wallet.clone(), asset_pair.clone());
+    let bytes = soroban_sdk::Bytes::from_array(env, leaf);
+    env.storage().persistent().set(&key, &bytes);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
 }
 
 // ── Aggregate service pubkey (threshold attestation) ─────────────────────────
@@ -1759,7 +2153,21 @@ pub fn get_reveal_window_secs(env: &Env) -> u64 {
 
 // ── Signer expiry ─────────────────────────────────────────────────────────────
 
-pub fn check_signer_expired(_env: &Env, _signer: &Address) -> Result<(), crate::errors::Error> {
+pub fn check_signer_expired(env: &Env, signer: &Address) -> Result<(), crate::errors::Error> {
+    let ttl = get_signer_rotation_ttl(env);
+    if ttl == 0 {
+        return Ok(());
+    }
+    if let Some(age) = get_signer_age(env, signer) {
+        let grace = get_signer_grace_period(env);
+        if age > ttl + grace {
+            crate::events::signer_expired(env, signer);
+            return Err(crate::errors::Error::UnauthorizedSigner);
+        }
+        if age > ttl {
+            crate::events::signer_expiring(env, signer);
+        }
+    }
     Ok(())
 }
 
@@ -1967,6 +2375,89 @@ pub fn set_reveal_window_secs(env: &Env, secs: u64) {
     env.storage().instance().set(&DataKey::RevealWindowSecs, &secs);
 }
 
+// ── Issue #285: Decay curve ──────────────────────────────────────────────────
+
+pub fn set_decay_curve(env: &Env, curve: &DecayCurve) {
+    env.storage().instance().set(&DataKey::DecayCurveConfig, curve);
+}
+
+pub fn get_decay_curve(env: &Env) -> DecayCurve {
+    env.storage()
+        .instance()
+        .get(&DataKey::DecayCurveConfig)
+        .unwrap_or(DecayCurve::Exponential)
+}
+
+// ── Issue #283: Dormancy decay ───────────────────────────────────────────────
+
+pub fn set_dormancy_inactivity_secs(env: &Env, secs: u64) {
+    env.storage().instance().set(&DataKey::DormancyInactivitySecs, &secs);
+}
+
+pub fn get_dormancy_inactivity_secs(env: &Env) -> u64 {
+    env.storage().instance().get(&DataKey::DormancyInactivitySecs).unwrap_or(0)
+}
+
+pub fn set_dormancy_decay_fraction_bps(env: &Env, bps: u32) {
+    env.storage().instance().set(&DataKey::DormancyDecayFractionBps, &bps);
+}
+
+pub fn get_dormancy_decay_fraction_bps(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::DormancyDecayFractionBps).unwrap_or(0)
+}
+
+pub fn set_decay_checkpoint(env: &Env, wallet: &Address, asset_pair: &Symbol, ts: u64) {
+    let key = DataKey::DecayCheckpoint(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, &ts);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+pub fn get_decay_checkpoint(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u64 {
+    let key = DataKey::DecayCheckpoint(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+// ── Issue #284: Finality depth ───────────────────────────────────────────────
+
+pub fn set_finality_depth(env: &Env, ledgers: u32) {
+    env.storage().instance().set(&DataKey::FinalityDepth, &ledgers);
+}
+
+pub fn get_finality_depth(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::FinalityDepth).unwrap_or(0)
+}
+
+pub fn set_score_submission_ledger(env: &Env, wallet: &Address, asset_pair: &Symbol, seq: u32) {
+    let key = DataKey::ScoreSubmissionLedger(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, &seq);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+pub fn get_score_submission_ledger(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 {
+    let key = DataKey::ScoreSubmissionLedger(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+// ── Issue #286: Score breakdown ──────────────────────────────────────────────
+
+pub fn set_score_breakdown(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    payload: &SubscorePayload,
+) {
+    let key = DataKey::ScoreBreakdown(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, payload);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+pub fn get_score_breakdown(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) -> Option<SubscorePayload> {
+    let key = DataKey::ScoreBreakdown(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().get(&key)
 // ── Per-pair score submission counter ────────────────────────────────────────
 
 /// Increments the running total of successful score submissions for
@@ -2009,4 +2500,35 @@ pub fn increment_total_wallets_scored(env: &Env) {
 /// protocol-health metric.
 pub fn get_total_wallets_scored(env: &Env) -> u64 {
     env.storage().instance().get(&DataKey::TotalWalletsScored).unwrap_or(0)
+}
+
+// ── Score Momentum Window (issue #289) ───────────────────────────────────────
+
+pub fn set_momentum_window(env: &Env, secs: u64) {
+    env.storage().instance().set(&DataKey::MomentumWindow, &secs);
+}
+
+pub fn get_momentum_window(env: &Env) -> u64 {
+    env.storage().instance().get(&DataKey::MomentumWindow).unwrap_or(3600)
+}
+
+pub fn set_momentum_alert_threshold(env: &Env, threshold: u32) {
+    env.storage().instance().set(&DataKey::MomentumAlertThreshold, &threshold);
+}
+
+pub fn get_momentum_alert_threshold(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::MomentumAlertThreshold).unwrap_or(0)
+}
+
+// ── Interpolation Method (issue #290) ────────────────────────────────────────
+
+pub fn set_interpolation_method(env: &Env, method: &InterpolationMethod) {
+    env.storage().instance().set(&DataKey::InterpolationMethod, method);
+}
+
+pub fn get_interpolation_method(env: &Env) -> InterpolationMethod {
+    env.storage()
+        .instance()
+        .get(&DataKey::InterpolationMethod)
+        .unwrap_or(InterpolationMethod::Linear)
 }

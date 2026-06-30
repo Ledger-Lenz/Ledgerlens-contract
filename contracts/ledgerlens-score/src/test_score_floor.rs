@@ -91,11 +91,11 @@ fn test_default_policy_is_disabled() {
 }
 
 #[test]
-fn test_historical_max_defaults_to_zero() {
+fn test_historical_max_unset_returns_none() {
     let (env, client, _) = setup();
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
-    assert_eq!(client.get_historical_max_score(&wallet, &pair), 0);
+    assert_eq!(client.get_historical_max_score(&wallet, &pair), None);
 }
 
 // ── Historical max tracking ───────────────────────────────────────────────────
@@ -107,16 +107,32 @@ fn test_historical_max_tracks_running_peak() {
     let pair = symbol_short!("XLM_USDC");
 
     submit(&env, &client, &wallet, &pair, 40);
-    assert_eq!(client.get_historical_max_score(&wallet, &pair), 40);
+    assert_eq!(client.get_historical_max_score(&wallet, &pair), Some(40));
 
     advance(&env);
     submit(&env, &client, &wallet, &pair, 90);
-    assert_eq!(client.get_historical_max_score(&wallet, &pair), 90);
+    assert_eq!(client.get_historical_max_score(&wallet, &pair), Some(90));
 
     // A subsequent lower score must not lower the recorded peak.
     advance(&env);
     submit(&env, &client, &wallet, &pair, 55);
-    assert_eq!(client.get_historical_max_score(&wallet, &pair), 90);
+    assert_eq!(client.get_historical_max_score(&wallet, &pair), Some(90));
+}
+
+// ── Issue #245 — Option<u32> historical max getter ──────────────────────────────
+
+#[test]
+fn test_historical_max_none_until_first_score_then_some() {
+    let (env, client, _) = setup();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    // Unset → None (distinguishable from a recorded peak).
+    assert_eq!(client.get_historical_max_score(&wallet, &pair), None);
+
+    // After the first accepted score → Some(peak).
+    submit(&env, &client, &wallet, &pair, 60);
+    assert_eq!(client.get_historical_max_score(&wallet, &pair), Some(60));
 }
 
 // ── Policy validation ─────────────────────────────────────────────────────────
@@ -272,7 +288,7 @@ fn test_override_allows_sub_floor_submission() {
     // ...admin authorises an emergency override...
     let _ = admin;
     client.override_score_floor(&Vec::new(&env), &wallet, &pair);
-    assert_eq!(client.get_historical_max_score(&wallet, &pair), 0);
+    assert_eq!(client.get_historical_max_score(&wallet, &pair), None);
 
     // ...and the next sub-floor submission is now accepted.
     advance(&env);

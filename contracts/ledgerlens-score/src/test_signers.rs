@@ -71,9 +71,9 @@ fn submit_ok(
 }
 
 #[test]
-fn test_default_ttl_is_30_days() {
+fn test_default_ttl_is_disabled() {
     let (_env, client, _admin, _service) = setup();
-    assert_eq!(client.get_signer_rotation_ttl(), 2_592_000);
+    assert_eq!(client.get_signer_rotation_ttl(), 0);
 }
 
 #[test]

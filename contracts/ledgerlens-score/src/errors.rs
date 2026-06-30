@@ -97,4 +97,9 @@ impl Error {
     pub const InvalidParameterKey: Error = Error::InvalidThreshold;
     pub const InvalidParameterValue: Error = Error::InvalidScore;
     pub const InvalidParameterTimeLock: Error = Error::InvalidUpgradeDelay;
+
+    pub const EpochClosed: Error = Error::ContractPaused;
+    pub const InsufficientPairData: Error = Error::InsufficientConsensus;
+    pub const GateCallerListFull: Error = Error::ServiceSetFull;
+    pub const GateCallerNotInList: Error = Error::ScoreNotFound;
 }

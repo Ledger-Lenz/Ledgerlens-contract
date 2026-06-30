@@ -32,6 +32,60 @@ fn signers_vec(env: &Env, addrs: &[Address]) -> Vec<Address> {
     v
 }
 
+// ── get_admin_threshold tests ─────────────────────────────────────────────────
+
+/// Before any admin signers are added, `get_admin_threshold` returns 0
+/// (legacy single-admin mode — no quorum configured yet).
+#[test]
+fn test_get_admin_threshold_zero_before_multisig_configured() {
+    let (_env, client, _admin, _service) = setup();
+    assert_eq!(client.get_admin_threshold(), 0u32);
+}
+
+/// After configuring a 1-of-1 admin quorum, the threshold reflects the
+/// configured value.
+#[test]
+fn test_get_admin_threshold_one_of_one() {
+    let (env, client, _admin, _service) = setup();
+    let signer = Address::generate(&env);
+    client.add_admin_signer(&Vec::new(&env), &signer);
+    client.set_admin_threshold(&Vec::new(&env), &1);
+    assert_eq!(client.get_admin_threshold(), 1u32);
+}
+
+/// After configuring a 2-of-3 admin quorum, the threshold returns 2 — the
+/// exact minimum co-signatures governance tooling must collect.
+#[test]
+fn test_get_admin_threshold_two_of_three() {
+    let (env, client, _admin, _service) = setup();
+    let s1 = Address::generate(&env);
+    let s2 = Address::generate(&env);
+    let s3 = Address::generate(&env);
+    client.add_admin_signer(&Vec::new(&env), &s1);
+    client.add_admin_signer(&Vec::new(&env), &s2);
+    client.add_admin_signer(&Vec::new(&env), &s3);
+    client.set_admin_threshold(&Vec::new(&env), &2);
+    assert_eq!(client.get_admin_threshold(), 2u32);
+}
+
+/// After removing a signer causes an auto-reduction, `get_admin_threshold`
+/// reflects the reduced value immediately.
+#[test]
+fn test_get_admin_threshold_reflects_auto_reduction() {
+    let (env, client, _admin, _service) = setup();
+    let s1 = Address::generate(&env);
+    let s2 = Address::generate(&env);
+    client.add_admin_signer(&Vec::new(&env), &s1);
+    client.add_admin_signer(&Vec::new(&env), &s2);
+    client.set_admin_threshold(&Vec::new(&env), &2);
+    assert_eq!(client.get_admin_threshold(), 2u32);
+
+    // Removing one signer reduces the set to 1, forcing the threshold down.
+    let both = signers_vec(&env, &[s1.clone(), s2.clone()]);
+    client.remove_admin_signer(&both, &s2);
+    assert_eq!(client.get_admin_threshold(), 1u32);
+}
+
 // ── 1. After initialize, admin set is empty and threshold is 0 (legacy mode) ─
 
 #[test]
@@ -43,6 +97,18 @@ fn test_admin_multisig_init_state() {
     // (mock_all_auths covers the single-admin auth).
     client.set_risk_threshold(&Vec::new(&env), &80);
     assert_eq!(client.get_risk_threshold(), 80);
+}
+
+// ── 1b. get_admin_set mirrors get_admin_signers ──────────────────────────────
+
+#[test]
+fn test_get_admin_set_returns_co_signers() {
+    let (env, client, _admin, _service) = setup();
+    assert_eq!(client.get_admin_set().len(), 0);
+    let signer = Address::generate(&env);
+    client.add_admin_signer(&Vec::new(&env), &signer);
+    assert_eq!(client.get_admin_set(), client.get_admin_signers());
+    assert!(client.get_admin_set().contains(&signer));
 }
 
 // ── 2. Legacy admin can add first signer ─────────────────────────────────────
