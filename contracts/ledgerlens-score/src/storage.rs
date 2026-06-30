@@ -1898,7 +1898,21 @@ pub fn get_reveal_window_secs(env: &Env) -> u64 {
 
 // ── Signer expiry ─────────────────────────────────────────────────────────────
 
-pub fn check_signer_expired(_env: &Env, _signer: &Address) -> Result<(), crate::errors::Error> {
+pub fn check_signer_expired(env: &Env, signer: &Address) -> Result<(), crate::errors::Error> {
+    let ttl = get_signer_rotation_ttl(env);
+    if ttl == 0 {
+        return Ok(());
+    }
+    if let Some(age) = get_signer_age(env, signer) {
+        let grace = get_signer_grace_period(env);
+        if age > ttl + grace {
+            crate::events::signer_expired(env, signer);
+            return Err(crate::errors::Error::UnauthorizedSigner);
+        }
+        if age > ttl {
+            crate::events::signer_expiring(env, signer);
+        }
+    }
     Ok(())
 }
 

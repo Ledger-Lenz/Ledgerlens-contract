@@ -537,6 +537,14 @@ pub fn pair_cooldown_updated(env: &Env, asset_pair: &Symbol, secs: u64) {
     env.events().publish((symbol_short!("pc_upd"), asset_pair.clone()), secs);
 }
 
+pub fn signer_expiring(env: &Env, signer: &Address) {
+    env.events().publish((symbol_short!("sig_exp"),), signer.clone());
+}
+
+pub fn signer_expired(env: &Env, signer: &Address) {
+    env.events().publish((symbol_short!("sig_expd"),), signer.clone());
+}
+
 pub fn signer_ttl_updated(env: &Env, ttl_secs: u64) {
     env.events().publish((symbol_short!("sg_ttl"),), ttl_secs);
 }
