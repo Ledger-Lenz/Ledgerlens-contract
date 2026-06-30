@@ -765,6 +765,12 @@ pub fn get_signer_tier(env: &Env, signer: &Address) -> crate::types::TierBounds 
         .unwrap_or(crate::types::TierBounds { min_score: 0, max_score: 100 })
 }
 
+pub fn set_signer_tier(env: &Env, signer: &Address, bounds: &crate::types::TierBounds) {
+    env.storage()
+        .instance()
+        .set(&DataKey::SignerTier(signer.clone()), bounds);
+}
+
 pub fn set_service_threshold(env: &Env, threshold: u32) {
     env.storage().instance().set(&DataKey::ServiceThreshold, &threshold);
 }
