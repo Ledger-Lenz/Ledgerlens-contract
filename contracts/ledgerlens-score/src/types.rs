@@ -810,3 +810,33 @@ pub enum InterpolationMethod {
     Linear,
     CubicSpline,
 }
+
+/// Configuration for the adaptive rate-limit feature.
+/// When enabled, the effective cooldown scales with global score variance.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdaptiveRateLimit {
+    pub enabled: bool,
+    pub variance_scale: u32,
+}
+
+/// Incremental Welford state for online Pearson correlation tracking (issue #268).
+/// Stores accumulated sums for computing r(pair_a, pair_b) on the fly.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WelfordCorrState {
+    pub n: u32,
+    pub sum_a: i64,
+    pub sum_b: i64,
+    pub sum_aa: i64,
+    pub sum_bb: i64,
+    pub sum_ab: i64,
+}
+
+/// Per-(wallet, asset_pair) token-bucket state for burst rate limiting (issue #269).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TokenBucket {
+    pub tokens: u32,
+    pub last_refill: u64,
+}
