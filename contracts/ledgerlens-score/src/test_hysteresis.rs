@@ -705,3 +705,46 @@ fn test_entry_time_isolated_per_pair() {
     assert!(client.get_risk_band_entry_time(&wallet, &pair_a).is_some());
     assert_eq!(client.get_risk_band_entry_time(&wallet, &pair_b), None);
 }
+
+// ── set_hysteresis_margin: margin >= risk_threshold rejected ─────────────────
+
+#[test]
+fn test_set_hysteresis_margin_at_risk_threshold_rejected() {
+    let (_env, client, _admin, _service) = setup();
+    // Default risk_threshold is 75; margin = 75 must be rejected.
+    let result = client.try_set_hysteresis_margin(&75);
+    assert_eq!(result, Err(Ok(Error::InvalidHysteresisMargin)));
+}
+
+#[test]
+fn test_set_hysteresis_margin_above_risk_threshold_rejected() {
+    let (_env, client, _admin, _service) = setup();
+    // margin = 76 > risk_threshold = 75, also rejected.
+    let result = client.try_set_hysteresis_margin(&76);
+    assert_eq!(result, Err(Ok(Error::InvalidHysteresisMargin)));
+}
+
+#[test]
+fn test_set_hysteresis_margin_below_risk_threshold_accepted() {
+    let (_env, client, _admin, _service) = setup();
+    // margin = 74 < risk_threshold = 75, must be accepted.
+    client.set_hysteresis_margin(&20);
+    assert_eq!(client.get_hysteresis_margin(), 20);
+}
+
+// ── set_hysteresis_margin: non-admin rejected ────────────────────────────────
+
+#[test]
+fn test_set_hysteresis_margin_non_admin_rejected() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    env.mock_all_auths();
+    client.initialize(&Address::generate(&env), &Address::generate(&env));
+
+    // Fresh env without mock_all_auths so admin auth check fires.
+    let env2 = Env::default();
+    let c2 = LedgerLensScoreContractClient::new(&env2, &contract_id);
+    let result = c2.try_set_hysteresis_margin(&10);
+    assert!(result.is_err());
+}

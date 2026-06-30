@@ -699,3 +699,78 @@ fn test_active_embargo_count_set_after_revoke_all() {
     client.set_score_embargo(&w2, &None);
     assert_eq!(client.get_active_embargo_count(), 1);
 }
+
+// ── peek_is_embargoed ─────────────────────────────────────────────────────────
+
+#[test]
+fn test_peek_is_embargoed_false_when_no_embargo() {
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    assert!(!client.peek_is_embargoed(&wallet));
+}
+
+#[test]
+fn test_peek_is_embargoed_true_for_indefinite_embargo() {
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    client.set_score_embargo(&wallet, &None);
+    assert!(client.peek_is_embargoed(&wallet));
+}
+
+#[test]
+fn test_peek_is_embargoed_true_for_active_timed_embargo() {
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    client.set_score_embargo(&wallet, &Some(10_000));
+    env.ledger().with_mut(|l| l.timestamp = 5_000);
+    assert!(client.peek_is_embargoed(&wallet));
+}
+
+#[test]
+fn test_peek_is_embargoed_false_after_timed_embargo_expires() {
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    client.set_score_embargo(&wallet, &Some(500));
+    env.ledger().with_mut(|l| l.timestamp = 501);
+    assert!(!client.peek_is_embargoed(&wallet));
+}
+
+#[test]
+fn test_peek_is_embargoed_does_not_extend_ttl() {
+    // Calling peek_is_embargoed must not change the logical expiry of the embargo.
+    // We verify this by checking that a timed embargo still expires at the
+    // originally-set timestamp even after multiple peek calls.
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    let expiry: u64 = 500;
+    client.set_score_embargo(&wallet, &Some(expiry));
+
+    // Peek multiple times — none of these should extend the embargo.
+    env.ledger().with_mut(|l| l.timestamp = 400);
+    assert!(client.peek_is_embargoed(&wallet));
+    assert!(client.peek_is_embargoed(&wallet));
+    assert!(client.peek_is_embargoed(&wallet));
+
+    // After the original expiry the embargo must be gone.
+    env.ledger().with_mut(|l| l.timestamp = expiry + 1);
+    assert!(!client.peek_is_embargoed(&wallet));
+    assert!(!client.is_embargoed(&wallet));
+}
+
+#[test]
+fn test_peek_is_embargoed_matches_is_embargoed() {
+    // peek_is_embargoed and is_embargoed must agree on the logical result.
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+
+    // No embargo.
+    assert_eq!(client.peek_is_embargoed(&wallet), client.is_embargoed(&wallet));
+
+    // Indefinite embargo.
+    client.set_score_embargo(&wallet, &None);
+    assert_eq!(client.peek_is_embargoed(&wallet), client.is_embargoed(&wallet));
+
+    // Lifted.
+    client.lift_score_embargo(&wallet);
+    assert_eq!(client.peek_is_embargoed(&wallet), client.is_embargoed(&wallet));
+}

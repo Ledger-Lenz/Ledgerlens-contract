@@ -342,37 +342,56 @@
                   "u32": 1
                 },
                 {
-                  "vec": [
+                  "map": [
                     {
-                      "symbol": "Single"
+                      "key": {
+                        "symbol": "attestation"
+                      },
+                      "val": {
+                        "vec": [
+                          {
+                            "symbol": "Some"
+                          },
+                          {
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "commitment"
+                                },
+                                "val": {
+                                  "bytes": "4ebbbb3577776d7da6d1553eb68bc9a55ef21c2d4e7f291557836c7c9abcd478"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "signature"
+                                },
+                                "val": {
+                                  "bytes": "6e848d4ceec2e82646356bfb5a67c4c90d40b5517c043511a5a779dbd5ac629e55ed17cf3ef5c1e0e77d4228198b2bd9644da8052acbcaeb297643ff47a525d202"
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
                     },
                     {
-                      "map": [
-                        {
-                          "key": {
-                            "symbol": "commitment"
-                          },
-                          "val": {
-                            "bytes": "227641aa23cce1c3574431413a85dd2d8bf1c2acbd4f264964e77c30d022b907"
+                      "key": {
+                        "symbol": "commitment"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "threshold_attestation"
+                      },
+                      "val": {
+                        "vec": [
+                          {
+                            "symbol": "None"
                           }
-                        },
-                        {
-                          "key": {
-                            "symbol": "nonce"
-                          },
-                          "val": {
-                            "u64": 0
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "signature"
-                          },
-                          "val": {
-                            "bytes": "0c7c25acc46049fa0e53c0921951ac1e5ace1688f990614d5127ccac57fb47163eaaa52b56a6c1fbc7a7251d9c9f2344d03562b678a6529c657f2c8b5ad91b3c02"
-                          }
-                        }
-                      ]
+                        ]
+                      }
                     }
                   ]
                 }
@@ -488,37 +507,56 @@
                       "u32": 1
                     },
                     {
-                      "vec": [
+                      "map": [
                         {
-                          "symbol": "Single"
+                          "key": {
+                            "symbol": "attestation"
+                          },
+                          "val": {
+                            "vec": [
+                              {
+                                "symbol": "Some"
+                              },
+                              {
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "commitment"
+                                    },
+                                    "val": {
+                                      "bytes": "4ebbbb3577776d7da6d1553eb68bc9a55ef21c2d4e7f291557836c7c9abcd478"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "signature"
+                                    },
+                                    "val": {
+                                      "bytes": "6e848d4ceec2e82646356bfb5a67c4c90d40b5517c043511a5a779dbd5ac629e55ed17cf3ef5c1e0e77d4228198b2bd9644da8052acbcaeb297643ff47a525d202"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
                         },
                         {
-                          "map": [
-                            {
-                              "key": {
-                                "symbol": "commitment"
-                              },
-                              "val": {
-                                "bytes": "227641aa23cce1c3574431413a85dd2d8bf1c2acbd4f264964e77c30d022b907"
+                          "key": {
+                            "symbol": "commitment"
+                          },
+                          "val": "void"
+                        },
+                        {
+                          "key": {
+                            "symbol": "threshold_attestation"
+                          },
+                          "val": {
+                            "vec": [
+                              {
+                                "symbol": "None"
                               }
-                            },
-                            {
-                              "key": {
-                                "symbol": "nonce"
-                              },
-                              "val": {
-                                "u64": 0
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "signature"
-                              },
-                              "val": {
-                                "bytes": "0c7c25acc46049fa0e53c0921951ac1e5ace1688f990614d5127ccac57fb47163eaaa52b56a6c1fbc7a7251d9c9f2344d03562b678a6529c657f2c8b5ad91b3c02"
-                              }
-                            }
-                          ]
+                            ]
+                          }
                         }
                       ]
                     }

@@ -184,3 +184,29 @@ fn test_decay_applies_consistently_across_pairs() {
     assert_eq!(aggregate.aggregate_score, 60);
     assert_eq!(aggregate.pair_count, 3);
 }
+
+#[test]
+fn test_set_decay_rate_not_initialized_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, crate::LedgerLensScoreContract);
+    let client = crate::LedgerLensScoreContractClient::new(&env, &contract_id);
+    // Contract not yet initialized — must return NotInitialized
+    assert_eq!(client.try_set_decay_rate(&1, &1000), Err(Ok(Error::NotInitialized)));
+}
+
+#[test]
+#[should_panic]
+fn test_set_decay_rate_non_admin_rejected() {
+    let env = Env::default();
+    // No mock_all_auths — auth must be provided explicitly
+    let contract_id = env.register_contract(None, crate::LedgerLensScoreContract);
+    let client = crate::LedgerLensScoreContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let service = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&admin, &service);
+    env.set_auths(&[]);
+    // Calling without admin auth must panic
+    client.set_decay_rate(&1, &1000);
+}

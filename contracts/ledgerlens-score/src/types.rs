@@ -8,23 +8,13 @@ pub enum EmbargoExpiry {
     Until(u64),
 }
 
-/// On-chain record of an open score dispute, tracking the challenger's staked
-/// bond, the deadline by which the admin must resubmit a corrected score, and
-/// the score that was being challenged when the dispute was opened.
-///
-/// Stored in temporary TTL-bounded storage keyed by `(wallet, asset_pair)`;
-/// removed once the dispute is resolved by admin correction or by timeout.
+/// On-chain record of an open score dispute.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScoreDispute {
-    /// Wallet operator that opened the dispute and staked the bond.
     pub challenger: Address,
-    /// Fee-token amount staked to open the dispute (escrowed in the contract).
     pub bond: i128,
-    /// Ledger timestamp after which the dispute may be settled by timeout.
     pub deadline: u64,
-    /// The disputed score at the time the dispute was opened, recorded for
-    /// audit purposes.
     pub challenged_score: u32,
 }
 
@@ -42,6 +32,7 @@ pub struct RiskScore {
     pub benford_score: u32,
     pub ml_score: u32,
     pub network_score: u32,
+    pub commitment: Option<Bytes>,
 }
 
 /// Query descriptor for a batch score read.
@@ -72,6 +63,9 @@ impl MaybeRiskScore {
 }
 
 /// Per-entry result returned by `get_scores_batch`.
+///
+/// When `found` is `false`, the `score` field contains zero-valued sentinel
+/// data and must not be used. Check `found` before accessing `score`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BatchScoreResult {
@@ -131,7 +125,6 @@ pub struct ScoreAttestation {
 }
 
 /// Threshold-signature attestation: t-of-n signers produce one 65-byte proof.
-/// See `docs/threshold-attestation-spec.md`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ThresholdAttestation {
@@ -142,32 +135,46 @@ pub struct ThresholdAttestation {
     pub contract_version: u32,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MaybeScoreAttestation {
+    None,
+    Some(ScoreAttestation),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MaybeThresholdAttestation {
+    None,
+    Some(ThresholdAttestation),
+}
+
 /// Unified attestation input for `submit_score`.
 /// Wraps both attestation variants so the function stays within
 /// Soroban's 10-parameter limit.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ScoreAttestationInput {
-    Single(ScoreAttestation),
-    Threshold(ThresholdAttestation),
+pub struct ScoreAttestationInput {
+    pub attestation: MaybeScoreAttestation,
+    pub threshold_attestation: MaybeThresholdAttestation,
+    pub commitment: Option<Bytes>,
 }
 
 /// Per-model-version aggregate stats, returned by `get_model_version_stats`.
+///
+/// Canonical definition — includes both the compact form (`submission_count`,
+/// `score_sum`) and the summary form (`total_submissions`, `average_score`).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelVersionStats {
     pub model_version: u32,
     pub submission_count: u32,
     pub score_sum: u64,
+    pub total_submissions: u64,
+    pub average_score: u32,
 }
 
 /// Pending, time-locked risk score submission.
-///
-/// Written by `submit_score` when the admin has configured
-/// `FinalityBufferSecs > 0`. The score is held in this pending state
-/// (invisible to `get_score` / `query_risk_gate`) until
-/// `commit_pending_score` observes that `env.ledger().timestamp() >=
-/// commit_after`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PendingScoreEntry {
@@ -180,6 +187,7 @@ pub struct PendingScoreEntry {
     pub timestamp: u64,
     pub commit_after: u64,
     pub submitted_by: Address,
+    pub commitment: Option<Bytes>,
 }
 
 #[contracttype]
@@ -216,7 +224,7 @@ pub struct BatchEntryResult {
 pub struct BatchResult {
     pub accepted_count: u32,
     pub rejected_count: u32,
-    pub results: soroban_sdk::Vec<BatchEntryResult>,
+    pub results: Vec<BatchEntryResult>,
 }
 
 /// Merkle-root attestation for an entire `submit_scores_batch_attested` call.
@@ -232,7 +240,7 @@ pub struct BatchAttestation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScoreSubmissionWithProof {
     pub submission: ScoreSubmission,
-    pub proof: soroban_sdk::Vec<BytesN<32>>,
+    pub proof: Vec<BytesN<32>>,
     pub proof_flags: u32,
 }
 
@@ -284,6 +292,20 @@ pub struct ScoreTrend {
     pub consecutive: u32,
 }
 
+/// Configuration and state for the adaptive threshold feature.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdaptiveThresholdConfig {
+    /// Whether adaptive threshold mode is enabled.
+    pub enabled: bool,
+    /// Target percentile to set as threshold (e.g., 90 = top 10% are risky).
+    pub target_percentile: u32,
+    /// Minimum allowed threshold value.
+    pub min_value: u32,
+    /// Maximum allowed threshold value.
+    pub max_value: u32,
+    /// Last computed adaptive threshold value.
+    pub last_computed: u32,
 /// Largest score-jump anomaly observed so far for a (wallet, asset_pair)
 /// pair. See `get_jump_stats`.
 #[contracttype]
@@ -307,8 +329,8 @@ pub struct ScoreFloorPolicy {
 pub struct SnapshotRecord {
     pub root: BytesN<32>,
     pub leaf_count: u64,
-    pub committed_at: u64,     // ledger timestamp
-    pub committed_by: Address, // who called commit_snapshot
+    pub committed_at: u64,
+    pub committed_by: Address,
 }
 
 #[contracttype]
@@ -318,22 +340,20 @@ pub struct ScoreVelocityCap {
     pub points_per_hour: u32,
 }
 
+/// Score histogram returned by `get_score_histogram`.
 #[contracttype]
 #[derive(Clone)]
 pub enum GateDataKey {
     GateCallers,
     GateOpen,
+    GateEnforcementMode,
+    GateQueryFee,
+    AccumulatedFees,
+    GateReadLedger(Address, Symbol),
 }
 
 #[derive(Clone)]
 pub enum DataKey {
-    /// Model version registry status.
-    /// Encoded as a `u32` discriminant (see `ModelVersionStatus`).
-    ModelVersionStatus(u32),
-    /// When a model version is `Proposed`, this holds `proposed_at + upgrade_delay`.
-    ModelVersionExecutableAfter(u32),
-    /// Optional description committed at proposal time (for auditability).
-    ModelVersionDescription(u32),
     Admin,
     Service,
     /// Per-signer score range restriction. Maps a service signer address to
@@ -369,14 +389,8 @@ pub enum DataKey {
     ScoreCount(Address, Symbol),
     ServicePubKey,
     HistoryMaxDepth,
-    DecayRateNumerator,
-    DecayRateDenominator,
-    /// Global minimum confidence floor (0–100) enforced by
-    /// `query_risk_gate_with_confidence`. The effective floor is
-    /// `max(caller_param, global_floor)`. Defaults to 0 (no floor) when unset.
+    DecayRate,
     GlobalMinConfidence,
-    /// The SEP-41 token contract address from which fees are withdrawn.
-    /// Unset until `set_fee_token` is called.
     FeeToken,
     WithdrawalLock,
     /// The only address allowed to receive fee withdrawals. Unset until
@@ -400,13 +414,19 @@ pub enum DataKey {
     AdminThreshold,
     ScoreDelegate(Address),
     TrendState(Address, Symbol),
+    /// Whether adaptive threshold mode is enabled.
+    AdaptiveThresholdEnabled,
+    /// Target percentile for adaptive threshold (e.g., 90 = top 10% are risky).
+    AdaptiveThresholdTargetPercentile,
+    /// Minimum value for adaptive threshold.
+    AdaptiveThresholdMinValue,
+    /// Maximum value for adaptive threshold.
+    AdaptiveThresholdMaxValue,
+    /// Last computed adaptive threshold value.
+    LastComputedThreshold,
     Counterparties(Address, Symbol),
-    /// Global boolean kill-switch for score velocity checks.
     ScoreVelocityCapEnabled,
-    /// Maximum points a score can change per hour when the cap is enabled.
     ScoreVelocityCapPointsPerHour,
-    /// One-time bypass flag set by the admin to allow a single submission
-    /// for a specific (wallet, asset_pair) to bypass the velocity cap.
     VelocityCapOverride(Address, Symbol),
     /// Score-floor policy: historical peak (high-water mark) at or above which
     /// the floor applies. Global config, `u32`, defaults to
@@ -440,27 +460,38 @@ pub enum DataKey {
     /// Index of all currently open disputes: `Vec<(Address, Symbol)>`.
     /// Incrementally maintained so `get_open_disputes` is a single read.
     DisputeIndex,
-    /// A single model's commitment (sha256(score || nonce)) for consensus.
-    /// Key: ConsensusCommitment(model_address, wallet, asset_pair) -> BytesN<32>
-    ConsensusCommitment(Address, Address, Symbol),
-    /// Configurable window for reveal in seconds.
-    RevealWindowSecs,
-    /// Admin-configured finality buffer in seconds.
-    FinalityBufferSecs,
-    /// Pending score entry held before commit. Invisible to get_score/query_risk_gate.
     PendingScore(Address, Symbol),
-    /// u64, ledger timestamp of the most recent accepted submission
-    /// (`submit_score` / `submit_scores_batch`) or `ping_heartbeat` call.
-    /// `0` means the service has never been active. See `is_service_alive`.
     LastServiceActivityAt,
-    /// u64, admin-configurable number of seconds of silence before the
-    /// off-chain service is considered unresponsive. Defaults to
-    /// `DEFAULT_HEARTBEAT_ALERT_THRESHOLD_SECS` (1 hour) when unset.
+    FailoverContract,
+}
+
+/// Extended storage keys for less-frequently-accessed features.
+#[contracttype]
+#[derive(Clone)]
+pub enum ExtDataKey {
+    AllModelVersions,
+    ModelStats(u32),
+    ModelVersionSet,
+    ModelVersionDeprecated(u32),
+    ModelPosteriorWeight(u32),
+    SignerAddedAt(Address),
+    SignerRotationTtl,
+    SignerRotationGrace,
+    ScoreHistogramBucket(u32),
+    ScoreHistogramTotal,
+    VerkleLeaf(Address, Symbol),
+    VerkleCommitmentRaw,
+    AggregatePubKey,
+    OriginalServiceThreshold,
+    PairCooldown(Symbol),
+    GateCallers,
+    GateOpen,
+    BandEntryTime(Address, Symbol),
+    BreachCount(Address, Symbol),
+    EscalationThreshold,
+    RevealWindowSecs,
+    FinalityBufferSecs,
     ServiceHeartbeatAlertThreshold,
-    /// bool, `true` once a `ServiceSilenceAlertEvent` has been emitted for
-    /// the current silence window. Cleared (and a `ServiceResumedEvent`
-    /// emitted) the next time a submission or `ping_heartbeat` is accepted —
-    /// see `submit_score` / `ping_heartbeat`.
     ServiceSilentAlertEmitted,
     /// Per-asset-pair cooldown override in seconds.
     PairCooldown(Symbol),
@@ -521,6 +552,14 @@ pub enum DataKey {
     /// Running total of unique (wallet, asset_pair) combinations ever scored.
     /// Incremented on the *first* successful submission for each new combination.
     TotalWalletsScored,
+    /// Global configuration for adaptive rate limiting (issue #275).
+    AdaptiveRateLimit,
+    /// Configurable rolling window (seconds) for score momentum computation (issue #289).
+    MomentumWindow,
+    /// Alert threshold for momentum — emits `momentum_threshold_crossed` when exceeded (issue #289).
+    MomentumAlertThreshold,
+    /// Configured interpolation method for `get_interpolated_score` (issue #290).
+    InterpolationMethod,
 }
 
 impl DataKey {
@@ -648,6 +687,10 @@ impl DataKey {
             DataKey::ScoreBreakdown(a, s) => k2!("ScoreBreak", a, s),
             DataKey::PairScoreCount(s) => k1!("PairScoreCnt", s),
             DataKey::TotalWalletsScored => k0!("TotalWalletsScored"),
+            DataKey::AdaptiveRateLimit => k0!("AdaptiveRateLimit"),
+            DataKey::MomentumWindow => k0!("MomentumWindow"),
+            DataKey::MomentumAlertThreshold => k0!("MomentumAlertThr"),
+            DataKey::InterpolationMethod => k0!("InterpMethod"),
         }
     }
 }
@@ -745,9 +788,81 @@ pub struct ScoreWithFinality {
 
 /// Configurable score decay profile.
 #[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum FlashProtectionMode {
+    Warn,
+    Reject,
+}
+
+/// Signer accuracy record: tracks MAD (mean absolute deviation) scaled by 1000
+/// and the total number of consensus submissions by this signer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SignerAccuracyRecord {
+    pub mad_scaled: u32,
+    pub count: u32,
+}
+
+/// Running state for Welford online variance on per-pair scores.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PairVolatilityState {
+    pub count: i64,
+    pub mean_scaled: i64,
+    pub m2_scaled: i64,
+    pub last_updated: u64,
+}
+
+/// Configurable score decay profile.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DecayProfile {
-    Linear { lambda_num: u32, lambda_den: u32 },
-    Exponential { half_life_secs: u64 },
-    Step { steps: Vec<(u64, u32)> },
+    Linear(u32, u32),
+    Exponential(u64),
+    Step(Vec<(u64, u32)>),
+}
+
+/// Configuration for adaptive rate limiting based on score variance (issue #275).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdaptiveRateLimit {
+    pub enabled: bool,
+    pub variance_scale: u32,
+}
+
+/// Interpolation method for `get_interpolated_score` (issue #290).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InterpolationMethod {
+    Linear,
+    CubicSpline,
+}
+
+/// Configuration for the adaptive rate-limit feature.
+/// When enabled, the effective cooldown scales with global score variance.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdaptiveRateLimit {
+    pub enabled: bool,
+    pub variance_scale: u32,
+}
+
+/// Incremental Welford state for online Pearson correlation tracking (issue #268).
+/// Stores accumulated sums for computing r(pair_a, pair_b) on the fly.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WelfordCorrState {
+    pub n: u32,
+    pub sum_a: i64,
+    pub sum_b: i64,
+    pub sum_aa: i64,
+    pub sum_bb: i64,
+    pub sum_ab: i64,
+}
+
+/// Per-(wallet, asset_pair) token-bucket state for burst rate limiting (issue #269).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TokenBucket {
+    pub tokens: u32,
+    pub last_refill: u64,
 }

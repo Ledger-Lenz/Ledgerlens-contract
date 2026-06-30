@@ -75,16 +75,14 @@ pub fn validate_parameter_value(_env: &Env, param_key: &Symbol, new_value: &Byte
         if new_value.len() != 8 {
             return Err(Error::InvalidParameterValue);
         }
-        let numerator = read_u32(new_value, 0)?;
-        let denominator = read_u32(new_value, 4)?;
+        let numerator = read_u32(new_value, 0)? as u64;
+        let denominator = read_u32(new_value, 4)? as u64;
         if denominator == 0 {
             return Err(Error::InvalidThreshold);
         }
-        let max_num = constants::MAX_DECAY_LAMBDA_NUM as u64;
-        let max_den = constants::MAX_DECAY_LAMBDA_DEN as u64;
-        let num = numerator as u64;
-        let den = denominator as u64;
-        if num.checked_mul(max_den).map(|v| v > max_num.saturating_mul(den)).unwrap_or(true) {
+        let max_num = constants::MAX_DECAY_LAMBDA_NUM;
+        let max_den = constants::MAX_DECAY_LAMBDA_DEN;
+        if numerator.checked_mul(max_den).map(|v| v > max_num.saturating_mul(denominator)).unwrap_or(true) {
             return Err(Error::InvalidThreshold);
         }
         return Ok(());
@@ -128,8 +126,8 @@ pub fn apply_parameter_change(env: &Env, param_key: &Symbol, new_value: &Bytes) 
         return Ok(());
     }
     if param_key == &param_key_decay_rate() {
-        let numerator = read_u32(new_value, 0)?;
-        let denominator = read_u32(new_value, 4)?;
+        let numerator = read_u32(new_value, 0)? as u64;
+        let denominator = read_u32(new_value, 4)? as u64;
         storage::set_decay_rate(env, numerator, denominator);
         events::decay_rate_updated(env, numerator, denominator);
         return Ok(());

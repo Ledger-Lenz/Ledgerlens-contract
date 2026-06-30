@@ -71,9 +71,17 @@ fn submit_ok(
 }
 
 #[test]
-fn test_default_ttl_is_30_days() {
+fn test_default_ttl_is_disabled() {
     let (_env, client, _admin, _service) = setup();
-    assert_eq!(client.get_signer_rotation_ttl(), 2_592_000);
+    assert_eq!(client.get_signer_rotation_ttl(), 0);
+}
+
+#[test]
+fn test_get_signer_rotation_ttl_returns_configured_value() {
+    let (env, client, _admin, _service) = setup();
+    let empty_signers: Vec<Address> = Vec::new(&env);
+    client.set_signer_rotation_ttl(&empty_signers, &86_400);
+    assert_eq!(client.get_signer_rotation_ttl(), 86_400);
 }
 
 #[test]

@@ -62,7 +62,7 @@ pub fn generate_deletion_witness(
     accumulator_value: &u64,
 ) -> Result<DeletionProofBytes, Error> {
     // Deterministic placeholder proof.
-    // We'll embed: (1) truncated accumulator, (2) a hash of wallet/pair and deleted digests.
+    // We'll embed: (1) truncated accumulator, (2) a placeholder hash.
     let mut out = [0u8; 256];
     out[0..8].copy_from_slice(&accumulator_value.to_le_bytes());
 
@@ -93,6 +93,7 @@ pub fn generate_deletion_witness(
             digest_seed[i] ^= d[i];
         }
     }
+    let _ = tag_preimage;
     out[8..40].copy_from_slice(&digest_seed);
 
     // remaining bytes reserved.
