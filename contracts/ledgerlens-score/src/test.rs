@@ -82,6 +82,37 @@ fn test_submit_and_get_score() {
 }
 
 #[test]
+fn test_get_score_exists_returns_true_when_score_present() {
+    let (env, client, admin, service) = initialized();
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    client.submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &asset_pair,
+        &50,
+        &false,
+        &false,
+        &1_700_000_000,
+        &80,
+        &1,
+        &None,
+    );
+
+    assert!(client.get_score_exists(&wallet, &asset_pair));
+}
+
+#[test]
+fn test_get_score_exists_returns_false_when_no_score() {
+    let (env, client, admin, service) = initialized();
+    let wallet = Address::generate(&env);
+    let asset_pair = symbol_short!("XLM_USDC");
+
+    assert!(!client.get_score_exists(&wallet, &asset_pair));
+}
+
+#[test]
 fn test_get_score_not_found() {
     let (env, client, admin, service) = setup();
     client.initialize(&admin, &service);
@@ -277,6 +308,20 @@ fn test_get_scores_batch_delegated_wallet() {
     let entry = results.get(0).unwrap();
     assert!(entry.found);
     assert_eq!(entry.score.clone().unwrap().score, 82);
+}
+
+#[test]
+fn test_get_min_score_returns_zero() {
+    let (_env, client, admin, service) = setup();
+    client.initialize(&admin, &service);
+    assert_eq!(client.get_min_score(), 0);
+}
+
+#[test]
+fn test_get_max_score_returns_hundred() {
+    let (_env, client, admin, service) = setup();
+    client.initialize(&admin, &service);
+    assert_eq!(client.get_max_score(), 100);
 }
 
 #[test]
@@ -701,6 +746,18 @@ fn test_risk_threshold_above_100_rejected() {
     let (env, client, _admin, _service) = initialized();
     let result = client.try_set_risk_threshold(&Vec::new(&env), &101);
     assert_eq!(result, Err(Ok(Error::InvalidScore)));
+}
+
+// ── get_score_threshold ───────────────────────────────────────────────────────
+
+#[test]
+fn test_get_score_threshold_matches_admin_set_value() {
+    let (env, client, _admin, _service) = initialized();
+    // Default before any admin update.
+    assert_eq!(client.get_score_threshold(), 75);
+    // After admin sets a new threshold, get_score_threshold reflects it.
+    client.set_risk_threshold(&Vec::new(&env), &60);
+    assert_eq!(client.get_score_threshold(), 60);
 }
 
 // ── Score history ─────────────────────────────────────────────────────────────
@@ -1372,6 +1429,12 @@ fn test_get_version_returns_three() {
     assert_eq!(client.get_version(), 3);
 }
 
+#[test]
+fn test_get_contract_version_returns_three() {
+    let (_env, client, _admin, _service) = initialized();
+    assert_eq!(client.get_contract_version(), 3);
+}
+
 // ── Not-initialized guards ────────────────────────────────────────────────────
 
 #[test]
@@ -1899,6 +1962,37 @@ fn test_remove_signer_reduces_set() {
     one.push_back(s1);
     client.submit_score(&one, &wallet, &pair, &33, &false, &false, &1, &70, &1, &None);
     assert_eq!(client.get_score(&wallet, &pair).score, 33);
+}
+
+#[test]
+fn test_get_service_signer_count_zero() {
+    // No signers added — count must be 0.
+    let (env, client, admin, service) = setup();
+    client.initialize(&admin, &service);
+    assert_eq!(client.get_service_signer_count(), 0);
+}
+
+#[test]
+fn test_get_service_signer_count_one() {
+    let (env, client, admin, service) = setup();
+    client.initialize(&admin, &service);
+    let s1 = Address::generate(&env);
+    client.add_service_signer(&Vec::new(&env), &s1);
+    assert_eq!(client.get_service_signer_count(), 1);
+}
+
+#[test]
+fn test_get_service_signer_count_n() {
+    let (env, client, admin, service) = setup();
+    client.initialize(&admin, &service);
+    for _ in 0..3 {
+        client.add_service_signer(&Vec::new(&env), &Address::generate(&env));
+    }
+    assert_eq!(client.get_service_signer_count(), 3);
+    // Count decreases on removal.
+    let signers = client.get_service_signers();
+    client.remove_service_signer(&Vec::new(&env), &signers.get(0).unwrap());
+    assert_eq!(client.get_service_signer_count(), 2);
 }
 
 // ── Staleness window ──────────────────────────────────────────────────────────

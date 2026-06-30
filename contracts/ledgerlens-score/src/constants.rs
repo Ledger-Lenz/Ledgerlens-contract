@@ -4,6 +4,14 @@ pub const SCORE_TTL_EXTEND_TO: u32 = 777_600;
 /// Maximum number of allowed gate callers in the allowlist.
 pub const MAX_GATE_CALLERS: u32 = 20;
 
+/// Hard lower bound for all score values submitted to the contract.
+/// `submit_score` accepts scores in `[MIN_SCORE, MAX_SCORE]`; any value
+/// below this is rejected with [`Error::InvalidScore`].
+pub const MIN_SCORE: u32 = 0;
+
+/// Hard upper bound for all score values submitted to the contract.
+pub const MAX_SCORE: u32 = 100;
+
 /// Hard ceiling on the ring-buffer depth to bound storage costs.
 /// The admin cannot configure a depth above this value.
 pub const MAX_HISTORY_DEPTH: u32 = 50;
@@ -32,7 +40,10 @@ pub const DEFAULT_JUMP_THRESHOLD: u32 = 30;
 /// * `3` — `submit_scores_batch_attested` and the `batch_attested`
 ///   `supports_interface` capability were added (see
 ///   `docs/batch-attestation-spec.md`).
-pub const CONTRACT_VERSION: u32 = 3;
+/// * `4` — Added contract_id and contract_version binding to attestations (#200),
+///   Merkle audit chain for admin actions (#201), configurable decay profiles (#202),
+///   and multi-dimensional risk scores with sub-components (#203).
+pub const CONTRACT_VERSION: u32 = 4;
 
 /// Hard upper bound on Merkle proof length accepted by
 /// `submit_scores_batch_attested`. Thirty levels of a binary tree can
@@ -69,6 +80,10 @@ pub const MAX_ESCALATION_THRESHOLD: u32 = 100;
 /// Maximum number of counterparty links allowed per wallet per asset pair.
 /// Prevents unbounded storage growth and gas exhaustion.
 pub const MAX_COUNTERPARTY_LINKS_PER_WALLET: u32 = 50;
+
+/// Maximum delegation chain depth to prevent unbounded traversal.
+/// Prevents DoS attacks via deep circular delegation chains.
+pub const MAX_DELEGATION_DEPTH: u32 = 5;
 
 // ── Score submission floor ─────────────────────────────────────────────────────
 //
@@ -137,6 +152,9 @@ pub const DISPUTE_TTL_THRESHOLD: u32 = 518_400;
 /// Target TTL for dispute entries on creation or refresh (~45 days at 5 s/ledger).
 pub const DISPUTE_TTL_EXTEND_TO: u32 = 777_600;
 
+/// Default reveal window for sealed-bid dispute bond: 10 minutes (600 seconds).
+pub const DEFAULT_DISPUTE_REVEAL_WINDOW_SECS: u64 = 600;
+
 // ── Finality buffer (pending score commit window) ────────────────────────────
 
 /// Maximum configurable finality buffer — 24 hour ceiling, so a misconfigured
@@ -163,4 +181,7 @@ pub const DEFAULT_QUORUM_FAILURE_WINDOW_SECS: u64 = 86_400; // 24 hours
 
 pub const MAX_TRACKED_SCORE_ENTRIES: u32 = 500;
 pub const MAX_EXPIRING_ENTRIES_PER_CALL: u32 = 100;
+
+/// Maximum number of concurrently pending parameter-change proposals.
+pub const MAX_PENDING_PARAMETER_PROPOSALS: u32 = 10;
 

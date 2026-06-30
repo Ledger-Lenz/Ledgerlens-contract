@@ -212,6 +212,60 @@ fn test_commit_pending_score_is_permissionless() {
 }
 
 #[test]
+fn test_auto_commit_score_after_window_succeeds() {
+    let (env, client, _admin, _service) = setup();
+    client.set_escrow_hold_window(&Vec::new(&env), &60).unwrap();
+
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+    submit(&env, &client, &wallet, &pair, 55);
+    advance_to(&env, START_TS + 60);
+
+    client.auto_commit_score(&wallet, &pair).unwrap();
+    assert_eq!(client.get_score(&wallet, &pair).score, 55);
+    assert!(client.get_pending_score(&wallet, &pair).is_none());
+}
+
+#[test]
+fn test_auto_commit_score_fails_after_cancel() {
+    let (env, client, _admin, _service) = setup();
+    client.set_escrow_hold_window(&Vec::new(&env), &300).unwrap();
+
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+    submit(&env, &client, &wallet, &pair, 70);
+    advance_to(&env, START_TS + 100);
+    client.cancel_pending_score(&Vec::new(&env), &wallet, &pair).unwrap();
+
+    advance_to(&env, START_TS + 300);
+    let result = client.try_auto_commit_score(&wallet, &pair);
+    assert_eq!(result, Err(Ok(Error::NoPendingScore)));
+    assert!(client.try_get_score(&wallet, &pair).is_err());
+}
+
+#[test]
+fn test_replacement_submission_during_escrow_updates_pending() {
+    let (env, client, _admin, _service) = setup();
+    client.set_escrow_hold_window(&Vec::new(&env), &300).unwrap();
+
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+    submit(&env, &client, &wallet, &pair, 10);
+
+    advance_to(&env, START_TS + 3_601);
+    submit(&env, &client, &wallet, &pair, 80);
+
+    let pending = client.get_pending_score(&wallet, &pair).unwrap();
+    assert_eq!(pending.score, 80);
+    assert_eq!(pending.submitted_at, START_TS + 3_601);
+
+    advance_to(&env, START_TS + 3_601 + 300);
+    client.auto_commit_score(&wallet, &pair).unwrap();
+    assert_eq!(client.get_score(&wallet, &pair).score, 80);
+    assert_eq!(client.get_score_count(&wallet, &pair), 1);
+}
+
+#[test]
 fn test_commit_with_no_pending_score_fails() {
     let (env, client, _admin, _service) = setup();
     let wallet = Address::generate(&env);

@@ -320,6 +320,40 @@ an older deployment instead of trapping on a missing function.
 
 ---
 
+## Composability Examples
+
+### AMM liquidity provision (score + confidence gate)
+
+The mock AMM in `contracts/mock-amm/` demonstrates gating liquidity provision
+with `query_risk_gate_with_confidence` — stricter than the swap path, which uses
+score-only `query_risk_gate`. The gate runs **before** any pool state changes:
+
+```rust
+let client = LedgerLensScoreContractClient::new(&env, &ledgerlens_id);
+let is_safe = client.query_risk_gate_with_confidence(
+    &provider,
+    &symbol_short!("XLM_USDC"),
+    &75,  // gate_threshold
+    &50,  // min_confidence
+);
+if !is_safe {
+    return Err(AmmError::HighRiskWallet);
+}
+// ... proceed with liquidity mint / reserve update ...
+```
+
+**No-score policy:** when LedgerLens has no score for the provider,
+`query_risk_gate_with_confidence` returns `false` (fail closed). Liquidity is
+rejected — the same conservative default as swap gating.
+
+Reference implementations:
+
+- [`examples/amm_gate_example.rs`](../examples/amm_gate_example.rs) — standalone example contract
+- [`contracts/mock-amm/src/lib.rs`](../contracts/mock-amm/src/lib.rs) — `provide_liquidity_gated` + `set_risk_oracle`
+- Cross-contract tests: `contracts/mock-amm/src/test.rs`, `tests/composability/`
+
+---
+
 ## 7. Reference material
 
 - Reference integration: [`examples/amm_gate.rs`](../examples/amm_gate.rs)
