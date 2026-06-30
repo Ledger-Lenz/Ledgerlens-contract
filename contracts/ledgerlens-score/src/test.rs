@@ -2061,6 +2061,13 @@ fn test_default_staleness_window_is_7_days() {
     assert_eq!(client.get_staleness_window(), 604_800);
 }
 
+#[test]
+fn test_get_staleness_window_round_trip() {
+    let (env, client, _admin, _service) = initialized();
+    client.set_staleness_window(&Vec::new(&env), &3600);
+    assert_eq!(client.get_staleness_window(), 3600);
+}
+
 // ── Score count ───────────────────────────────────────────────────────────────
 
 #[test]
