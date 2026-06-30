@@ -487,6 +487,15 @@ pub fn score_pending_cancelled(
     );
 }
 
+/// Emitted when an admin vetoes a pending score inside the finality buffer
+/// window.
+pub fn score_vetoed(env: &Env, wallet: &Address, asset_pair: &Symbol, reason_hash: &BytesN<32>) {
+    env.events().publish(
+        (symbol_short!("scr_veto"), wallet.clone(), asset_pair.clone()),
+        reason_hash.clone(),
+    );
+}
+
 // ── Service heartbeat monitor ────────────────────────────────────────────
 
 /// Emitted (by the `get_score` read path) the first time the off-chain

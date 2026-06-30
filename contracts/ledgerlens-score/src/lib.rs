@@ -423,10 +423,10 @@ impl LedgerLensScoreContract {
                 score,
                 benford_flag,
                 ml_flag,
-                timestamp,
+                submitted_at: now2,
                 confidence,
                 model_version,
-                submitted_at: now2,
+                timestamp,
                 commit_after,
                 submitted_by: if !storage::get_service_set(&env).is_empty() {
                     signers.get(0).unwrap_or_else(|| storage::get_service(&env))
