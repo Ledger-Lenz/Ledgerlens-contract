@@ -1,4 +1,4 @@
-﻿//! Tests for the score-attestation feature: `set_service_pubkey` /
+//! Tests for the score-attestation feature: `set_service_pubkey` /
 //! `get_service_pubkey`, and the `attestation` parameter on `submit_score`.
 //!
 //! Signatures are produced with a real secp256k1 key (via the `k256` crate,
@@ -14,7 +14,7 @@ use soroban_sdk::{
     symbol_short, testutils::Address as _, Address, Bytes, BytesN, Env, Symbol, Vec,
 };
 
-use crate::{Error, LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreAttestation, ScoreAttestationInput};
+use crate::{Error, LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreAttestation, ScoreAttestationInput, MaybeScoreAttestation, MaybeThresholdAttestation};
 
 fn setup<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address, Address) {
     let env = Env::default();
@@ -235,7 +235,7 @@ fn test_submit_score_with_valid_attestation_compressed_pubkey_succeeds() {
         &1,
         &90,
         &1,
-        &Some(ScoreAttestationInput::Single(attestation)),
+        &Some(ScoreAttestationInput { attestation: MaybeScoreAttestation::Some(attestation), threshold_attestation: MaybeThresholdAttestation::None, commitment: None }),
     );
     assert!(result.is_ok());
     assert_eq!(client.get_score(&wallet, &pair).score, 42);
@@ -263,7 +263,7 @@ fn test_submit_score_with_valid_attestation_uncompressed_pubkey_succeeds() {
         &1,
         &90,
         &1,
-        &Some(ScoreAttestationInput::Single(attestation)),
+        &Some(ScoreAttestationInput { attestation: MaybeScoreAttestation::Some(attestation), threshold_attestation: MaybeThresholdAttestation::None, commitment: None }),
     );
     assert!(result.is_ok());
 }
@@ -291,7 +291,7 @@ fn test_submit_score_with_attestation_for_different_payload_rejected() {
         &1,
         &90,
         &1,
-        &Some(ScoreAttestationInput::Single(attestation)),
+        &Some(ScoreAttestationInput { attestation: MaybeScoreAttestation::Some(attestation), threshold_attestation: MaybeThresholdAttestation::None, commitment: None }),
     );
     assert_eq!(result, Err(Ok(Error::InvalidAttestation)));
 }
@@ -325,7 +325,7 @@ fn test_submit_score_with_tampered_commitment_field_rejected() {
         &1,
         &90,
         &1,
-        &Some(ScoreAttestationInput::Single(attestation)),
+        &Some(ScoreAttestationInput { attestation: MaybeScoreAttestation::Some(attestation), threshold_attestation: MaybeThresholdAttestation::None, commitment: None }),
     );
     assert_eq!(result, Err(Ok(Error::InvalidAttestation)));
 }
@@ -352,7 +352,7 @@ fn test_submit_score_signed_by_wrong_key_rejected() {
         &1,
         &90,
         &1,
-        &Some(ScoreAttestationInput::Single(attestation)),
+        &Some(ScoreAttestationInput { attestation: MaybeScoreAttestation::Some(attestation), threshold_attestation: MaybeThresholdAttestation::None, commitment: None }),
     );
     assert_eq!(result, Err(Ok(Error::InvalidAttestation)));
 }
@@ -382,7 +382,7 @@ fn test_submit_score_with_out_of_range_recovery_id_rejected() {
         &1,
         &90,
         &1,
-        &Some(ScoreAttestationInput::Single(attestation)),
+        &Some(ScoreAttestationInput { attestation: MaybeScoreAttestation::Some(attestation), threshold_attestation: MaybeThresholdAttestation::None, commitment: None }),
     );
     assert_eq!(result, Err(Ok(Error::InvalidAttestation)));
 }

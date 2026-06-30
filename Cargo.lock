@@ -889,6 +889,7 @@ dependencies = [
  "criterion",
  "k256",
  "soroban-sdk",
+ "subtle",
 ]
 
 [[package]]
