@@ -62,10 +62,10 @@ pub const FAILOVER_STALENESS_WINDOW: u64 = 3_600;
 
 pub const MAX_PAUSED_PAIRS: u32 = 50;
 pub const DECAY_FIXED_POINT_SCALE: u64 = 1_000_000;
-pub const DEFAULT_DECAY_LAMBDA_NUM: u32 = 0;
-pub const DEFAULT_DECAY_LAMBDA_DEN: u32 = 1;
-pub const MAX_DECAY_LAMBDA_NUM: u32 = 1;
-pub const MAX_DECAY_LAMBDA_DEN: u32 = 1;
+pub const DEFAULT_DECAY_LAMBDA_NUM: u64 = 0;
+pub const DEFAULT_DECAY_LAMBDA_DEN: u64 = 1;
+pub const MAX_DECAY_LAMBDA_NUM: u64 = 1;
+pub const MAX_DECAY_LAMBDA_DEN: u64 = 1;
 
 /// Maximum number of counterparty links allowed per wallet per asset pair.
 pub const MAX_COUNTERPARTY_LINKS_PER_WALLET: u32 = 50;

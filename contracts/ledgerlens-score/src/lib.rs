@@ -5283,6 +5283,68 @@ impl LedgerLensScoreContract {
         storage::is_watchlisted(&env, &wallet)
     }
 
+    /// Add multiple wallets to the priority-monitoring watchlist in a single admin transaction.
+    /// Wallets already on the watchlist are skipped without error.
+    /// Emits one `watchlist_updated` event per newly added wallet.
+    /// Admin only. Bounded by [`constants::MAX_BATCH_SIZE`].
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if no admin is set.
+    /// - [`Error::BatchTooLarge`] if `wallets.len() > MAX_BATCH_SIZE`.
+    /// - [`Error::InsufficientAdminSigners`] / [`Error::AdminSignerNotInSet`] if auth fails.
+    pub fn batch_add_to_watchlist(
+        env: Env,
+        admin_signers: Vec<Address>,
+        wallets: Vec<Address>,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if wallets.len() > constants::MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        for i in 0..wallets.len() {
+            let wallet = wallets.get(i).unwrap();
+            if !storage::is_watchlisted(&env, &wallet) {
+                storage::set_watchlist(&env, &wallet, true);
+                events::watchlist_updated(&env, &wallet, true);
+            }
+        }
+        Ok(())
+    }
+
+    /// Remove multiple wallets from the priority-monitoring watchlist in a single admin transaction.
+    /// Wallets not on the watchlist are skipped without error.
+    /// Emits one `watchlist_updated` event per removed wallet.
+    /// Admin only. Bounded by [`constants::MAX_BATCH_SIZE`].
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if no admin is set.
+    /// - [`Error::BatchTooLarge`] if `wallets.len() > MAX_BATCH_SIZE`.
+    /// - [`Error::InsufficientAdminSigners`] / [`Error::AdminSignerNotInSet`] if auth fails.
+    pub fn batch_remove_from_watchlist(
+        env: Env,
+        admin_signers: Vec<Address>,
+        wallets: Vec<Address>,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if wallets.len() > constants::MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        for i in 0..wallets.len() {
+            let wallet = wallets.get(i).unwrap();
+            if storage::is_watchlisted(&env, &wallet) {
+                storage::set_watchlist(&env, &wallet, false);
+                events::watchlist_updated(&env, &wallet, false);
+            }
+        }
+        Ok(())
+    }
+
     // ── Consecutive-breach auto-escalation ─────────────────────────────────────
 
     /// Set the escalation threshold N: after N consecutive high-risk
@@ -6268,7 +6330,18 @@ impl LedgerLensScoreContract {
     /// client.set_decay_rate(&1, &1000);
     /// assert_eq!(client.get_decay_rate(), (1, 1000));
     /// ```
-    pub fn set_decay_rate(env: Env, numerator: u32, denominator: u32) -> Result<(), Error> {
+    /// Set the exponential decay rate (λ) used for runtime score interpolation.
+    /// λ = numerator / denominator. A higher λ causes older scores to decay faster.
+    /// When numerator = 0, no decay is applied.
+    ///
+    /// Admin only. Blocked when the contract is paused.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if no admin is set.
+    /// - [`Error::ContractPaused`] if the contract is paused.
+    /// - [`Error::InvalidDecayRate`] if `denominator == 0` or the ratio exceeds MAX_DECAY_LAMBDA.
+    /// - [`Error::InsufficientAdminSigners`] / [`Error::AdminSignerNotInSet`] if auth fails.
+    pub fn set_decay_rate(env: Env, numerator: u64, denominator: u64) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
         }
@@ -6276,21 +6349,16 @@ impl LedgerLensScoreContract {
             return Err(Error::ContractPaused);
         }
 
-        // Validate denominator is not zero
         if denominator == 0 {
-            return Err(Error::InvalidThreshold);
+            return Err(Error::InvalidDecayRate);
         }
 
-        // Validate the ratio is within bounds
-        // Check: numerator / denominator <= MAX_DECAY_LAMBDA
-        // Equivalently: numerator * MAX_DEN <= MAX_NUM * denominator
-        let max_num = constants::MAX_DECAY_LAMBDA_NUM as u64;
-        let max_den = constants::MAX_DECAY_LAMBDA_DEN as u64;
-        let num = numerator as u64;
-        let den = denominator as u64;
+        // Check: numerator / denominator <= MAX_DECAY_LAMBDA (i.e. num * MAX_DEN <= MAX_NUM * den)
+        let max_num = constants::MAX_DECAY_LAMBDA_NUM;
+        let max_den = constants::MAX_DECAY_LAMBDA_DEN;
 
-        if num.checked_mul(max_den).map(|v| v > max_num.saturating_mul(den)).unwrap_or(true) {
-            return Err(Error::InvalidThreshold);
+        if numerator.checked_mul(max_den).map(|v| v > max_num.saturating_mul(denominator)).unwrap_or(true) {
+            return Err(Error::InvalidDecayRate);
         }
 
         let admin = storage::get_admin(&env);
@@ -6321,8 +6389,47 @@ impl LedgerLensScoreContract {
     /// let (num, den) = client.get_decay_rate();
     /// assert_eq!((num, den), (0, 1));
     /// ```
-    pub fn get_decay_rate(env: Env) -> (u32, u32) {
+    pub fn get_decay_rate(env: Env) -> (u64, u64) {
         storage::get_decay_rate(&env)
+    }
+
+    /// Update score tier bounds for multiple service signers in a single admin transaction.
+    /// Each entry is `(signer, min_score, max_score)`. Signers must be in the ServiceSet
+    /// and `min_score` must be <= `max_score`; entries failing validation are rejected with an error.
+    /// Emits one `signer_tier_updated` event per successfully updated signer.
+    /// Admin only. Bounded by [`constants::MAX_BATCH_SIZE`].
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if no admin is set.
+    /// - [`Error::BatchTooLarge`] if `entries.len() > MAX_BATCH_SIZE`.
+    /// - [`Error::InvalidThreshold`] if `min_score > max_score` for any entry.
+    /// - [`Error::SignerNotInSet`] if a signer address is not in the ServiceSet.
+    /// - [`Error::InsufficientAdminSigners`] / [`Error::AdminSignerNotInSet`] if auth fails.
+    pub fn bulk_set_signer_tier(
+        env: Env,
+        admin_signers: Vec<Address>,
+        entries: Vec<(Address, u32, u32)>,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if entries.len() > constants::MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        let service_set = storage::get_service_set(&env);
+        for i in 0..entries.len() {
+            let (signer, min_score, max_score) = entries.get(i).unwrap();
+            if min_score > max_score {
+                return Err(Error::InvalidThreshold);
+            }
+            if !service_set.contains(&signer) {
+                return Err(Error::SignerNotInSet);
+            }
+            storage::set_signer_tier(&env, &signer, min_score, max_score);
+            events::signer_tier_updated(&env, &signer, min_score, max_score);
+        }
+        Ok(())
     }
 
     // ── Per-wallet/pair submission rate limiting ─────────────────────────────
@@ -8020,7 +8127,7 @@ impl LedgerLensScoreContract {
     /// For practical staleness windows, the error is <0.01%.
     ///
     /// See [docs/score-math.md](../../docs/score-math.md) for the formula and fixed-point implementation notes.
-    fn decay_fixed(age_secs: u64, lambda_num: u32, lambda_den: u32) -> u64 {
+    fn decay_fixed(age_secs: u64, lambda_num: u64, lambda_den: u64) -> u64 {
         const SCALE: u64 = constants::DECAY_FIXED_POINT_SCALE;
 
         // Short-circuit: no decay configured
@@ -8031,10 +8138,10 @@ impl LedgerLensScoreContract {
         // Compute x = λ * age_seconds = (num / den) * age_seconds
         // To maintain precision, we compute in scaled integer space.
         // x_scaled = (num * age_seconds * SCALE) / den
-        let x_scaled = match (lambda_num as u64)
+        let x_scaled = match lambda_num
             .checked_mul(age_secs)
             .and_then(|v| v.checked_mul(SCALE))
-            .and_then(|v| v.checked_div(lambda_den as u64))
+            .and_then(|v| v.checked_div(lambda_den))
         {
             Some(v) => v,
             None => return 0, // Overflow: decay factor → 0

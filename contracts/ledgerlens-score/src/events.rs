@@ -234,8 +234,12 @@ pub fn score_delta(
     );
 }
 
-pub fn decay_rate_updated(env: &Env, numerator: u32, denominator: u32) {
+pub fn decay_rate_updated(env: &Env, numerator: u64, denominator: u64) {
     env.events().publish((symbol_short!("decay_upd"),), (numerator, denominator));
+}
+
+pub fn signer_tier_updated(env: &Env, signer: &soroban_sdk::Address, min_score: u32, max_score: u32) {
+    env.events().publish((symbol_short!("tier_upd"),), (signer.clone(), min_score, max_score));
 }
 
 pub fn fee_token_set(env: &Env, token: &Address) {

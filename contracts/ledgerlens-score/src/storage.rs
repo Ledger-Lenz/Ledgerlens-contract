@@ -1179,15 +1179,21 @@ pub fn set_gate_enforcement_mode(env: &Env, strict: bool) {
 
 // ── Time-weighted exponential decay ──────────────────────────────────────────
 
-pub fn get_decay_rate(env: &Env) -> (u32, u32) {
-    env.storage().instance().get::<_, (u32, u32)>(&DataKey::DecayRate).unwrap_or((
+pub fn get_decay_rate(env: &Env) -> (u64, u64) {
+    env.storage().instance().get::<_, (u64, u64)>(&DataKey::DecayRate).unwrap_or((
         crate::constants::DEFAULT_DECAY_LAMBDA_NUM,
         crate::constants::DEFAULT_DECAY_LAMBDA_DEN,
     ))
 }
 
-pub fn set_decay_rate(env: &Env, numerator: u32, denominator: u32) {
+pub fn set_decay_rate(env: &Env, numerator: u64, denominator: u64) {
     env.storage().instance().set(&DataKey::DecayRate, &(numerator, denominator));
+}
+
+pub fn set_signer_tier(env: &Env, signer: &Address, min_score: u32, max_score: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::SignerTier(signer.clone()), &crate::types::TierBounds { min_score, max_score });
 }
 
 // ── Global minimum confidence floor ──────────────────────────────────────────
