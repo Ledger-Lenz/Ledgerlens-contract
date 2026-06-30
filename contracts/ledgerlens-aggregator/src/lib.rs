@@ -2,6 +2,7 @@
 
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, Symbol, Vec, TryFromVal};
 use ledgerlens_score::{RiskScore, AggregateRiskScore, Error as ScoreError};
+use soroban_sdk::{contract, contractimpl, symbol_short, Env, Symbol};
 
 pub const MAX_SHARDS: usize = 10;
 
@@ -20,6 +21,53 @@ impl LedgerLensAggregator {
 
     pub fn get_admin(env: Env) -> Result<Address, ScoreError> {
         env.storage().instance().get(&DataKey::Admin).ok_or(ScoreError::NotInitialized)
+    }
+
+    /// Returns the fixed-point exponential decay lambda as (numerator, denominator)
+    /// 
+    /// Example:
+    /// ```
+    /// let (num, den) = env.invoke_contract(&contract_id, &symbol_short!("get_decay_rate"), ());
+    /// // decay_factor = num / den  (e.g. 999 / 1000 = 0.999)
+    /// ```
+    pub fn get_decay_rate(env: Env) -> (u64, u64) {
+        // These values should match your internal decay logic
+        // Adjust if your decay formula changes
+        const DECAY_NUMERATOR: u64 = 999;     // e.g. for 0.999 decay per period
+        const DECAY_DENOMINATOR: u64 = 1000;
+
+        (DECAY_NUMERATOR, DECAY_DENOMINATOR)
+    }
+
+    /// Returns the minimum number of model submissions (K) that must agree
+    /// within epsilon for consensus to be accepted.
+    /// 
+    /// Example:
+    /// ```
+    /// let k = env.invoke_contract(&contract_id, &symbol_short!("get_consensus_threshold_k"), ());
+    /// // e.g. k = 5 means at least 5 models must agree
+    /// ```
+    pub fn get_consensus_threshold_k(env: Env) -> u32 {
+        // Adjust this value based on your actual consensus parameters
+        const CONSENSUS_THRESHOLD_K: u32 = 5;   // Minimum agreeing models required
+
+        CONSENSUS_THRESHOLD_K
+    }
+
+    /// Returns whether the given wallet is currently on the monitoring watchlist.
+    /// 
+    /// Example:
+    /// ```
+    /// let is_watched = env.invoke_contract(&contract_id, &symbol_short!("get_watchlist_status"), vec![&env, wallet]);
+    /// ```
+    pub fn get_watchlist_status(env: Env, wallet: Address) -> bool {
+        // TODO: Replace with your actual storage key / logic
+        // For example:
+        // let key = DataKey::Watchlist(wallet);
+        // env.storage().instance().get(&key).unwrap_or(false)
+
+        // Placeholder implementation - update with real storage check
+        false
     }
 
     pub fn add_shard(env: Env, shard: Address) -> Result<(), ScoreError> {

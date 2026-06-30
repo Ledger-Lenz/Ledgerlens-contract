@@ -243,7 +243,7 @@ fn test_get_scores_batch_partial_hit_miss() {
 
     let results = client.get_scores_batch(&queries);
     assert!(results.get(0).unwrap().found);
-    assert_eq!(results.get(0).unwrap().score.unwrap().score, 71);
+    assert_eq!(results.get(0).unwrap().score.score, 71);
     assert!(!results.get(1).unwrap().found);
     assert_eq!(results.get(1).unwrap().score, crate::MaybeRiskScore::None);
 }
@@ -1964,6 +1964,37 @@ fn test_remove_signer_reduces_set() {
     assert_eq!(client.get_score(&wallet, &pair).score, 33);
 }
 
+#[test]
+fn test_get_service_signer_count_zero() {
+    // No signers added — count must be 0.
+    let (env, client, admin, service) = setup();
+    client.initialize(&admin, &service);
+    assert_eq!(client.get_service_signer_count(), 0);
+}
+
+#[test]
+fn test_get_service_signer_count_one() {
+    let (env, client, admin, service) = setup();
+    client.initialize(&admin, &service);
+    let s1 = Address::generate(&env);
+    client.add_service_signer(&Vec::new(&env), &s1);
+    assert_eq!(client.get_service_signer_count(), 1);
+}
+
+#[test]
+fn test_get_service_signer_count_n() {
+    let (env, client, admin, service) = setup();
+    client.initialize(&admin, &service);
+    for _ in 0..3 {
+        client.add_service_signer(&Vec::new(&env), &Address::generate(&env));
+    }
+    assert_eq!(client.get_service_signer_count(), 3);
+    // Count decreases on removal.
+    let signers = client.get_service_signers();
+    client.remove_service_signer(&Vec::new(&env), &signers.get(0).unwrap());
+    assert_eq!(client.get_service_signer_count(), 2);
+}
+
 // ── Staleness window ──────────────────────────────────────────────────────────
 
 #[test]
@@ -3069,4 +3100,153 @@ fn test_get_score_variance_embargoed() {
     env.ledger().with_mut(|l| l.timestamp += 1);
     client.set_score_embargo(&wallet, &None);
     assert_eq!(client.get_score_variance(&wallet, &asset_pair), 0);
+}
+
+// ── Differential privacy ──────────────────────────────────────────────────────
+
+#[test]
+fn test_set_get_privacy_epsilon() {
+    let (env, client, _admin, _service) = initialized();
+    assert_eq!(client.get_privacy_epsilon(), 0);
+
+    client.set_privacy_epsilon(&Vec::new(&env), &100);
+    assert_eq!(client.get_privacy_epsilon(), 100);
+
+    client.set_privacy_epsilon(&Vec::new(&env), &1);
+    assert_eq!(client.get_privacy_epsilon(), 1);
+
+    client.set_privacy_epsilon(&Vec::new(&env), &0);
+    assert_eq!(client.get_privacy_epsilon(), 0);
+}
+
+#[test]
+fn test_private_aggregate_score_differs_from_exact() {
+    let (env, client, _admin, _service) = initialized();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    env.ledger().with_mut(|l| l.timestamp = 100_000);
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &70, &true, &false, &100_000, &80, &1, &None);
+
+    let exact = client.get_aggregate_score(&wallet).aggregate_score;
+    assert_eq!(exact, 70);
+
+    // With epsilon = 0, private = exact
+    assert_eq!(client.get_private_aggregate_score(&wallet, &0), exact);
+
+    // With epsilon = 100 (ε=1.0), noise is applied
+    client.set_privacy_epsilon(&Vec::new(&env), &100);
+    let private = client.get_private_aggregate_score(&wallet, &0);
+    assert_ne!(private, exact, "noised score should differ from exact");
+}
+
+#[test]
+fn test_private_aggregate_noise_within_bounds() {
+    let (env, client, _admin, _service) = initialized();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    env.ledger().with_mut(|l| l.timestamp = 100_000);
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &50, &false, &false, &100_000, &80, &1, &None);
+
+    let exact = client.get_aggregate_score(&wallet).aggregate_score;
+    client.set_privacy_epsilon(&Vec::new(&env), &100); // ε = 1.0
+
+    for seed in 0u32..10 {
+        let private = client.get_private_aggregate_score(&wallet, &seed);
+        assert!(private <= 100, "score must not exceed 100");
+        let diff = (private as i64 - exact as i64).abs();
+        assert!(diff <= 300, "noise must be within ±3*S/ε");
+    }
+}
+
+#[test]
+fn test_private_aggregate_reproducible() {
+    let (env, client, _admin, _service) = initialized();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    env.ledger().with_mut(|l| l.timestamp = 100_000);
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &60, &false, &true, &100_000, &90, &1, &None);
+
+    client.set_privacy_epsilon(&Vec::new(&env), &100);
+
+    // Same ledger sequence + seed → same result
+    let a = client.get_private_aggregate_score(&wallet, &42);
+    let b = client.get_private_aggregate_score(&wallet, &42);
+    assert_eq!(a, b, "noise must be deterministic per (ledger_seq, seed)");
+}
+
+#[test]
+fn test_private_aggregate_different_seeds_differ() {
+    let (env, client, _admin, _service) = initialized();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    env.ledger().with_mut(|l| l.timestamp = 100_000);
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &50, &true, &false, &100_000, &85, &1, &None);
+
+    client.set_privacy_epsilon(&Vec::new(&env), &100);
+
+    let a = client.get_private_aggregate_score(&wallet, &1);
+    let b = client.get_private_aggregate_score(&wallet, &2);
+    assert!(
+        a != b || client.get_private_aggregate_score(&wallet, &3) != b,
+        "different seeds should eventually produce different noise"
+    );
+}
+
+#[test]
+fn test_private_aggregate_zero_when_no_scores() {
+    let (env, client, _admin, _service) = initialized();
+    let wallet = Address::generate(&env);
+
+    client.set_privacy_epsilon(&Vec::new(&env), &100);
+    assert_eq!(client.get_private_aggregate_score(&wallet, &0), 0);
+}
+
+#[test]
+fn test_private_aggregate_different_ledger_seq_differs() {
+    let (env, client, _admin, _service) = initialized();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    env.ledger().with_mut(|l| l.timestamp = 100_000);
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &40, &false, &false, &100_000, &75, &1, &None);
+
+    client.set_privacy_epsilon(&Vec::new(&env), &100);
+
+    env.ledger().with_mut(|l| l.sequence_number = 1);
+    let a = client.get_private_aggregate_score(&wallet, &0);
+
+    env.ledger().with_mut(|l| l.sequence_number = 2);
+    let b = client.get_private_aggregate_score(&wallet, &0);
+
+    assert_ne!(
+        a, b,
+        "different ledger sequences should produce different noise"
+    );
+}
+
+#[test]
+fn test_supports_interface_dprv() {
+    let (_env, client, _admin, _service) = initialized();
+
+    assert!(client.supports_interface(&symbol_short!("dprv")));
+    assert!(client.supports_interface(&symbol_short!("score")));
+    assert!(!client.supports_interface(&Symbol::new(&_env, "nonexistent")));
+}
+
+#[test]
+fn test_set_privacy_epsilon_not_initialized_fails() {
+    let (env, client, _admin, _service) = setup();
+    let result = client.try_set_privacy_epsilon(&Vec::new(&env), &100);
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+}
+
+#[test]
+fn test_private_aggregate_score_not_initialized_fails() {
+    let (env, client, _admin, _service) = setup();
+    let wallet = Address::generate(&env);
+    assert_eq!(client.get_private_aggregate_score(&wallet, &0), 0);
 }

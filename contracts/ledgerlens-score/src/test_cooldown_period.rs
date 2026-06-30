@@ -100,7 +100,7 @@ fn test_cooldown_period_matches_actual_enforcement() {
         &None,
     );
 
-    let next_allowed = client.get_last_submit_time(&wallet, &pair) + cooldown;
+    let next_allowed = client.get_last_submit_time(&wallet, &pair).unwrap() + cooldown;
 
     // One second before the window: rejected.
     env.ledger().with_mut(|l| l.timestamp = next_allowed - 1);
