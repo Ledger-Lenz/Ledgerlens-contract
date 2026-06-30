@@ -7,50 +7,11 @@ use crate::constants::{
 use crate::errors::Error;
 use crate::types::{
     AggregateRiskScore, DataKey, DecayCurve, EmbargoExpiry, GateDataKey, JumpStats,
-    ModelVersionStats, PendingScoreEntry, RiskScore, ScoreDispute, ScoreFloorPolicy,
-    ScoreHistogram, ScoreTrend, ScoreVelocityCap, SubscorePayload, UpgradeProposal,
-    AggregateRiskScore, DataKey, EmbargoExpiry, GateDataKey, JumpStats, ModelVersionStats,
-    ParameterProposalRecord, ParameterProposalStatus, PendingScoreEntry, RiskScore, ScoreDispute,
-    ScoreFloorPolicy, ScoreHistogram, ScoreTrend, ScoreVelocityCap, UpgradeProposal,
+    ModelVersionStats, ParameterProposalRecord, ParameterProposalStatus, PendingScoreEntry,
+    RiskScore, ScoreDispute, ScoreFloorPolicy, ScoreHistogram, ScoreTrend, ScoreVelocityCap,
+    SubscorePayload, UpgradeProposal,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Symbol, Vec};
-
-#[cfg(test)]
-fn extend_persistent_ttl(env: &Env, key: &crate::types::DataKey) {
-    env.storage()
-        .persistent()
-        .extend_ttl(key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
-    let count: u32 = env
-        .storage()
-        .instance()
-        .get(&crate::types::DataKey::TestExtendCount)
-        .unwrap_or(0);
-    env.storage()
-        .instance()
-        .set(&crate::types::DataKey::TestExtendCount, &(count + 1));
-}
-
-#[cfg(not(test))]
-fn extend_persistent_ttl(env: &Env, key: &crate::types::DataKey) {
-    env.storage()
-        .persistent()
-        .extend_ttl(key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
-}
-
-#[cfg(test)]
-pub fn test_extend_count(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&crate::types::DataKey::TestExtendCount)
-        .unwrap_or(0)
-}
-
-#[cfg(test)]
-pub fn reset_test_extend_count(env: &Env) {
-    env.storage()
-        .instance()
-        .set(&crate::types::DataKey::TestExtendCount, &0u32);
-}
 
 // ── Admin / Service ─────────────────────────────────────────────────────────
 

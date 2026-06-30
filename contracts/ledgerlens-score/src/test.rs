@@ -723,6 +723,8 @@ fn test_default_risk_threshold_is_75() {
 fn test_set_risk_threshold() {
     let (env, client, _admin, _service) = initialized();
     client.set_risk_threshold(&Vec::new(&env), &80);
+    env.ledger().with_mut(|l| l.timestamp += 86_400);
+    client.apply_param_change(&symbol_short!("risk_thr"));
     assert_eq!(client.get_risk_threshold(), 80);
 }
 
@@ -731,9 +733,13 @@ fn test_risk_threshold_boundary_values() {
     let (env, client, _admin, _service) = initialized();
 
     client.set_risk_threshold(&Vec::new(&env), &0);
+    env.ledger().with_mut(|l| l.timestamp += 86_400);
+    client.apply_param_change(&symbol_short!("risk_thr"));
     assert_eq!(client.get_risk_threshold(), 0);
 
     client.set_risk_threshold(&Vec::new(&env), &100);
+    env.ledger().with_mut(|l| l.timestamp += 86_400);
+    client.apply_param_change(&symbol_short!("risk_thr"));
     assert_eq!(client.get_risk_threshold(), 100);
 }
 
@@ -887,6 +893,8 @@ fn test_set_history_max_depth_increases_ring() {
     let asset_pair = symbol_short!("XLM_USDC");
 
     client.set_history_max_depth(&Vec::new(&env), &20);
+    env.ledger().with_mut(|l| l.timestamp += 86_400);
+    client.apply_param_change(&symbol_short!("hist_dep"));
 
     for i in 0u32..15 {
         env.ledger().with_mut(|l| l.timestamp += 3_601);
@@ -938,8 +946,10 @@ fn test_set_history_max_depth_decreases_ring_on_next_write() {
     }
     assert_eq!(client.get_score_history(&wallet, &asset_pair).len(), 5);
 
-    // Reduce depth to 3.
+    // Reduce depth to 3 via time-lock.
     client.set_history_max_depth(&Vec::new(&env), &3);
+    env.ledger().with_mut(|l| l.timestamp += 86_400);
+    client.apply_param_change(&symbol_short!("hist_dep"));
 
     // One more submission triggers the eviction pass.
     env.ledger().with_mut(|l| l.timestamp += 3_601);
@@ -982,6 +992,8 @@ fn test_history_depth_at_ceiling_accepted() {
     let (env, client, _admin, _service) = initialized();
     // Exactly 50 is the ceiling — must succeed.
     client.set_history_max_depth(&Vec::new(&env), &50);
+    env.ledger().with_mut(|l| l.timestamp += 86_400);
+    client.apply_param_change(&symbol_short!("hist_dep"));
     assert_eq!(client.get_history_max_depth(), 50);
 }
 
@@ -1422,7 +1434,7 @@ fn test_batch_result_vec_length_matches_input() {
 #[test]
 fn test_get_version_returns_three() {
     let (_env, client, _admin, _service) = initialized();
-    assert_eq!(client.get_version(), 3);
+    assert_eq!(client.get_version(), 4);
 }
 
 #[test]
@@ -2350,11 +2362,12 @@ fn test_set_staleness_window_updates_stale_check() {
     env.ledger().with_mut(|l| l.timestamp = ts);
     client.submit_score(&Vec::new(&env), &wallet, &pair, &50, &false, &false, &ts, &80, &1, &None);
 
-    // Set a very narrow window (10 seconds).
+    // Propose a very narrow staleness window (10 seconds) and apply after delay.
     client.set_staleness_window(&Vec::new(&env), &10);
+    env.ledger().with_mut(|l| l.timestamp += 86_400);
+    client.apply_param_change(&symbol_short!("stale_w"));
 
-    // Advance by 11 seconds — should be stale now.
-    env.ledger().with_mut(|l| l.timestamp = ts + 11);
+    // Score age is now 86400s which is >> 10s window, so the score is stale.
     assert!(client.is_score_stale(&wallet, &pair));
 }
 

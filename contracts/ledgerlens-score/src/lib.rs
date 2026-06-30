@@ -207,7 +207,7 @@ impl LedgerLensScoreContract {
     /// let admin = Address::generate(&env);
     /// let service = Address::generate(&env);
     /// client.initialize(&admin, &service);
-    /// assert_eq!(client.get_version(), 3);
+    /// assert_eq!(client.get_version(), 4);
     /// ```
     pub fn get_version(env: Env) -> u32 {
         storage::get_contract_version(&env)
@@ -2673,6 +2673,8 @@ impl LedgerLensScoreContract {
     /// - [`Error::NotInitialized`] if the contract has no admin yet.
     /// - [`Error::InvalidHistoryDepth`] if `depth` is `0` or above
     ///   `MAX_HISTORY_DEPTH` (50).
+    /// - [`Error::ParamChangeAlreadyPending`] if a pending proposal for this
+    ///   parameter already exists.
     pub fn set_history_max_depth(
         env: Env,
         admin_signers: Vec<Address>,
@@ -2685,8 +2687,22 @@ impl LedgerLensScoreContract {
             return Err(Error::InvalidHistoryDepth);
         }
         Self::require_admin_auth(&env, &admin_signers)?;
-        storage::set_history_max_depth(&env, depth);
-        events::history_depth_updated(&env, depth);
+        let key = symbol_short!("hist_dep");
+        if storage::has_pending_param_change(&env, &key) {
+            return Err(Error::ParamChangeAlreadyPending);
+        }
+        let now = env.ledger().timestamp();
+        let apply_after = now.saturating_add(storage::get_param_change_delay(&env));
+        storage::set_pending_param_change(
+            &env,
+            &key,
+            &ParamChangeProposal {
+                new_value: ParamValue::U32(depth),
+                proposed_at: now,
+                apply_after,
+            },
+        );
+        events::param_change_proposed(&env, &key, apply_after);
         Ok(())
     }
 
@@ -5342,7 +5358,22 @@ impl LedgerLensScoreContract {
             return Err(Error::InvalidUpgradeDelay);
         }
         Self::require_admin_auth(&env, &admin_signers)?;
-        storage::set_upgrade_delay(&env, delay_secs);
+        let key = symbol_short!("upg_dly");
+        if storage::has_pending_param_change(&env, &key) {
+            return Err(Error::ParamChangeAlreadyPending);
+        }
+        let now = env.ledger().timestamp();
+        let apply_after = now.saturating_add(storage::get_param_change_delay(&env));
+        storage::set_pending_param_change(
+            &env,
+            &key,
+            &ParamChangeProposal {
+                new_value: ParamValue::U64(delay_secs),
+                proposed_at: now,
+                apply_after,
+            },
+        );
+        events::param_change_proposed(&env, &key, apply_after);
         Ok(())
     }
 
@@ -5873,9 +5904,22 @@ impl LedgerLensScoreContract {
             return Err(Error::InvalidScore);
         }
         Self::require_admin_auth(&env, &admin_signers)?;
-        let old = storage::get_risk_threshold(&env);
-        storage::set_risk_threshold(&env, threshold);
-        events::threshold_updated(&env, old, threshold);
+        let key = symbol_short!("risk_thr");
+        if storage::has_pending_param_change(&env, &key) {
+            return Err(Error::ParamChangeAlreadyPending);
+        }
+        let now = env.ledger().timestamp();
+        let apply_after = now.saturating_add(storage::get_param_change_delay(&env));
+        storage::set_pending_param_change(
+            &env,
+            &key,
+            &ParamChangeProposal {
+                new_value: ParamValue::U32(threshold),
+                proposed_at: now,
+                apply_after,
+            },
+        );
+        events::param_change_proposed(&env, &key, apply_after);
         Ok(())
     }
 
@@ -6829,8 +6873,22 @@ impl LedgerLensScoreContract {
             return Err(Error::InvalidCooldown);
         }
         Self::require_admin_auth(&env, &admin_signers)?;
-        storage::set_cooldown_secs(&env, secs);
-        events::cooldown_updated(&env, secs);
+        let key = symbol_short!("cooldown");
+        if storage::has_pending_param_change(&env, &key) {
+            return Err(Error::ParamChangeAlreadyPending);
+        }
+        let now = env.ledger().timestamp();
+        let apply_after = now.saturating_add(storage::get_param_change_delay(&env));
+        storage::set_pending_param_change(
+            &env,
+            &key,
+            &ParamChangeProposal {
+                new_value: ParamValue::U64(secs),
+                proposed_at: now,
+                apply_after,
+            },
+        );
+        events::param_change_proposed(&env, &key, apply_after);
         Ok(())
     }
 

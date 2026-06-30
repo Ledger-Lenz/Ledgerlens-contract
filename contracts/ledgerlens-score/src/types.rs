@@ -784,6 +784,8 @@ pub struct ScoreWithFinality {
     /// elapsed since the score was submitted — consumers should treat the
     /// score as provisional.
     pub finality_pending: bool,
+}
+
 /// Configurable score decay profile.
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

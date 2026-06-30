@@ -141,4 +141,3 @@ pub const MAX_EXPIRING_ENTRIES_PER_CALL: u32 = 100;
 
 /// Maximum number of concurrently pending parameter-change proposals.
 pub const MAX_PENDING_PARAMETER_PROPOSALS: u32 = 10;
-

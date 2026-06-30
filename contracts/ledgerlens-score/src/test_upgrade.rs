@@ -11,6 +11,7 @@
 //! propose *its* hash in the execute-path tests.
 
 use soroban_sdk::{
+    symbol_short,
     testutils::{Address as _, Ledger as _},
     Address, Bytes, BytesN, Env, Vec,
 };
@@ -193,16 +194,25 @@ fn test_default_upgrade_delay_is_min() {
 #[test]
 fn test_set_upgrade_delay_within_bounds() {
     let (env, client, _admin) = setup();
+    let key = symbol_short!("upg_dly");
 
-    // Min, max, and an interior value are all accepted.
+    // Min
     client.set_upgrade_delay(&Vec::new(&env), &MIN_UPGRADE_DELAY_SECS);
+    env.ledger().with_mut(|l| l.timestamp += 86_400);
+    client.apply_param_change(&key);
     assert_eq!(client.get_upgrade_delay(), MIN_UPGRADE_DELAY_SECS);
 
+    // Max
     client.set_upgrade_delay(&Vec::new(&env), &MAX_UPGRADE_DELAY_SECS);
+    env.ledger().with_mut(|l| l.timestamp += 86_400);
+    client.apply_param_change(&key);
     assert_eq!(client.get_upgrade_delay(), MAX_UPGRADE_DELAY_SECS);
 
+    // Interior value
     let mid = (MIN_UPGRADE_DELAY_SECS + MAX_UPGRADE_DELAY_SECS) / 2;
     client.set_upgrade_delay(&Vec::new(&env), &mid);
+    env.ledger().with_mut(|l| l.timestamp += 86_400);
+    client.apply_param_change(&key);
     assert_eq!(client.get_upgrade_delay(), mid);
 }
 
@@ -233,10 +243,14 @@ fn test_configured_delay_applied_to_proposal() {
     let (env, client, _admin) = setup();
     let hash = dummy_hash(&env);
 
-    // Raise the delay, then confirm a new proposal uses the new value.
+    // Raise the upgrade delay via time-lock, then confirm a new upgrade proposal
+    // uses the new value.
     client.set_upgrade_delay(&Vec::new(&env), &MAX_UPGRADE_DELAY_SECS);
-    client.propose_upgrade(&Vec::new(&env), &hash);
+    env.ledger().with_mut(|l| l.timestamp += 86_400);
+    client.apply_param_change(&symbol_short!("upg_dly"));
 
+    client.propose_upgrade(&Vec::new(&env), &hash);
     let proposal = client.get_pending_upgrade();
-    assert_eq!(proposal.executable_after, START_TS + MAX_UPGRADE_DELAY_SECS);
+    // Now = START_TS + 86400; executable_after = now + MAX_UPGRADE_DELAY_SECS.
+    assert_eq!(proposal.executable_after, START_TS + 86_400 + MAX_UPGRADE_DELAY_SECS);
 }

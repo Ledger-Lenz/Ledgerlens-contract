@@ -507,6 +507,8 @@ pub fn dormancy_decay_applied(
         (symbol_short!("drm_dec"), wallet.clone(), asset_pair.clone()),
         (new_score, periods),
     );
+}
+
 // ── #297: IQR outlier rejection ───────────────────────────────────────────────
 
 pub fn consensus_signer_rejected(env: &Env, signer: &Address, deviation: u32) {

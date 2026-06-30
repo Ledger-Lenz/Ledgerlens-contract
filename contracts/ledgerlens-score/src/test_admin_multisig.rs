@@ -7,7 +7,7 @@
 //! added and a threshold set, every admin call must supply at least M valid
 //! admin-set members.
 
-use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+use soroban_sdk::{symbol_short, testutils::{Address as _, Ledger as _}, Address, Env, Vec};
 
 use crate::{Error, LedgerLensScoreContract, LedgerLensScoreContractClient};
 
@@ -93,9 +93,10 @@ fn test_admin_multisig_init_state() {
     let (env, client, _admin, _service) = setup();
     assert_eq!(client.get_admin_signers().len(), 0);
     assert_eq!(client.get_admin_threshold(), 0);
-    // In legacy mode an admin call with empty signers vec succeeds
-    // (mock_all_auths covers the single-admin auth).
+    // In legacy mode an admin call with empty signers vec succeeds.
     client.set_risk_threshold(&Vec::new(&env), &80);
+    env.ledger().with_mut(|l| l.timestamp += 86_400);
+    client.apply_param_change(&symbol_short!("risk_thr"));
     assert_eq!(client.get_risk_threshold(), 80);
 }
 
@@ -162,9 +163,11 @@ fn test_require_admin_auth_multisig_success() {
     client.add_admin_signer(&Vec::new(&env), &s3);
     client.set_admin_threshold(&Vec::new(&env), &2);
 
-    // Supplying exactly M=2 valid signers should succeed.
+    // Supplying exactly M=2 valid signers creates the proposal.
     let signers = signers_vec(&env, &[s1.clone(), s2.clone()]);
     client.set_risk_threshold(&signers, &60);
+    env.ledger().with_mut(|l| l.timestamp += 86_400);
+    client.apply_param_change(&symbol_short!("risk_thr"));
     assert_eq!(client.get_risk_threshold(), 60);
 }
 
