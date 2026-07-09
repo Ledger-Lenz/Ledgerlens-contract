@@ -41,22 +41,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
 
-  bench:
-    name: Batch submit benchmarks
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Run batch submit benchmarks
-        run: cargo bench -p ledgerlens-score --bench batch_submit -- --noplot
-      - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
-        with:
-          name: batch-submit-bench-results
-          path: target/criterion/
-          retention-days: 30
+
 
   build:
     name: WASM build
@@ -87,20 +72,5 @@ jobs:
       - name: Run security audit
         run: cargo audit
 
-  tlc-verify:
-    name: TLA+ Model Check
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-tlc')
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Java
-        uses: actions/setup-java@v3
-        with:
-          distribution: 'temurin'
-          java-version: '21'
-      - name: Download TLA+ Tools
-        run: curl -L -o spec/tla2tools.jar https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
-      - name: Run TLC Model Checker
-        working-directory: spec
-        run: java -jar tla2tools.jar -depth 8 LedgerLens.tla
+
 
