@@ -11,6 +11,13 @@ use ledgerlens_score::{RiskScore, AggregateRiskScore, Error as ScoreError};
 
 pub const MAX_SHARDS: usize = 10;
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConflictPolicy {
+    HighestScore,
+    MostRecent,
+}
+
 #[contract]
 pub struct LedgerLensAggregator;
 
@@ -28,69 +35,35 @@ impl LedgerLensAggregator {
         env.storage().instance().get(&DataKey::Admin).ok_or(ScoreError::NotInitialized)
     }
 
-    /// Returns the fixed-point exponential decay lambda as (numerator, denominator)
-    ///
-    /// Example:
-    /// ```ignore
-    /// let (num, den) = env.invoke_contract(&contract_id, &symbol_short!("get_decay_rate"), ());
-    /// // decay_factor = num / den  (e.g. 999 / 1000 = 0.999)
-    /// ```
     pub fn get_decay_rate(_env: Env) -> (u64, u64) {
-        // These values should match your internal decay logic
-        // Adjust if your decay formula changes
-        const DECAY_NUMERATOR: u64 = 999;     // e.g. for 0.999 decay per period
+        const DECAY_NUMERATOR: u64 = 999;
         const DECAY_DENOMINATOR: u64 = 1000;
-
         (DECAY_NUMERATOR, DECAY_DENOMINATOR)
     }
 
-    /// Returns the minimum number of model submissions (K) that must agree
-    /// within epsilon for consensus to be accepted.
-    ///
-    /// Example:
-    /// ```ignore
-    /// let k = env.invoke_contract(&contract_id, &symbol_short!("get_consensus_threshold_k"), ());
-    /// // e.g. k = 5 means at least 5 models must agree
-    /// ```
     pub fn get_consensus_threshold_k(_env: Env) -> u32 {
-        // Adjust this value based on your actual consensus parameters
-        const CONSENSUS_THRESHOLD_K: u32 = 5;   // Minimum agreeing models required
-
+        const CONSENSUS_THRESHOLD_K: u32 = 5;
         CONSENSUS_THRESHOLD_K
     }
 
-    /// Returns whether the given wallet is currently on the monitoring watchlist.
-    ///
-    /// Example:
-    /// ```ignore
-    /// let is_watched = env.invoke_contract(&contract_id, &symbol_short!("get_watchlist_status"), vec![&env, wallet]);
-    /// ```
     pub fn get_watchlist_status(_env: Env, _wallet: Address) -> bool {
-        // TODO: Replace with your actual storage key / logic
-        // For example:
-        // let key = DataKey::Watchlist(wallet);
-        // env.storage().instance().get(&key).unwrap_or(false)
-
-        // Placeholder implementation - update with real storage check
         false
     }
 
     pub fn add_shard(env: Env, shard: Address) -> Result<(), ScoreError> {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(ScoreError::NotInitialized)?;
         admin.require_auth();
-        // Prevent self-reference
         if env.current_contract_address() == shard {
-            return Err(ScoreError::InvalidAttestation); // reuse an error for self-ref guard
+            return Err(ScoreError::InvalidAttestation);
         }
         let mut shards: Vec<Address> = env.storage().instance().get(&DataKey::Shards).unwrap_or_else(|| Vec::new(&env));
-        // Check duplicate
         for i in 0..shards.len() {
             if shards.get(i).unwrap() == shard {
-                return Err(ScoreError::Unauthorized); // reuse
+                return Err(ScoreError::Unauthorized);
             }
         }
         if shards.len() as usize >= MAX_SHARDS {
-            return Err(ScoreError::ServiceSetFull); // reuse
+            return Err(ScoreError::ServiceSetFull);
         }
         shards.push_back(shard);
         env.storage().instance().set(&DataKey::Shards, &shards);
@@ -112,7 +85,7 @@ impl LedgerLensAggregator {
             }
         }
         if !found {
-            return Err(ScoreError::SignerNotInSet); // reuse
+            return Err(ScoreError::SignerNotInSet);
         }
         env.storage().instance().set(&DataKey::Shards, &out);
         Ok(())
@@ -142,8 +115,20 @@ impl LedgerLensAggregator {
         true
     }
 
+    pub fn set_conflict_resolution_policy(env: Env, policy: ConflictPolicy) -> Result<(), ScoreError> {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(ScoreError::NotInitialized)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::ConflictPolicy, &policy);
+        Ok(())
+    }
+
+    pub fn get_conflict_resolution_policy(env: Env) -> ConflictPolicy {
+        env.storage().instance().get(&DataKey::ConflictPolicy).unwrap_or(ConflictPolicy::HighestScore)
+    }
+
     pub fn get_score(env: Env, wallet: Address, asset_pair: Symbol) -> Result<RiskScore, ScoreError> {
         let shards: Vec<Address> = env.storage().instance().get(&DataKey::Shards).unwrap_or_else(|| Vec::new(&env));
+        let policy: ConflictPolicy = env.storage().instance().get(&DataKey::ConflictPolicy).unwrap_or(ConflictPolicy::HighestScore);
         let mut best: Option<RiskScore> = None;
         for i in 0..shards.len() {
             let shard = shards.get(i).unwrap();
@@ -152,7 +137,11 @@ impl LedgerLensAggregator {
                 match &best {
                     None => best = Some(score),
                     Some(b) => {
-                        if score.score > b.score {
+                        let replace = match policy {
+                            ConflictPolicy::HighestScore => score.score > b.score,
+                            ConflictPolicy::MostRecent => score.timestamp > b.timestamp,
+                        };
+                        if replace {
                             best = Some(score);
                         }
                     }
@@ -164,6 +153,7 @@ impl LedgerLensAggregator {
 
     pub fn get_aggregate_score(env: Env, wallet: Address) -> Result<AggregateRiskScore, ScoreError> {
         let shards: Vec<Address> = env.storage().instance().get(&DataKey::Shards).unwrap_or_else(|| Vec::new(&env));
+        let policy: ConflictPolicy = env.storage().instance().get(&DataKey::ConflictPolicy).unwrap_or(ConflictPolicy::HighestScore);
         let mut best: Option<AggregateRiskScore> = None;
         for i in 0..shards.len() {
             let shard = shards.get(i).unwrap();
@@ -172,7 +162,11 @@ impl LedgerLensAggregator {
                 match &best {
                     None => best = Some(agg),
                     Some(b) => {
-                        if agg.aggregate_score > b.aggregate_score {
+                        let replace = match policy {
+                            ConflictPolicy::HighestScore => agg.aggregate_score > b.aggregate_score,
+                            ConflictPolicy::MostRecent => agg.last_updated > b.last_updated,
+                        };
+                        if replace {
                             best = Some(agg);
                         }
                     }
@@ -206,9 +200,6 @@ impl LedgerLensAggregator {
         out
     }
 
-    /// Queries the contagion depth across all shards, returning the maximum depth found.
-    ///
-    /// Returns the highest counterparty count for the wallet/pair across all registered shards.
     pub fn contagion_depth_across_shards(
         env: Env,
         wallet: Address,
@@ -234,4 +225,5 @@ impl LedgerLensAggregator {
 enum DataKey {
     Admin,
     Shards,
+    ConflictPolicy,
 }
