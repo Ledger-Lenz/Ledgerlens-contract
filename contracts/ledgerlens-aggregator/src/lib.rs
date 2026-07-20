@@ -88,11 +88,34 @@ impl LedgerLensAggregator {
             return Err(ScoreError::SignerNotInSet);
         }
         env.storage().instance().set(&DataKey::Shards, &out);
+        env.storage().instance().remove(&DataKey::ShardHealth(shard));
         Ok(())
     }
 
     pub fn get_shards(env: Env) -> Vec<Address> {
         env.storage().instance().get(&DataKey::Shards).unwrap_or_else(|| Vec::new(&env))
+    }
+
+    pub fn set_shard_health(env: Env, shard: Address, healthy: bool) -> Result<(), ScoreError> {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(ScoreError::NotInitialized)?;
+        admin.require_auth();
+        let shards: Vec<Address> = env.storage().instance().get(&DataKey::Shards).unwrap_or_else(|| Vec::new(&env));
+        let mut found = false;
+        for i in 0..shards.len() {
+            if shards.get(i).unwrap() == shard {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return Err(ScoreError::SignerNotInSet);
+        }
+        env.storage().instance().set(&DataKey::ShardHealth(shard), &healthy);
+        Ok(())
+    }
+
+    pub fn get_shard_health(env: Env, shard: Address) -> bool {
+        env.storage().instance().get(&DataKey::ShardHealth(shard)).unwrap_or(true)
     }
 
     pub fn query_risk_gate(env: Env, wallet: Address, asset_pair: Symbol, gate_threshold: u32) -> bool {
@@ -102,6 +125,9 @@ impl LedgerLensAggregator {
         }
         for i in 0..shards.len() {
             let shard = shards.get(i).unwrap();
+            if !is_shard_healthy(&env, &shard) {
+                continue;
+            }
             let client = ledgerlens_score::LedgerLensScoreContractClient::new(&env, &shard);
             match client.try_query_risk_gate(&wallet, &asset_pair, &gate_threshold) {
                 Ok(Ok(res)) => {
@@ -132,6 +158,9 @@ impl LedgerLensAggregator {
         let mut best: Option<RiskScore> = None;
         for i in 0..shards.len() {
             let shard = shards.get(i).unwrap();
+            if !is_shard_healthy(&env, &shard) {
+                continue;
+            }
             let client = ledgerlens_score::LedgerLensScoreContractClient::new(&env, &shard);
             if let Ok(Ok(score)) = client.try_get_score(&wallet, &asset_pair) {
                 match &best {
@@ -157,6 +186,9 @@ impl LedgerLensAggregator {
         let mut best: Option<AggregateRiskScore> = None;
         for i in 0..shards.len() {
             let shard = shards.get(i).unwrap();
+            if !is_shard_healthy(&env, &shard) {
+                continue;
+            }
             let client = ledgerlens_score::LedgerLensScoreContractClient::new(&env, &shard);
             if let Ok(Ok(agg)) = client.try_get_aggregate_score(&wallet) {
                 match &best {
@@ -191,6 +223,9 @@ impl LedgerLensAggregator {
         let mut out: Vec<(Address, Option<RiskScore>)> = Vec::new(&env);
         for i in 0..shards.len() {
             let shard = shards.get(i).unwrap();
+            if !is_shard_healthy(&env, &shard) {
+                continue;
+            }
             let client = ledgerlens_score::LedgerLensScoreContractClient::new(&env, &shard);
             match client.try_get_score(&wallet, &asset_pair) {
                 Ok(Ok(score)) => out.push_back((shard.clone(), Some(score))),
@@ -209,6 +244,9 @@ impl LedgerLensAggregator {
         let mut max_depth: u32 = 0;
         for i in 0..shards.len() {
             let shard = shards.get(i).unwrap();
+            if !is_shard_healthy(&env, &shard) {
+                continue;
+            }
             let client = ledgerlens_score::LedgerLensScoreContractClient::new(&env, &shard);
             if let Ok(Ok(depth)) = client.try_get_contagion_depth(&wallet, &asset_pair) {
                 if depth > max_depth {
@@ -220,10 +258,15 @@ impl LedgerLensAggregator {
     }
 }
 
+fn is_shard_healthy(env: &Env, shard: &Address) -> bool {
+    env.storage().instance().get(&DataKey::ShardHealth(shard.clone())).unwrap_or(true)
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
     Admin,
     Shards,
     ConflictPolicy,
+    ShardHealth(Address),
 }
