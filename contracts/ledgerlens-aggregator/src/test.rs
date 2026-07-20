@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use crate::{ConflictPolicy, LedgerLensAggregator, LedgerLensAggregatorClient};
-use ledgerlens_score::{Error as ScoreError, LedgerLensScoreContract, LedgerLensScoreContractClient};
+use crate::{ConflictPolicy, Error, LedgerLensAggregator, LedgerLensAggregatorClient};
+use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
 use soroban_sdk::{
     symbol_short,
     testutils::Address as _,
@@ -67,7 +67,7 @@ fn test_set_conflict_policy_uninitialized_fails() {
     let client = LedgerLensAggregatorClient::new(&env, &agg_id);
 
     let result = client.try_set_conflict_resolution_policy(&ConflictPolicy::MostRecent);
-    assert_eq!(result, Err(Ok(ScoreError::NotInitialized)));
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
 }
 
 #[test]
@@ -197,7 +197,7 @@ fn test_set_shard_health_unregistered_fails() {
     agg_client.initialize(&admin);
 
     let result = agg_client.try_set_shard_health(&unknown, &false);
-    assert_eq!(result, Err(Ok(ScoreError::SignerNotInSet)));
+    assert_eq!(result, Err(Ok(Error::ShardNotFound)));
 }
 
 #[test]
@@ -210,7 +210,7 @@ fn test_set_shard_health_uninitialized_fails() {
     let agg_client = LedgerLensAggregatorClient::new(&env, &agg_id);
 
     let result = agg_client.try_set_shard_health(&shard, &false);
-    assert_eq!(result, Err(Ok(ScoreError::NotInitialized)));
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
 }
 
 #[test]
@@ -263,7 +263,7 @@ fn test_get_score_all_shards_unhealthy_returns_not_found() {
     agg_client.set_shard_health(&shard_id, &false);
 
     let result = agg_client.try_get_score(&wallet, &pair);
-    assert_eq!(result, Err(Ok(ScoreError::ScoreNotFound)));
+    assert_eq!(result, Err(Ok(Error::ScoreNotFound)));
 }
 
 #[test]
@@ -317,5 +317,5 @@ fn test_get_score_not_found_returns_error() {
     agg_client.initialize(&admin);
 
     let result = agg_client.try_get_score(&wallet, &pair);
-    assert_eq!(result, Err(Ok(ScoreError::ScoreNotFound)));
+    assert_eq!(result, Err(Ok(Error::ScoreNotFound)));
 }
