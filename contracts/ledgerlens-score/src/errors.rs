@@ -120,4 +120,12 @@ impl Error {
     /// drifted from the version the aggregator targets, so registering it would
     /// lead to failed or subtly incorrect cross-contract calls.
     pub const IncompatibleInterface: Error = Error::InvalidAttestation;
+
+    // ── SLO Burn-Rate Alerts (#677) ───────────────────────────────────────────
+    /// Returned by `set_slo_config` when the config fields are out of range.
+    pub const InvalidSloConfig: Error = Error::InvalidThreshold;
+    /// Returned by `acknowledge_slo_alert` when no active alert exists.
+    pub const SloAlertNotFound: Error = Error::ScoreNotFound;
+    /// Returned by `acknowledge_slo_alert` when the alert is already acknowledged.
+    pub const SloAlreadyAcknowledged: Error = Error::AlreadyInitialized;
 }

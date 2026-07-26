@@ -166,3 +166,42 @@ pub const DEFAULT_PARAM_CHANGE_DELAY_SECS: u64 = 86_400;
 
 /// Maximum number of entries retained in the rate-limit override audit log.
 pub const MAX_RATE_LIMIT_OVERRIDE_LOG: u32 = 100;
+
+// ── SLO Burn-Rate Alerts (#677) ───────────────────────────────────────────────
+
+/// Fixed-point scale used for all burn-rate arithmetic.
+/// All accumulated-seconds values are multiplied by this constant before
+/// division to avoid integer truncation.
+pub const SLO_BURN_SCALE: u64 = 1_000_000;
+
+/// Default short measurement window: 5 minutes.
+pub const DEFAULT_SLO_SHORT_WINDOW_SECS: u64 = 300;
+
+/// Default long measurement window: 60 minutes.
+pub const DEFAULT_SLO_LONG_WINDOW_SECS: u64 = 3_600;
+
+/// Minimum allowed short window (60 seconds).
+pub const MIN_SLO_SHORT_WINDOW_SECS: u64 = 60;
+
+/// Minimum allowed long window (must be > short window, minimum 5 minutes).
+pub const MIN_SLO_LONG_WINDOW_SECS: u64 = 300;
+
+/// Maximum allowed long window (24 hours).
+pub const MAX_SLO_LONG_WINDOW_SECS: u64 = 86_400;
+
+/// Default P3 burn-rate threshold in milli-units (1× = 1000).
+pub const DEFAULT_SLO_P3_BURN_RATE_MILLI: u32 = 1_000;
+/// Default P2 burn-rate threshold in milli-units (2×).
+pub const DEFAULT_SLO_P2_BURN_RATE_MILLI: u32 = 2_000;
+/// Default P1 burn-rate threshold in milli-units (5×).
+pub const DEFAULT_SLO_P1_BURN_RATE_MILLI: u32 = 5_000;
+
+/// Maximum allowed P1 burn-rate threshold (100× = budget exhausted 100× faster than normal).
+pub const MAX_SLO_P1_BURN_RATE_MILLI: u32 = 100_000;
+
+/// Hard cap on the active-alert index to bound `list_active_alerts` cost.
+pub const MAX_SLO_ACTIVE_ALERTS: u32 = 200;
+
+/// TTL constants for SLO window and alert state (persistent storage).
+pub const SLO_STATE_TTL_THRESHOLD: u32 = 518_400;
+pub const SLO_STATE_TTL_EXTEND_TO: u32 = 777_600;
