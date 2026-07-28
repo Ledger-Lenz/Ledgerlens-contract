@@ -660,6 +660,16 @@ pub enum DataKeyD {
     PendingParamChange(Symbol),
     ModelVersionExecutableAfter(u32),
     ModelVersionDescription(u32),
+    // ── #631: Post-incident reconciliation ────────────────────────────────────
+    /// Emergency freeze flag. When set, all mutating operations are
+    /// rejected — stronger than `Paused` (which still allows admin actions).
+    Frozen,
+    /// Ring buffer of recent `StateSnapshot` records for on-chain audit.
+    SnapshotHistory,
+    /// Number of stored state snapshots.
+    SnapshotCount,
+    /// Backup/restore record for post-incident recovery audit trail.
+    BackupRestoreRecord,
 }
 
 #[contracttype]
@@ -811,4 +821,77 @@ pub struct WelfordCorrState {
 pub struct TokenBucket {
     pub tokens: u32,
     pub last_refill: u64,
+}
+
+/// A state snapshot checksum covering all stored scores and admin config
+/// at a point in time. Produced by `compute_state_checksum` and consumed by
+/// the off-chain recovery/reconciliation tooling for post-incident verification.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StateSnapshot {
+    /// Sha256 hash over all scored (wallet, asset_pair) entries.
+    pub score_root: BytesN<32>,
+    /// Sha256 hash over admin config (thresholds, cooldown, etc.).
+    pub config_root: BytesN<32>,
+    /// Sha256 hash over service/signer set configuration.
+    pub auth_root: BytesN<32>,
+    /// Total number of (wallet, asset_pair) scored entries covered.
+    pub entry_count: u32,
+    /// Ledger sequence at which the snapshot was created.
+    pub ledger_seq: u32,
+    /// Ledger timestamp at which the snapshot was created.
+    pub timestamp: u64,
+}
+
+/// A single exportable score entry returned by `export_score` and
+/// `export_all_scores_paginated`. Represents one (wallet, asset_pair)
+/// entry with full score data and metadata, suitable for off-chain backup.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExportableScoreEntry {
+    pub wallet: Address,
+    pub asset_pair: Symbol,
+    pub score: u32,
+    pub benford_flag: bool,
+    pub ml_flag: bool,
+    pub timestamp: u64,
+    pub confidence: u32,
+    pub model_version: u32,
+    pub benford_score: u32,
+    pub ml_score: u32,
+    pub network_score: u32,
+}
+
+/// Result of a reconciliation comparison between two state snapshots.
+/// Returned by `reconcile_state`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReconciliationReport {
+    pub snapshot_a: BytesN<32>,
+    pub snapshot_b: BytesN<32>,
+    pub entries_matched: u32,
+    pub entries_diverged: u32,
+    pub config_matches: bool,
+    pub auth_matches: bool,
+}
+
+/// Backup/restore event metadata recorded on-chain for auditability.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BackupRecord {
+    pub score_root: BytesN<32>,
+    pub entry_count: u32,
+    pub restored_at: u64,
+    pub restored_by: Address,
+    pub justification_hash: BytesN<32>,
+}
+
+/// A single entry in the stored snapshot history ring buffer.
+/// Retained for on-chain audit of the most recent snapshots.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SnapshotHistoryEntry {
+    pub snapshot: StateSnapshot,
+    pub created_at: u64,
+    pub created_by: Address,
 }

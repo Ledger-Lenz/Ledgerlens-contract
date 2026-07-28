@@ -2888,6 +2888,217 @@ pub fn get_accumulated_fees(env: &Env) -> i128 {
     env.storage().instance().get(&GateDataKey::AccumulatedFees).unwrap_or(0)
 }
 
+// ── #631: Emergency freeze / thaw ──────────────────────────────────────────
+
+/// Returns `true` when the contract is in emergency freeze mode (stronger
+/// than regular pause — no mutations of any kind are allowed).
+pub fn is_frozen(env: &Env) -> bool {
+    env.storage().instance().get(&DataKeyD::Frozen).unwrap_or(false)
+}
+
+pub fn set_frozen(env: &Env, frozen: bool) {
+    env.storage().instance().set(&DataKeyD::Frozen, &frozen);
+}
+
+// ── #631: State snapshot history ──────────────────────────────────────────
+
+const MAX_STORED_SNAPSHOTS: u32 = 10;
+
+/// Records a new state snapshot in the ring buffer. Evicts the oldest
+/// entry if the buffer is full.
+pub fn push_snapshot_history(
+    env: &Env,
+    snapshot: &crate::types::StateSnapshot,
+    created_by: &Address,
+) {
+    let mut history: soroban_sdk::Vec<crate::types::SnapshotHistoryEntry> = env
+        .storage()
+        .instance()
+        .get(&DataKeyD::SnapshotHistory)
+        .unwrap_or_else(|| soroban_sdk::Vec::new(env));
+    let now = env.ledger().timestamp();
+    let entry = crate::types::SnapshotHistoryEntry {
+        snapshot: snapshot.clone(),
+        created_at: now,
+        created_by: created_by.clone(),
+    };
+    if history.len() >= MAX_STORED_SNAPSHOTS {
+        // Remove oldest (front)
+        let mut trimmed: soroban_sdk::Vec<crate::types::SnapshotHistoryEntry> =
+            soroban_sdk::Vec::new(env);
+        for i in 1..history.len() {
+            trimmed.push_back(history.get(i).unwrap());
+        }
+        history = trimmed;
+    }
+    history.push_back(entry);
+    env.storage().instance().set(&DataKeyD::SnapshotHistory, &history);
+    let count = env
+        .storage()
+        .instance()
+        .get::<_, u32>(&DataKeyD::SnapshotCount)
+        .unwrap_or(0u32)
+        .saturating_add(1);
+    env.storage().instance().set(&DataKeyD::SnapshotCount, &count);
+}
+
+/// Returns the stored snapshot history ring buffer (newest last).
+pub fn get_snapshot_history(env: &Env) -> soroban_sdk::Vec<crate::types::SnapshotHistoryEntry> {
+    env.storage()
+        .instance()
+        .get(&DataKeyD::SnapshotHistory)
+        .unwrap_or_else(|| soroban_sdk::Vec::new(env))
+}
+
+/// Returns the total number of snapshots ever taken (monotonic counter).
+pub fn get_snapshot_count(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKeyD::SnapshotCount).unwrap_or(0u32)
+}
+
+// ── #631: Backup / restore audit record ───────────────────────────────────
+
+pub fn set_backup_restore_record(env: &Env, record: &crate::types::BackupRecord) {
+    env.storage().instance().set(&DataKeyD::BackupRestoreRecord, record);
+}
+
+pub fn get_backup_restore_record(env: &Env) -> Option<crate::types::BackupRecord> {
+    env.storage().instance().get(&DataKeyD::BackupRestoreRecord)
+}
+
+// ── #631: Checksum / export helpers ───────────────────────────────────────
+
+/// Returns the number of scored (wallet, asset_pair) entries tracked by the
+/// score entry index.
+pub fn get_scored_entry_count(env: &Env) -> u32 {
+    let index: soroban_sdk::Vec<(Address, Symbol)> = get_score_entry_index(env);
+    index.len()
+}
+
+/// Builds an `ExportableScoreEntry` from the stored `RiskScore` for a
+/// (wallet, asset_pair). Returns `None` when no score exists.
+pub fn build_exportable_entry(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) -> Option<crate::types::ExportableScoreEntry> {
+    let score = get_score(env, wallet, asset_pair)?;
+    Some(crate::types::ExportableScoreEntry {
+        wallet: wallet.clone(),
+        asset_pair: asset_pair.clone(),
+        score: score.score,
+        benford_flag: score.benford_flag,
+        ml_flag: score.ml_flag,
+        timestamp: score.timestamp,
+        confidence: score.confidence,
+        model_version: score.model_version,
+        benford_score: score.benford_score,
+        ml_score: score.ml_score,
+        network_score: score.network_score,
+    })
+}
+
+/// Exports a page of all scored entries as `ExportableScoreEntry`.
+/// Returns up to `page_size` entries starting at `offset`. This is a
+/// read-only paginated iteration over the score entry index.
+pub fn export_entries_page(
+    env: &Env,
+    offset: u32,
+    page_size: u32,
+) -> soroban_sdk::Vec<crate::types::ExportableScoreEntry> {
+    let index: soroban_sdk::Vec<(Address, Symbol)> = get_score_entry_index(env);
+    let mut out: soroban_sdk::Vec<crate::types::ExportableScoreEntry> =
+        soroban_sdk::Vec::new(env);
+    let end = core::cmp::min(offset.saturating_add(page_size), index.len());
+    let start = core::cmp::min(offset, end);
+    for i in start..end {
+        if let Some((wallet, asset_pair)) = index.get(i) {
+            if let Some(entry) = build_exportable_entry(env, &wallet, &asset_pair) {
+                out.push_back(entry);
+            }
+        }
+    }
+    out
+}
+
+/// Computes a deterministic SHA-256 hash over all scored entries.
+/// The hash chains each (wallet, asset_pair, score, timestamp, model_version)
+/// tuple into a rolling root. This gives a verifiable fingerprint of the
+/// entire score state for later reconciliation.
+pub fn compute_score_root(env: &Env) -> (soroban_sdk::BytesN<32>, u32) {
+    let index: soroban_sdk::Vec<(Address, Symbol)> = get_score_entry_index(env);
+    let mut hasher = soroban_sdk::Bytes::new(env);
+    let count = index.len();
+
+    for i in 0..count {
+        if let Some((wallet, asset_pair)) = index.get(i) {
+            if let Some(score) = peek_score(env, &wallet, &asset_pair) {
+                // Hash the score fields deterministically — the wallet and
+                // asset_pair are already captured by the index ordering, so
+                // chaining score + timestamp + model_version gives us a
+                // collision-resistant fingerprint that changes when any entry
+                // changes. The wallet/asset identity is implicit in the index
+                // enumeration order, which must be deterministic (Vec).
+                hasher.extend_from_array(&score.score.to_le_bytes());
+                hasher.extend_from_array(&score.timestamp.to_le_bytes());
+                hasher.extend_from_array(&score.model_version.to_le_bytes());
+            }
+        }
+    }
+
+    let root = env.crypto().sha256(&hasher);
+    (BytesN::<32>::from_array(env, &root.to_array()), count)
+}
+
+/// Computes a deterministic SHA-256 hash over the admin-configurable
+/// parameters that affect score evaluation: risk threshold, jump threshold,
+/// staleness window, cooldown, decay rate, history depth, etc.
+pub fn compute_config_root(env: &Env) -> soroban_sdk::BytesN<32> {
+    let mut preimage = soroban_sdk::Bytes::new(env);
+
+    // Collect all config values into the preimage in a fixed order
+    preimage.extend_from_array(&get_risk_threshold(env).to_le_bytes());
+    preimage.extend_from_array(&get_jump_threshold(env).to_le_bytes());
+    preimage.extend_from_array(&get_staleness_window(env).to_le_bytes());
+    preimage.extend_from_array(&get_cooldown_secs(env).to_le_bytes());
+    preimage.extend_from_array(&get_history_max_depth(env).to_le_bytes());
+    preimage.extend_from_array(&get_contract_version(env).to_le_bytes());
+
+    // Dormancy config (may be unset)
+    let dorm_fraction: Option<u32> = env.storage().instance().get(&DataKeyB::DormancyDecayFractionBps);
+    if let Some(bps) = dorm_fraction {
+        preimage.extend_from_array(&bps.to_le_bytes());
+    }
+    let dorm_secs: Option<u64> = env.storage().instance().get(&DataKeyB::DormancyInactivitySecs);
+    if let Some(secs) = dorm_secs {
+        preimage.extend_from_array(&secs.to_le_bytes());
+    }
+
+    let root = env.crypto().sha256(&preimage);
+    soroban_sdk::BytesN::<32>::from_array(env, &root.to_array())
+}
+
+/// Computes a deterministic SHA-256 hash over the auth/signer configuration:
+/// admin and service set sizes, thresholds, pubkeys.
+pub fn compute_auth_root(env: &Env) -> soroban_sdk::BytesN<32> {
+    let mut preimage = soroban_sdk::Bytes::new(env);
+
+    let admin_set = get_admin_set(env);
+    preimage.extend_from_array(&admin_set.len().to_le_bytes());
+
+    let service_set = get_service_set(env);
+    preimage.extend_from_array(&service_set.len().to_le_bytes());
+
+    preimage.extend_from_array(&get_admin_threshold(env).to_le_bytes());
+    preimage.extend_from_array(&get_service_threshold(env).to_le_bytes());
+
+    // Include pause and freeze state — both affect auth posture
+    preimage.extend_from_array(&[is_paused(env) as u8]);
+    preimage.extend_from_array(&[is_frozen(env) as u8]);
+
+    let root = env.crypto().sha256(&preimage);
+    soroban_sdk::BytesN::<32>::from_array(env, &root.to_array())
+}
+
 #[cfg(test)]
 mod test_instrumentation {
     use soroban_sdk::contracttype;

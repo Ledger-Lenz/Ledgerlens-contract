@@ -25,6 +25,7 @@ for arg in "$@"; do
       sed -n '3,20p' "$0"
       exit 0
       ;;
+    --canary) CANARY=true ;;
     *) POSITIONAL+=("$arg") ;;
   esac
 done
@@ -33,6 +34,7 @@ set -- "${POSITIONAL[@]+"${POSITIONAL[@]}"}"
 NETWORK="${1:-testnet}"
 ADMIN_IDENTITY="${2:-deployer}"
 SERVICE_ADDRESS="${3:?ERROR: service-address argument is required}"
+CANARY="${CANARY:-false}"
 
 WASM_PATH="target/wasm32-unknown-unknown/release/ledgerlens_score.wasm"
 OPTIMIZED_WASM_PATH="target/wasm32-unknown-unknown/release/ledgerlens_score.optimized.wasm"
@@ -132,6 +134,47 @@ if [ "$DRY_RUN" = false ]; then
     get_version 2>/dev/null || echo "0")
 
   log "Contract version: $CONTRACT_VERSION"
+
+  # ── Canary checks (testnet only) ──────────────────────────────────────────
+  if [ "$CANARY" = true ] && [ "$NETWORK" = "testnet" ]; then
+    log "Running canary checks for post-incident reconciliation (#631)..."
+
+    # Check supported interfaces
+    for cap in checksum snapshot freeze export_score reconcile; do
+      RESULT=$(soroban contract invoke \
+        --id "$CONTRACT_ID" \
+        --source "$ADMIN_IDENTITY" \
+        --network "$NETWORK" \
+        -- \
+        supports_interface \
+        --capability "\"$cap\"" 2>/dev/null || echo "false")
+      if echo "$RESULT" | grep -q "true"; then
+        log "  ✅ Interface '$cap' supported"
+      else
+        echo "  ⚠ WARNING: Interface '$cap' not supported" >&2
+      fi
+    done
+
+    # Verify freeze/unfreeze cycle
+    log "  Testing freeze/unfreeze cycle..."
+    soroban contract invoke \
+      --id "$CONTRACT_ID" \
+      --source "$ADMIN_IDENTITY" \
+      --network "$NETWORK" \
+      -- \
+      freeze_contract \
+      --admin_signants "[\"$ADMIN_ADDRESS\"]" 2>/dev/null && log "  ✅ freeze_contract OK" || echo "  ⚠ freeze_contract failed" >&2
+
+    soroban contract invoke \
+      --id "$CONTRACT_ID" \
+      --source "$ADMIN_IDENTITY" \
+      --network "$NETWORK" \
+      -- \
+      unfreeze_contract \
+      --admin_signants "[\"$ADMIN_ADDRESS\"]" 2>/dev/null && log "  ✅ unfreeze_contract OK" || echo "  ⚠ unfreeze_contract failed" >&2
+
+    log "Canary checks complete."
+  fi
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────

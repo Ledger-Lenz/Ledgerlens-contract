@@ -1439,13 +1439,13 @@ fn test_batch_result_vec_length_matches_input() {
 #[test]
 fn test_get_version_returns_three() {
     let (_env, client, _admin, _service) = initialized();
-    assert_eq!(client.get_version(), 4);
+    assert_eq!(client.get_version(), 5);
 }
 
 #[test]
-fn test_get_contract_version_returns_four() {
+fn test_get_contract_version_returns_five() {
     let (_env, client, _admin, _service) = initialized();
-    assert_eq!(client.get_contract_version(), 4);
+    assert_eq!(client.get_contract_version(), 5);
 }
 
 // ── Not-initialized guards ────────────────────────────────────────────────────

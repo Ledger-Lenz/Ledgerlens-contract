@@ -40,7 +40,10 @@ pub const DEFAULT_JUMP_THRESHOLD: u32 = 30;
 /// * `4` — Added contract_id and contract_version binding to attestations (#200),
 ///   Merkle audit chain for admin actions (#201), configurable decay profiles (#202),
 ///   and multi-dimensional risk scores with sub-components (#203).
-pub const CONTRACT_VERSION: u32 = 4;
+/// * `5` — Added post-incident replay and reconciliation workflow (#631): emergency
+///   freeze/unfreeze, deterministic state checksums, paginated score export, on-chain
+///   snapshot history, reconciliation verification, and off-chain recovery tooling.
+pub const CONTRACT_VERSION: u32 = 5;
 
 /// Hard upper bound on Merkle proof length.
 pub const MAX_MERKLE_PROOF_DEPTH: u32 = 30;

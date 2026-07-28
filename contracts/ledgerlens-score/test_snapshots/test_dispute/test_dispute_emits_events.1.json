@@ -1029,6 +1029,9 @@
             "topics": [
               {
                 "symbol": "ft_set"
+              },
+              {
+                "u32": 1
               }
             ],
             "data": {
