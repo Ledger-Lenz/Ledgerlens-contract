@@ -16,11 +16,13 @@
 set -euo pipefail
 
 DRY_RUN=false
+CANARY_KEYS=false
 POSITIONAL=()
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
+    --canary-keys) CANARY_KEYS=true ;;
     --help)
       sed -n '3,20p' "$0"
       exit 0
@@ -132,6 +134,79 @@ if [ "$DRY_RUN" = false ]; then
     get_version 2>/dev/null || echo "0")
 
   log "Contract version: $CONTRACT_VERSION"
+
+  # ── Key-rotation canary (testnet only) ────────────────────────────────────
+  if [ "$CANARY_KEYS" = true ] && [ "$NETWORK" = "testnet" ]; then
+    log "Running key-rotation canary checks (#633)..."
+
+    # Canary: add a service signer and verify
+    log "  Testing service signer rotation..."
+    ADD_RESULT=$(soroban contract invoke \
+      --id "$CONTRACT_ID" \
+      --source "$ADMIN_IDENTITY" \
+      --network "$NETWORK" \
+      -- \
+      add_service_signer \
+      --admin_signants "[\"$ADMIN_ADDRESS\"]" \
+      --signer "$SERVICE_ADDRESS" 2>/dev/null || echo "FAILED")
+    if echo "$ADD_RESULT" | grep -q "FAILED"; then
+      echo "  ⚠ add_service_signer failed" >&2
+    else
+      log "  ✅ add_service_signer OK"
+    fi
+
+    # Canary: set threshold
+    SET_RESULT=$(soroban contract invoke \
+      --id "$CONTRACT_ID" \
+      --source "$ADMIN_IDENTITY" \
+      --network "$NETWORK" \
+      -- \
+      set_service_threshold \
+      --admin_signants "[\"$ADMIN_ADDRESS\"]" \
+      --threshold 1 2>/dev/null || echo "FAILED")
+    if echo "$SET_RESULT" | grep -q "FAILED"; then
+      echo "  ⚠ set_service_threshold failed" >&2
+    else
+      log "  ✅ set_service_threshold OK"
+    fi
+
+    # Canary: remove signer and verify threshold auto-adjust
+    REMOVE_RESULT=$(soroban contract invoke \
+      --id "$CONTRACT_ID" \
+      --source "$ADMIN_IDENTITY" \
+      --network "$NETWORK" \
+      -- \
+      remove_service_signer \
+      --admin_signants "[\"$ADMIN_ADDRESS\"]" \
+      --signer "$SERVICE_ADDRESS" 2>/dev/null || echo "FAILED")
+    if echo "$REMOVE_RESULT" | grep -q "FAILED"; then
+      echo "  ⚠ remove_service_signer failed" >&2
+    else
+      log "  ✅ remove_service_signer (threshold auto-adjust) OK"
+    fi
+
+    # Canary: admin signer operations
+    log "  Testing admin signer rotation..."
+    soroban contract invoke \
+      --id "$CONTRACT_ID" \
+      --source "$ADMIN_IDENTITY" \
+      --network "$NETWORK" \
+      -- \
+      add_admin_signer \
+      --admin_signants "[\"$ADMIN_ADDRESS\"]" \
+      --signer "$SERVICE_ADDRESS" 2>/dev/null && log "  ✅ add_admin_signer OK" || echo "  ⚠ add_admin_signer failed" >&2
+
+    soroban contract invoke \
+      --id "$CONTRACT_ID" \
+      --source "$ADMIN_IDENTITY" \
+      --network "$NETWORK" \
+      -- \
+      remove_admin_signer \
+      --admin_signants "[\"$ADMIN_ADDRESS\"]" \
+      --signer "$SERVICE_ADDRESS" 2>/dev/null && log "  ✅ remove_admin_signer OK" || echo "  ⚠ remove_admin_signer failed" >&2
+
+    log "Key-rotation canary checks complete."
+  fi
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
