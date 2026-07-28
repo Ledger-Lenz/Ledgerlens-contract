@@ -812,3 +812,55 @@ pub struct TokenBucket {
     pub tokens: u32,
     pub last_refill: u64,
 }
+
+// ── #688: Submission provenance snapshot ──────────────────────────────────────
+//
+// Persisted beside every accepted score so operators can answer "why was this
+// submission accepted?" long after the fact.  The snapshot captures the
+// policy state and signer context that were _active at the moment of
+// acceptance_, not the live values (which an admin may have changed since).
+//
+// Fields:
+//   `model_version`     — the model version carried by the accepted submission.
+//   `service_threshold` — M-of-N threshold active at acceptance time (0 = legacy
+//                         single-service path).
+//   `signers_count`     — number of distinct signers that authorised the call.
+//   `score_floor_enabled` — whether the score-floor policy was enabled.
+//   `score_floor_high_water_mark` — HWM value at acceptance (meaningful only
+//                         when `score_floor_enabled` is true).
+//   `score_floor_value` — floor value at acceptance (meaningful only when
+//                         `score_floor_enabled` is true).
+//   `cooldown_secs`     — effective per-(wallet, pair) cooldown at acceptance.
+//   `epoch_id`          — epoch that was open when the score was accepted.
+//   `ledger_sequence`   — ledger sequence number of the accepting ledger.
+//   `submitted_at`      — ledger timestamp of acceptance (mirrors
+//                         `RiskScore.timestamp` is the pipeline timestamp;
+//                         this is the on-chain clock).
+//   `validation_branch` — human-readable tag describing the auth path taken
+//                         (`"single_service"`, `"multisig"`, `"threshold_sig"`,
+//                         `"batch"`).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubmissionProvenance {
+    pub model_version: u32,
+    pub service_threshold: u32,
+    pub signers_count: u32,
+    pub score_floor_enabled: bool,
+    pub score_floor_high_water_mark: u32,
+    pub score_floor_value: u32,
+    pub cooldown_secs: u64,
+    pub epoch_id: u32,
+    pub ledger_sequence: u32,
+    pub submitted_at: u64,
+    pub validation_branch: soroban_sdk::Symbol,
+}
+
+/// Storage key namespace for provenance records (issue #688).
+#[contracttype]
+#[derive(Clone)]
+pub enum DataKeyE {
+    /// Provenance snapshot for the most recent accepted submission for
+    /// (wallet, asset_pair).  Stored in persistent storage with the same
+    /// TTL envelope as the score entry itself.
+    SubmissionProvenance(Address, Symbol),
+}

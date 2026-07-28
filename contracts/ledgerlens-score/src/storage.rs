@@ -2888,6 +2888,35 @@ pub fn get_accumulated_fees(env: &Env) -> i128 {
     env.storage().instance().get(&GateDataKey::AccumulatedFees).unwrap_or(0)
 }
 
+// ── #688: Submission provenance snapshots ────────────────────────────────────
+
+pub fn set_submission_provenance(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    provenance: &crate::types::SubmissionProvenance,
+) {
+    let key =
+        crate::types::DataKeyE::SubmissionProvenance(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, provenance);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+pub fn get_submission_provenance(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) -> Option<crate::types::SubmissionProvenance> {
+    let key =
+        crate::types::DataKeyE::SubmissionProvenance(wallet.clone(), asset_pair.clone());
+    let result: Option<crate::types::SubmissionProvenance> =
+        env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    result
+}
+
 #[cfg(test)]
 mod test_instrumentation {
     use soroban_sdk::contracttype;
