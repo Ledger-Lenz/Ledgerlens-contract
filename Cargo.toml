@@ -6,6 +6,7 @@ members = [
     "contracts/mock-amm",
     "contracts/mock-lending",
     "tools/replay",
+    "tools/recovery",
     "tests/composability",
 ]
 

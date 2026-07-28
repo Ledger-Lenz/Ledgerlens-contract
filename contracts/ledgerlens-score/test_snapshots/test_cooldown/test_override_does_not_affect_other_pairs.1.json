@@ -1139,7 +1139,7 @@
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                         },
                         {
-                          "symbol": "XLM_USDC"
+                          "symbol": "XLM_BTC"
                         }
                       ]
                     },
@@ -1149,7 +1149,7 @@
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                         },
                         {
-                          "symbol": "XLM_BTC"
+                          "symbol": "XLM_USDC"
                         }
                       ]
                     }

@@ -712,3 +712,69 @@ pub fn suspicious_same_ledger_submission(
 pub fn wallet_cluster_assigned(env: &Env, wallet: &Address, cluster: u32) {
     env.events().publish((symbol_short!("wc_asgn"), wallet.clone()), cluster);
 }
+
+// ── #631: Post-incident replay & reconciliation ──────────────────────────────
+
+/// Emitted when an admin takes a deterministic state snapshot via
+/// `compute_state_checksum`. The `score_root` uniquely identifies the
+/// set of all scored entries at that point, enabling later reconciliation.
+pub fn state_snapshot_created(
+    env: &Env,
+    score_root: &soroban_sdk::BytesN<32>,
+    entry_count: u32,
+    ledger_seq: u32,
+) {
+    env.events()
+        .publish((symbol_short!("snap"),), (score_root.clone(), entry_count, ledger_seq));
+}
+
+/// Emitted when an admin freezes the contract via `freeze_contract`.
+/// In freeze mode all mutating operations are rejected.
+pub fn contract_frozen(env: &Env, by: &Address) {
+    env.events().publish((symbol_short!("frozen"),), by.clone());
+}
+
+/// Emitted when an admin unfreezes the contract via `unfreeze_contract`.
+pub fn contract_unfrozen(env: &Env, by: &Address) {
+    env.events().publish((symbol_short!("unfroz"),), by.clone());
+}
+
+/// Emitted when a post-incident backup restoration completes via
+/// `apply_backup_restore`. Records the checksum root and entry count
+/// for audit trail continuity.
+pub fn backup_restored(
+    env: &Env,
+    score_root: &soroban_sdk::BytesN<32>,
+    entry_count: u32,
+    restored_by: &Address,
+) {
+    env.events().publish(
+        (symbol_short!("bk_rest"),),
+        (score_root.clone(), entry_count, restored_by.clone()),
+    );
+}
+
+/// Emitted when reconciliation completes between two state snapshots.
+/// `matches` is the number of entries that agree; `diverged` is entries
+/// that differ between the two snapshots.
+pub fn reconciliation_verified(
+    env: &Env,
+    snapshot_a: &soroban_sdk::BytesN<32>,
+    snapshot_b: &soroban_sdk::BytesN<32>,
+    entries_matched: u32,
+    entries_diverged: u32,
+    config_matches: bool,
+    auth_matches: bool,
+) {
+    env.events().publish(
+        (symbol_short!("recncil"),),
+        (
+            snapshot_a.clone(),
+            snapshot_b.clone(),
+            entries_matched,
+            entries_diverged,
+            config_matches,
+            auth_matches,
+        ),
+    );
+}

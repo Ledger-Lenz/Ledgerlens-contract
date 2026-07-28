@@ -1973,6 +1973,9 @@
             "topics": [
               {
                 "symbol": "ft_set"
+              },
+              {
+                "u32": 1
               }
             ],
             "data": {
@@ -2813,6 +2816,9 @@
             "topics": [
               {
                 "symbol": "score"
+              },
+              {
+                "u32": 1
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
