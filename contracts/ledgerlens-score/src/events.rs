@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol};
 
-use crate::types::RiskScore;
+use crate::types::{AuthDenialReason, RiskScore};
 
 pub fn pair_weight_updated(env: &Env, asset_pair: &Symbol, weight: u32) {
     env.events().publish((symbol_short!("pw_upd"), asset_pair.clone()), weight);
@@ -555,6 +555,8 @@ pub fn dormancy_decay_applied(
         (symbol_short!("drm_dec"), wallet.clone(), asset_pair.clone()),
         (new_score, periods),
     );
+}
+
 // ── #297: IQR outlier rejection ───────────────────────────────────────────────
 
 pub fn consensus_signer_rejected(env: &Env, signer: &Address, deviation: u32) {
@@ -577,4 +579,90 @@ pub fn governance_action_appended(env: &Env, new_head: &soroban_sdk::BytesN<32>)
 
 pub fn gate_enforcement_mode_set(env: &Env, strict: bool) {
     env.events().publish((symbol_short!("gate_enf"),), strict);
+}
+
+// ── #204: Adaptive consensus epsilon ────────────────────────────────────────────
+
+pub fn adaptive_epsilon_updated(env: &Env, enabled: bool, scale_factor: u32) {
+    env.events().publish((symbol_short!("aeps_upd"),), (enabled, scale_factor));
+}
+
+// ── #270: Per-pair score volatility ─────────────────────────────────────────────
+
+pub fn adaptive_rate_limit_updated(env: &Env, enabled: bool, variance_scale: u32) {
+    env.events().publish((symbol_short!("arl_upd"),), (enabled, variance_scale));
+}
+
+// ── #274: Signer reputation ─────────────────────────────────────────────────────
+
+pub fn signer_accuracy_updated(env: &Env, signer: &Address, mad_scaled: u64, count: u64) {
+    env.events().publish((symbol_short!("sacc_upd"), signer.clone()), (mad_scaled, count));
+}
+
+pub fn signer_accuracy_reset(env: &Env, signer: &Address) {
+    env.events().publish((symbol_short!("sacc_rst"),), signer.clone());
+}
+
+// ── #276: Oracle adapter ────────────────────────────────────────────────────────
+
+pub fn oracle_registered(env: &Env, asset_pair: &Symbol, oracle_contract: &Address) {
+    env.events()
+        .publish((symbol_short!("orcl_reg"), asset_pair.clone()), oracle_contract.clone());
+}
+
+pub fn oracle_removed(env: &Env, asset_pair: &Symbol) {
+    env.events().publish((symbol_short!("orcl_rem"),), asset_pair.clone());
+}
+
+// ── #288: Wallet risk cluster assignment ────────────────────────────────────────
+
+pub fn cluster_boundaries_updated(env: &Env) {
+    env.events().publish((symbol_short!("clstr_bnd"),), ());
+}
+
+pub fn wallet_cluster_assigned(env: &Env, wallet: &Address, cluster: u32) {
+    env.events().publish((symbol_short!("clstr_asn"), wallet.clone()), cluster);
+}
+
+// ── #300: Flash-loan / same-ledger gate-read protection ─────────────────────────
+
+pub fn suspicious_same_ledger_submission(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    gate_read_ledger: u32,
+) {
+    env.events().publish(
+        (symbol_short!("flash_sub"), wallet.clone(), asset_pair.clone()),
+        gate_read_ledger,
+    );
+}
+
+pub fn flash_protection_mode_updated(env: &Env, mode: u32) {
+    env.events().publish((symbol_short!("fp_mode"),), mode);
+}
+
+// ── #301: Epoch sealing ─────────────────────────────────────────────────────────
+
+pub fn epoch_opened(env: &Env, epoch_id: u32) {
+    env.events().publish((symbol_short!("epoch_op"),), epoch_id);
+}
+
+pub fn epoch_closed(env: &Env, epoch_id: u32) {
+    env.events().publish((symbol_short!("epoch_cl"),), epoch_id);
+}
+
+// ── #694: Authorization failure telemetry ───────────────────────────────────
+
+/// Emitted immediately before a privileged call returns [`crate::Error::Unauthorized`]
+/// from a signer-set authorization gate (`require_admin_auth`,
+/// `require_service_signers_auth`, or the equivalent inline checks in
+/// `submit_score` / `submit_scores_batch_attested`). `gate` identifies which
+/// signer set was being checked — `"admin"` or `"service"` — and `reason` is
+/// a coarse, non-identifying category. Deliberately excludes which signer(s)
+/// were supplied or which of them failed validation, so this event cannot be
+/// used to fingerprint individual members of the admin/service signer set;
+/// see [`AuthDenialReason`] and docs/authorization-telemetry.md.
+pub fn authorization_denied(env: &Env, gate: Symbol, reason: AuthDenialReason) {
+    env.events().publish((symbol_short!("auth_den"), gate), reason);
 }

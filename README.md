@@ -270,7 +270,7 @@ A wallet scoring 60-70 on three pairs individually might not breach the per-pair
 |------|------|---------------|
 | 1 | `AlreadyInitialized` | `initialize` called more than once |
 | 2 | `NotInitialized` | Any state-mutating call before `initialize` |
-| 3 | `Unauthorized` | Caller is not the authorised service or admin |
+| 3 | `Unauthorized` | Caller is not the authorised service or admin. Also returned (since #694) for every denied M-of-N signer-set check — too few signers, an unrecognized signer, or an expired signer all collapse to this single code so a caller can't fingerprint the admin/service signer set by probing candidate addresses. See the `auth_den` event for a coarse, non-identifying denial category. |
 | 4 | `InvalidScore` | `score` outside 0-100 |
 | 5 | `InvalidConfidence` | `confidence` outside 0-100 |
 | 6 | `ScoreNotFound` | `get_score` / `get_aggregate_score` for an unknown pair |
@@ -281,8 +281,8 @@ A wallet scoring 60-70 on three pairs individually might not breach the per-pair
 | 11 | `ArithmeticOverflow` | Weighted aggregate computation overflows |
 | 12 | `UpgradeAlreadyPending` | `propose_upgrade` while a proposal is already pending |
 | 13 | `NoPendingUpgrade` | `execute_upgrade` / `veto_upgrade` / `get_pending_upgrade` with no proposal |
-| 14 | `InsufficientSigners` | Fewer than threshold signers supplied to `submit_score` |
-| 15 | `UnauthorizedSigner` | A supplied signer is not in the service set |
+| 14 | `InsufficientSigners` | Reserved. No longer returned by the service-signer gate — see `Unauthorized` (3) below. |
+| 15 | `UnauthorizedSigner` | Reserved. No longer returned by the service-signer gate — see `Unauthorized` (3) below. |
 | 16 | `InvalidThreshold` | `set_service_threshold` given `0` or a value > set size |
 | 17 | `ServiceSetFull` | `add_service_signer` when set already has `MAX_SERVICE_SIGNERS` members |
 | 18 | `SignerAlreadyInSet` | `add_service_signer` with an address already present |
@@ -727,6 +727,7 @@ pub struct RiskScore {
 - `pw_upd` — `(asset_pair) -> weight`, emitted when the admin sets a pair's aggregate-risk weight via `set_pair_weight`
 - `cd_upd` — `() -> cooldown_secs`, emitted when the admin changes the submission cooldown via `set_cooldown`
 - `rl_ovrd` — `(wallet, asset_pair) -> admin`, emitted when the admin clears a pair's cooldown via `override_rate_limit`
+- `auth_den` — `(gate) -> reason`, emitted immediately before any admin/service M-of-N signer-set check returns `Unauthorized` (#694). `gate` is `admin` or `service`; `reason` is an `AuthDenialReason` (`InvalidSignerCount` or `SignerValidationFailed`). Deliberately excludes which signer(s) were supplied so it can't be used to fingerprint the signer set — see `docs/authorization-telemetry.md`.
 
 `api` (or a dedicated indexer in `data`) should subscribe to these for audit trails and to keep an off-chain cache in sync with on-chain state.
 

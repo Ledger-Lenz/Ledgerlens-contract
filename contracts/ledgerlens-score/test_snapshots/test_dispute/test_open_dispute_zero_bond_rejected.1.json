@@ -205,6 +205,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AdminAuditRoot"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "FeeToken"
                             }
                           ]
@@ -1059,6 +1071,9 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                 },
                 {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                },
+                {
                   "symbol": "XLM_USDC"
                 },
                 {
@@ -1066,6 +1081,9 @@
                     "hi": 0,
                     "lo": 0
                   }
+                },
+                {
+                  "bytes": "42424242424242424242424242424242"
                 }
               ]
             }
@@ -1155,6 +1173,9 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                     },
                     {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                    },
+                    {
                       "symbol": "XLM_USDC"
                     },
                     {
@@ -1162,6 +1183,9 @@
                         "hi": 0,
                         "lo": 0
                       }
+                    },
+                    {
+                      "bytes": "42424242424242424242424242424242"
                     }
                   ]
                 }

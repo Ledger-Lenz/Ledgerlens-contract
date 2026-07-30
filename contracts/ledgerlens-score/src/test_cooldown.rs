@@ -60,8 +60,9 @@ fn submit(
                 }
             }
         }
-        let dig = commitment(env, &client.address, wallet, pair, score, START_TS, 90, 1);
-        Some(crate::ScoreAttestationInput::Single(attest(env, &key, dig)))
+        let nonce = current_service_nonce(env, &client.address);
+        let dig = commitment(env, &client.address, wallet, pair, score, START_TS, 90, 1, nonce);
+        Some(crate::ScoreAttestationInput::Single(attest(env, &key, dig, &client.address, nonce)))
     } else {
         None
     };
@@ -100,8 +101,9 @@ fn try_submit(
                 }
             }
         }
-        let dig = commitment(env, &client.address, wallet, pair, score, START_TS, 90, 1);
-        Some(crate::ScoreAttestationInput::Single(attest(env, &key, dig)))
+        let nonce = current_service_nonce(env, &client.address);
+        let dig = commitment(env, &client.address, wallet, pair, score, START_TS, 90, 1, nonce);
+        Some(crate::ScoreAttestationInput::Single(attest(env, &key, dig, &client.address, nonce)))
     } else {
         None
     };
@@ -133,6 +135,27 @@ fn pubkey_bytes(env: &Env, key: &SigningKey) -> Bytes {
     Bytes::from_slice(env, point.as_bytes())
 }
 
+fn contract_id_bytes(env: &Env, contract_id: &Address) -> BytesN<32> {
+    use soroban_sdk::xdr::ToXdr;
+    let xdr = contract_id.to_xdr(env);
+    let mut bytes = [0u8; 32];
+    if xdr.len() >= 32 {
+        xdr.slice(xdr.len() - 32..xdr.len()).copy_into_slice(&mut bytes);
+    }
+    BytesN::from_array(env, &bytes)
+}
+
+/// Reads the on-chain nonce currently expected from the service signer, so
+/// test helpers stay correct across multiple attested submissions within the
+/// same test (mirroring what a real off-chain pipeline must track).
+fn current_service_nonce(env: &Env, contract_id: &Address) -> u64 {
+    env.as_contract(contract_id, || {
+        let service = crate::storage::get_service(env);
+        crate::storage::get_signer_nonce(env, &service)
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn commitment(
     env: &Env,
     contract_id: &Address,
@@ -142,7 +165,9 @@ fn commitment(
     timestamp: u64,
     confidence: u32,
     model_version: u32,
+    nonce: u64,
 ) -> [u8; 32] {
+    let cid_bytes = contract_id_bytes(env, contract_id);
     env.as_contract(contract_id, || {
         LedgerLensScoreContract::compute_commitment(
             env,
@@ -154,7 +179,9 @@ fn commitment(
             timestamp,
             confidence,
             model_version,
-            0, // nonce for test
+            &cid_bytes,
+            crate::constants::CONTRACT_VERSION,
+            nonce,
         )
         .unwrap()
         .to_bytes()
@@ -162,7 +189,13 @@ fn commitment(
     })
 }
 
-fn attest(env: &Env, key: &SigningKey, digest: [u8; 32]) -> ScoreAttestation {
+fn attest(
+    env: &Env,
+    key: &SigningKey,
+    digest: [u8; 32],
+    contract_id: &Address,
+    nonce: u64,
+) -> ScoreAttestation {
     let (sig, recid) = key.sign_prehash_recoverable(&digest).unwrap();
     let mut sig_bytes = [0u8; 65];
     sig_bytes[..64].copy_from_slice(&sig.to_bytes());
@@ -170,7 +203,9 @@ fn attest(env: &Env, key: &SigningKey, digest: [u8; 32]) -> ScoreAttestation {
     ScoreAttestation {
         commitment: BytesN::from_array(env, &digest),
         signature: BytesN::from_array(env, &sig_bytes),
-        nonce: 0,
+        contract_id: contract_id_bytes(env, contract_id),
+        contract_version: crate::constants::CONTRACT_VERSION,
+        nonce,
     }
 }
 
@@ -184,9 +219,11 @@ fn consensus_pair(
     timestamp: u64,
 ) -> Vec<ModelSubmission> {
     let mut subs = Vec::new(env);
+    let base_nonce = current_service_nonce(env, &client.address);
     for (i, &score) in scores.iter().enumerate() {
         let mv = (i + 1) as u32;
-        let digest = commitment(env, &client.address, wallet, pair, score, timestamp, 90, mv);
+        let nonce = base_nonce + i as u64;
+        let digest = commitment(env, &client.address, wallet, pair, score, timestamp, 90, mv, nonce);
         subs.push_back(ModelSubmission {
             model_version: mv,
             model: Address::generate(env),
@@ -194,7 +231,7 @@ fn consensus_pair(
             confidence: 90,
             benford_flag: false,
             ml_flag: false,
-            attestation: attest(env, key, digest),
+            attestation: attest(env, key, digest, &client.address, nonce),
         });
     }
     subs

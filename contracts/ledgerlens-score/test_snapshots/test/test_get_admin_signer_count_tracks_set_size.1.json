@@ -180,6 +180,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AdminAuditRoot"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "bytes": "60f1d9b86ee031dae17206eb0db2d2651f8f7ca6db759ef961cfba0bf41d2c2f"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "AdminSet"
                             }
                           ]
@@ -698,6 +710,26 @@
                   "u32": 2
                 }
               ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "gov_app"
+              }
+            ],
+            "data": {
+              "bytes": "60f1d9b86ee031dae17206eb0db2d2651f8f7ca6db759ef961cfba0bf41d2c2f"
             }
           }
         }

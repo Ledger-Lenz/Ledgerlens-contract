@@ -167,6 +167,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AdminAuditRoot"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "AdminSet"
                             }
                           ]
@@ -839,7 +851,7 @@
             ],
             "data": {
               "error": {
-                "contract": 31
+                "contract": 33
               }
             }
           }
@@ -860,7 +872,7 @@
               },
               {
                 "error": {
-                  "contract": 31
+                  "contract": 33
                 }
               }
             ],
@@ -885,7 +897,7 @@
               },
               {
                 "error": {
-                  "contract": 31
+                  "contract": 33
                 }
               }
             ],

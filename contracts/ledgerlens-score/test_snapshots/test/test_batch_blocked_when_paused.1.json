@@ -75,6 +75,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AdminAuditRoot"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "bytes": "52e2eaf9ce7a7e21d6f15b3f759bc793c3dbd7810b459abec7692bf947edda37"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Paused"
                             }
                           ]

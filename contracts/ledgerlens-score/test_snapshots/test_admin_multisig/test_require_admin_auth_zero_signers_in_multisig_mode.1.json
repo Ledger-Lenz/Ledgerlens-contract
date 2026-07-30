@@ -122,6 +122,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AdminAuditRoot"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "bytes": "d56b2801a1935dd350baf5395155c0def66a740fec836d81aec340f8dab4fc63"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "AdminSet"
                             }
                           ]
@@ -493,6 +505,26 @@
       "event": {
         "ext": "v0",
         "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "gov_app"
+              }
+            ],
+            "data": {
+              "bytes": "d56b2801a1935dd350baf5395155c0def66a740fec836d81aec340f8dab4fc63"
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
         "type_": "diagnostic",
         "body": {
           "v0": {
@@ -540,6 +572,33 @@
       "event": {
         "ext": "v0",
         "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "auth_den"
+              },
+              {
+                "symbol": "admin"
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "symbol": "InvalidSignerCount"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": true
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
         "type_": "diagnostic",
         "body": {
           "v0": {
@@ -553,7 +612,7 @@
             ],
             "data": {
               "error": {
-                "contract": 33
+                "contract": 3
               }
             }
           }
@@ -574,7 +633,7 @@
               },
               {
                 "error": {
-                  "contract": 33
+                  "contract": 3
                 }
               }
             ],
@@ -599,7 +658,7 @@
               },
               {
                 "error": {
-                  "contract": 33
+                  "contract": 3
                 }
               }
             ],

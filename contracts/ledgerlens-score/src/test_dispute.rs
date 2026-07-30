@@ -88,6 +88,50 @@ fn seed_score(f: &Fixture, score: u32) {
         );
 }
 
+/// Fixed dispute-bond salt used by every test in this file — sufficient
+/// since these tests never rely on salt secrecy, only on the commit-reveal
+/// mechanics themselves.
+fn dispute_salt(env: &Env) -> soroban_sdk::Bytes {
+    soroban_sdk::Bytes::from_array(env, &[0x42; 16])
+}
+
+/// Commits to `(bond, salt)` for `(challenger, wallet, pair)` — the mandatory
+/// first phase of the sealed-bid dispute-bond commit-reveal flow — and
+/// returns the salt so the caller can immediately reveal via
+/// `open_score_dispute` / `try_open_score_dispute`.
+fn commit_bond(
+    env: &Env,
+    client: &LedgerLensScoreContractClient,
+    challenger: &Address,
+    wallet: &Address,
+    pair: &Symbol,
+    bond: i128,
+) -> soroban_sdk::Bytes {
+    let salt = dispute_salt(env);
+    let mut preimage = soroban_sdk::Bytes::new(env);
+    preimage.extend_from_array(&bond.to_le_bytes());
+    preimage.append(&salt);
+    client.commit_dispute_bond(challenger, wallet, pair, &preimage);
+    salt
+}
+
+/// Commits then reveals in one call — the common case in these tests, which
+/// almost never exercise the commit/reveal split itself.
+fn open_dispute(f: &Fixture, wallet: &Address, pair: &Symbol, bond: i128) {
+    let salt = commit_bond(&f.env, &f.client, &f.challenger, wallet, pair, bond);
+    f.client.open_score_dispute(&f.challenger, wallet, pair, &bond, &salt);
+}
+
+fn try_open_dispute(
+    f: &Fixture,
+    wallet: &Address,
+    pair: &Symbol,
+    bond: i128,
+) -> Result<(), Result<Error, soroban_sdk::InvokeError>> {
+    let salt = commit_bond(&f.env, &f.client, &f.challenger, wallet, pair, bond);
+    f.client.try_open_score_dispute(&f.challenger, wallet, pair, &bond, &salt).map(|_| ())
+}
+
 // ── open_score_dispute ──────────────────────────────────────────────────────
 
 #[test]
@@ -97,7 +141,7 @@ fn test_open_dispute_escrows_bond_and_lists_it() {
     let token = TokenClient::new(&f.env, &f.token);
     let bond: i128 = 10_000;
 
-    f.client.open_score_dispute(&f.challenger, &f.pair, &bond);
+    open_dispute(&f, &f.challenger, &f.pair, bond);
 
     // Bond moved from challenger into the contract escrow.
     assert_eq!(token.balance(&f.challenger), 1_000_000 - bond);
@@ -115,22 +159,34 @@ fn test_open_dispute_escrows_bond_and_lists_it() {
 #[test]
 fn test_open_dispute_zero_bond_rejected() {
     let f = setup(1_000_000, 1_000_000);
-    let res = f.client.try_open_score_dispute(&f.challenger, &f.pair, &0);
+    let res = f.client.try_open_score_dispute(
+        &f.challenger,
+        &f.challenger,
+        &f.pair,
+        &0,
+        &dispute_salt(&f.env),
+    );
     assert_eq!(res, Err(Ok(Error::InvalidDisputeBond)));
 }
 
 #[test]
 fn test_open_dispute_negative_bond_rejected() {
     let f = setup(1_000_000, 1_000_000);
-    let res = f.client.try_open_score_dispute(&f.challenger, &f.pair, &-5);
+    let res = f.client.try_open_score_dispute(
+        &f.challenger,
+        &f.challenger,
+        &f.pair,
+        &-5,
+        &dispute_salt(&f.env),
+    );
     assert_eq!(res, Err(Ok(Error::InvalidDisputeBond)));
 }
 
 #[test]
 fn test_open_dispute_duplicate_rejected() {
     let f = setup(1_000_000, 1_000_000);
-    f.client.open_score_dispute(&f.challenger, &f.pair, &10_000);
-    let res = f.client.try_open_score_dispute(&f.challenger, &f.pair, &10_000);
+    open_dispute(&f, &f.challenger, &f.pair, 10_000);
+    let res = try_open_dispute(&f, &f.challenger, &f.pair, 10_000);
     assert_eq!(res, Err(Ok(Error::DisputeAlreadyOpen)));
 }
 
@@ -145,7 +201,13 @@ fn test_open_dispute_fee_token_not_set() {
     client.initialize(&admin, &service);
     let wallet = Address::generate(&env);
 
-    let res = client.try_open_score_dispute(&wallet, &symbol_short!("XLM_USDC"), &10_000);
+    let res = client.try_open_score_dispute(
+        &wallet,
+        &wallet,
+        &symbol_short!("XLM_USDC"),
+        &10_000,
+        &dispute_salt(&env),
+    );
     assert_eq!(res, Err(Ok(Error::FeeTokenNotSet)));
 }
 
@@ -158,7 +220,7 @@ fn test_resolve_admin_returns_bond_and_corrects_score() {
     let token = TokenClient::new(&f.env, &f.token);
     let bond: i128 = 10_000;
 
-    f.client.open_score_dispute(&f.challenger, &f.pair, &bond);
+    open_dispute(&f, &f.challenger, &f.pair, bond);
     f.client.resolve_dispute_admin(&Vec::new(&f.env), &f.challenger, &f.pair, &25);
 
     // Bond fully returned, no bonus.
@@ -180,7 +242,7 @@ fn test_resolve_admin_nonexistent_dispute_rejected() {
 #[test]
 fn test_resolve_admin_invalid_score_rejected() {
     let f = setup(1_000_000, 1_000_000);
-    f.client.open_score_dispute(&f.challenger, &f.pair, &10_000);
+    open_dispute(&f, &f.challenger, &f.pair, 10_000);
     let res = f.client.try_resolve_dispute_admin(&Vec::new(&f.env), &f.challenger, &f.pair, &101);
     assert_eq!(res, Err(Ok(Error::InvalidScore)));
 }
@@ -196,14 +258,14 @@ fn test_resolve_admin_requires_m_of_n_auth() {
     f.client.add_admin_signer(&Vec::new(&f.env), &signer_b);
     f.client.set_admin_threshold(&Vec::new(&f.env), &2);
 
-    f.client.open_score_dispute(&f.challenger, &f.pair, &10_000);
+    open_dispute(&f, &f.challenger, &f.pair, 10_000);
 
     // Too few signers → rejected even with mock_all_auths (count is checked
     // before any require_auth).
     let mut one = Vec::new(&f.env);
     one.push_back(signer_a.clone());
     let res = f.client.try_resolve_dispute_admin(&one, &f.challenger, &f.pair, &25);
-    assert_eq!(res, Err(Ok(Error::InsufficientAdminSigners)));
+    assert_eq!(res, Err(Ok(Error::Unauthorized)));
 
     // Full quorum succeeds.
     let mut both = Vec::new(&f.env);
@@ -223,7 +285,7 @@ fn test_resolve_timeout_returns_bond_with_bonus() {
     let bond: i128 = 10_000;
     let bonus = bond * BONUS_PCT / 100;
 
-    f.client.open_score_dispute(&f.challenger, &f.pair, &bond);
+    open_dispute(&f, &f.challenger, &f.pair, bond);
 
     // Advance past the deadline.
     f.env.ledger().with_mut(|l| l.timestamp += CHALLENGE_PERIOD_SECS + 1);
@@ -240,7 +302,7 @@ fn test_resolve_timeout_returns_bond_with_bonus() {
 #[test]
 fn test_resolve_timeout_before_deadline_rejected() {
     let f = setup(1_000_000, 1_000_000);
-    f.client.open_score_dispute(&f.challenger, &f.pair, &10_000);
+    open_dispute(&f, &f.challenger, &f.pair, 10_000);
 
     let res = f.client.try_resolve_dispute_timeout(&f.challenger, &f.pair);
     assert_eq!(res, Err(Ok(Error::DisputeNotYetTimedOut)));
@@ -266,8 +328,8 @@ fn test_get_open_disputes_tracks_multiple_pairs() {
     let f = setup(1_000_000, 1_000_000);
     let other = symbol_short!("BTC_USDC");
 
-    f.client.open_score_dispute(&f.challenger, &f.pair, &10_000);
-    f.client.open_score_dispute(&f.challenger, &other, &5_000);
+    open_dispute(&f, &f.challenger, &f.pair, 10_000);
+    open_dispute(&f, &f.challenger, &other, 5_000);
     assert_eq!(f.client.get_open_disputes().len(), 2);
 
     // Resolving one removes only that entry.
@@ -280,7 +342,7 @@ fn test_get_open_disputes_tracks_multiple_pairs() {
 #[test]
 fn test_dispute_emits_events() {
     let f = setup(1_000_000, 1_000_000);
-    f.client.open_score_dispute(&f.challenger, &f.pair, &10_000);
+    open_dispute(&f, &f.challenger, &f.pair, 10_000);
     // An event was published for the open.
     assert!(!f.env.events().all().is_empty());
 

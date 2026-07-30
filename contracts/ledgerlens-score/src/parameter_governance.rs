@@ -1,4 +1,11 @@
 //! Validation and application logic for time-locked parameter change proposals.
+//!
+//! The signer-set authorization checks that gate `propose_parameter_change` /
+//! `execute_parameter_change` / `veto_parameter_change` live in `lib.rs`
+//! (`require_admin_auth`, `require_service_signers_auth`) rather than here —
+//! this module only validates and applies an already-authorized change. See
+//! `Self::validate_signer_set` in `lib.rs` for the structured
+//! authorization-denial telemetry added in issue #694.
 
 use soroban_sdk::{symbol_short, Bytes, Env, Symbol};
 

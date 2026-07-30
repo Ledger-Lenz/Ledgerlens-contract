@@ -182,6 +182,6 @@ fn test_reset_breach_counter_multisig_insufficient_signers_fails() {
 
     let one_signer = signers_vec(&env, &[s1]);
     let result = client.try_reset_breach_counter(&one_signer, &wallet, &pair);
-    assert_eq!(result, Err(Ok(Error::InsufficientAdminSigners)));
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
     assert_eq!(client.get_breach_count(&wallet, &pair), 1);
 }

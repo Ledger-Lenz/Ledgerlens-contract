@@ -111,7 +111,7 @@ fn fewer_than_threshold_fails_with_insufficient_signers() {
     let pair = dummy_pair(&env);
     let signers = vec![&env, signer_a.clone()];
     let err = submit(&client, &signers, &wallet, &pair, 40).unwrap_err();
-    assert_eq!(err, Ok(Error::InsufficientSigners));
+    assert_eq!(err, Ok(Error::Unauthorized));
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn unknown_signer_fails_with_unauthorized_signer() {
     let stranger = Address::generate(&env);
     let signers = vec![&env, stranger];
     let err = submit(&client, &signers, &wallet, &pair, 50).unwrap_err();
-    assert_eq!(err, Ok(Error::UnauthorizedSigner));
+    assert_eq!(err, Ok(Error::Unauthorized));
 }
 
 #[test]

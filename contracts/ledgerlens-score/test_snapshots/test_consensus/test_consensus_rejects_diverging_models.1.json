@@ -358,6 +358,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AdminAuditRoot"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "ConsEpsilon"
                             }
                           ]
@@ -1034,7 +1046,23 @@
                                   "symbol": "commitment"
                                 },
                                 "val": {
-                                  "bytes": "cc31b9b91ef3081686d4ec2611bbdfff06114b2933d7ec229000c8e2a2be313a"
+                                  "bytes": "b866fc3689c82db9d46dfb343c3c70d9da1ab07ad960edf4dcb524353c498009"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "contract_id"
+                                },
+                                "val": {
+                                  "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "contract_version"
+                                },
+                                "val": {
+                                  "u32": 4
                                 }
                               },
                               {
@@ -1050,7 +1078,7 @@
                                   "symbol": "signature"
                                 },
                                 "val": {
-                                  "bytes": "3ae6dc1afa0fb9d70e97112e89ac38edb2ae7b6302ca9825e08cdada59281484442d4929ce2ceaf867582a0a6cecfd409b946f0942123f0aa737b2b9812f8e2801"
+                                  "bytes": "234194f910b65f496c0b9a15881d90187c91311ce1e781fc5cb52b383a13bae23122fb5b3f5c7435f8b032d1e60ca9d9c1bca6fd453e8d7116c8fe6ae7b4807800"
                                 }
                               }
                             ]
@@ -1119,7 +1147,23 @@
                                   "symbol": "commitment"
                                 },
                                 "val": {
-                                  "bytes": "f63b65f03717a80bd1b204f54c143f4a6559f784a5080102cfd107ef8ac68086"
+                                  "bytes": "0700a49529715d4639b89390460b9e7d1c4a058743f90d8cc0e91bd48010fe5d"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "contract_id"
+                                },
+                                "val": {
+                                  "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "contract_version"
+                                },
+                                "val": {
+                                  "u32": 4
                                 }
                               },
                               {
@@ -1127,7 +1171,7 @@
                                   "symbol": "nonce"
                                 },
                                 "val": {
-                                  "u64": 0
+                                  "u64": 1
                                 }
                               },
                               {
@@ -1135,7 +1179,7 @@
                                   "symbol": "signature"
                                 },
                                 "val": {
-                                  "bytes": "57f0e1636a0caa57b240e93c937f5617b6a5b6de99b736c42a9c677e881df0a22df609af33d43d7c2c5aa956d4c084e86c97812f1a30a82dc960326f787f277000"
+                                  "bytes": "f2510a2ac103d322217835339485ab825a699a308698d471004f685add24fad43530fd4b5da289203bd34dd58bc9d9cf25820d7326fcc098e88fd44292ebadc601"
                                 }
                               }
                             ]
@@ -1204,7 +1248,23 @@
                                   "symbol": "commitment"
                                 },
                                 "val": {
-                                  "bytes": "a7f89c6cffd5815bf605e73e50aeea125016cd452e3e1a37db5c637bdd48a3d4"
+                                  "bytes": "ac59e4dcae1f262011e18b734bbbb8510d4932f007430a6af6a67d2400ceb559"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "contract_id"
+                                },
+                                "val": {
+                                  "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "contract_version"
+                                },
+                                "val": {
+                                  "u32": 4
                                 }
                               },
                               {
@@ -1212,7 +1272,7 @@
                                   "symbol": "nonce"
                                 },
                                 "val": {
-                                  "u64": 0
+                                  "u64": 2
                                 }
                               },
                               {
@@ -1220,7 +1280,7 @@
                                   "symbol": "signature"
                                 },
                                 "val": {
-                                  "bytes": "b7758f33728367ac1388fa67f28484017c6a598a2da373262c82f4aa941761905a1e83cd46a4ee38927a9446204523f0981b85f652dafc4310bb9bc775a56d7200"
+                                  "bytes": "e7cc5d648c29b9ff43decc1a67c26e4335612db7f8a8664547501a7825931f726b7940234986b566112f1018c1bc02a17d88eb3cd2fc2b76dd093fe26d6c0d1f00"
                                 }
                               }
                             ]
@@ -1402,7 +1462,23 @@
                                       "symbol": "commitment"
                                     },
                                     "val": {
-                                      "bytes": "cc31b9b91ef3081686d4ec2611bbdfff06114b2933d7ec229000c8e2a2be313a"
+                                      "bytes": "b866fc3689c82db9d46dfb343c3c70d9da1ab07ad960edf4dcb524353c498009"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "contract_id"
+                                    },
+                                    "val": {
+                                      "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "contract_version"
+                                    },
+                                    "val": {
+                                      "u32": 4
                                     }
                                   },
                                   {
@@ -1418,7 +1494,7 @@
                                       "symbol": "signature"
                                     },
                                     "val": {
-                                      "bytes": "3ae6dc1afa0fb9d70e97112e89ac38edb2ae7b6302ca9825e08cdada59281484442d4929ce2ceaf867582a0a6cecfd409b946f0942123f0aa737b2b9812f8e2801"
+                                      "bytes": "234194f910b65f496c0b9a15881d90187c91311ce1e781fc5cb52b383a13bae23122fb5b3f5c7435f8b032d1e60ca9d9c1bca6fd453e8d7116c8fe6ae7b4807800"
                                     }
                                   }
                                 ]
@@ -1487,7 +1563,23 @@
                                       "symbol": "commitment"
                                     },
                                     "val": {
-                                      "bytes": "f63b65f03717a80bd1b204f54c143f4a6559f784a5080102cfd107ef8ac68086"
+                                      "bytes": "0700a49529715d4639b89390460b9e7d1c4a058743f90d8cc0e91bd48010fe5d"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "contract_id"
+                                    },
+                                    "val": {
+                                      "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "contract_version"
+                                    },
+                                    "val": {
+                                      "u32": 4
                                     }
                                   },
                                   {
@@ -1495,7 +1587,7 @@
                                       "symbol": "nonce"
                                     },
                                     "val": {
-                                      "u64": 0
+                                      "u64": 1
                                     }
                                   },
                                   {
@@ -1503,7 +1595,7 @@
                                       "symbol": "signature"
                                     },
                                     "val": {
-                                      "bytes": "57f0e1636a0caa57b240e93c937f5617b6a5b6de99b736c42a9c677e881df0a22df609af33d43d7c2c5aa956d4c084e86c97812f1a30a82dc960326f787f277000"
+                                      "bytes": "f2510a2ac103d322217835339485ab825a699a308698d471004f685add24fad43530fd4b5da289203bd34dd58bc9d9cf25820d7326fcc098e88fd44292ebadc601"
                                     }
                                   }
                                 ]
@@ -1572,7 +1664,23 @@
                                       "symbol": "commitment"
                                     },
                                     "val": {
-                                      "bytes": "a7f89c6cffd5815bf605e73e50aeea125016cd452e3e1a37db5c637bdd48a3d4"
+                                      "bytes": "ac59e4dcae1f262011e18b734bbbb8510d4932f007430a6af6a67d2400ceb559"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "contract_id"
+                                    },
+                                    "val": {
+                                      "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "contract_version"
+                                    },
+                                    "val": {
+                                      "u32": 4
                                     }
                                   },
                                   {
@@ -1580,7 +1688,7 @@
                                       "symbol": "nonce"
                                     },
                                     "val": {
-                                      "u64": 0
+                                      "u64": 2
                                     }
                                   },
                                   {
@@ -1588,7 +1696,7 @@
                                       "symbol": "signature"
                                     },
                                     "val": {
-                                      "bytes": "b7758f33728367ac1388fa67f28484017c6a598a2da373262c82f4aa941761905a1e83cd46a4ee38927a9446204523f0981b85f652dafc4310bb9bc775a56d7200"
+                                      "bytes": "e7cc5d648c29b9ff43decc1a67c26e4335612db7f8a8664547501a7825931f726b7940234986b566112f1018c1bc02a17d88eb3cd2fc2b76dd093fe26d6c0d1f00"
                                     }
                                   }
                                 ]

@@ -1424,15 +1424,9 @@ fn test_batch_result_vec_length_matches_input() {
 // ── Contract version ──────────────────────────────────────────────────────────
 
 #[test]
-fn test_get_version_returns_three() {
+fn test_get_version_returns_current_contract_version() {
     let (_env, client, _admin, _service) = initialized();
-    assert_eq!(client.get_version(), 3);
-}
-
-#[test]
-fn test_get_contract_version_returns_three() {
-    let (_env, client, _admin, _service) = initialized();
-    assert_eq!(client.get_contract_version(), 3);
+    assert_eq!(client.get_version(), crate::constants::CONTRACT_VERSION);
 }
 
 // ── Not-initialized guards ────────────────────────────────────────────────────
@@ -1802,7 +1796,9 @@ fn test_multisig_submit_above_threshold() {
 
 #[test]
 fn test_multisig_submit_below_threshold() {
-    // M=2, N=3; provide 1 signer → InsufficientSigners.
+    // M=2, N=3; provide 1 signer → denied (#694: collapsed to a single
+    // generic Unauthorized so an outsider can't distinguish "too few" from
+    // "wrong signer" via the returned error — see test_auth_denial_telemetry.rs).
     let (env, client, admin, service) = setup();
     client.initialize(&admin, &service);
     let signers = setup_multisig(&env, &client, 3, 2);
@@ -1815,12 +1811,13 @@ fn test_multisig_submit_below_threshold() {
 
     let result =
         client.try_submit_score(&one, &wallet, &pair, &55, &false, &false, &1, &80, &1, &None);
-    assert_eq!(result, Err(Ok(Error::InsufficientSigners)));
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
 
 #[test]
 fn test_multisig_unauthorized_signer_rejected() {
-    // Address not in service set → UnauthorizedSigner.
+    // Address not in service set → denied (#694: collapsed to a single
+    // generic Unauthorized — see test_auth_denial_telemetry.rs).
     let (env, client, admin, service) = setup();
     client.initialize(&admin, &service);
     setup_multisig(&env, &client, 3, 2);
@@ -1835,7 +1832,7 @@ fn test_multisig_unauthorized_signer_rejected() {
 
     let result =
         client.try_submit_score(&signers, &wallet, &pair, &55, &false, &false, &1, &80, &1, &None);
-    assert_eq!(result, Err(Ok(Error::UnauthorizedSigner)));
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
 
 #[test]

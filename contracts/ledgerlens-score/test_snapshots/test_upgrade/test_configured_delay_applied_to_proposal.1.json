@@ -100,6 +100,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AdminAuditRoot"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "bytes": "fd303dba8f2a6c7193c9c101b2f21b7043590ea6bd5130748d8ded8041a7096a"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "PendingUpgrade"
                             }
                           ]
@@ -400,6 +412,26 @@
                   "bytes": "0707070707070707070707070707070707070707070707070707070707070707"
                 }
               ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "gov_app"
+              }
+            ],
+            "data": {
+              "bytes": "daf6d3e6ad66990aba2fae6e6c61f18b2d48f0ca6c29d2cfa19ab41f5a865231"
             }
           }
         }

@@ -214,14 +214,14 @@ fn test_commit_pending_score_is_permissionless() {
 #[test]
 fn test_auto_commit_score_after_window_succeeds() {
     let (env, client, _admin, _service) = setup();
-    client.set_escrow_hold_window(&Vec::new(&env), &60).unwrap();
+    client.set_escrow_hold_window(&Vec::new(&env), &60);
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
     submit(&env, &client, &wallet, &pair, 55);
     advance_to(&env, START_TS + 60);
 
-    client.auto_commit_score(&wallet, &pair).unwrap();
+    client.auto_commit_score(&wallet, &pair);
     assert_eq!(client.get_score(&wallet, &pair).score, 55);
     assert!(client.get_pending_score(&wallet, &pair).is_none());
 }
@@ -229,13 +229,13 @@ fn test_auto_commit_score_after_window_succeeds() {
 #[test]
 fn test_auto_commit_score_fails_after_cancel() {
     let (env, client, _admin, _service) = setup();
-    client.set_escrow_hold_window(&Vec::new(&env), &300).unwrap();
+    client.set_escrow_hold_window(&Vec::new(&env), &300);
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
     submit(&env, &client, &wallet, &pair, 70);
     advance_to(&env, START_TS + 100);
-    client.cancel_pending_score(&Vec::new(&env), &wallet, &pair).unwrap();
+    client.cancel_pending_score(&Vec::new(&env), &wallet, &pair);
 
     advance_to(&env, START_TS + 300);
     let result = client.try_auto_commit_score(&wallet, &pair);
@@ -246,7 +246,7 @@ fn test_auto_commit_score_fails_after_cancel() {
 #[test]
 fn test_replacement_submission_during_escrow_updates_pending() {
     let (env, client, _admin, _service) = setup();
-    client.set_escrow_hold_window(&Vec::new(&env), &300).unwrap();
+    client.set_escrow_hold_window(&Vec::new(&env), &300);
 
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
@@ -260,7 +260,7 @@ fn test_replacement_submission_during_escrow_updates_pending() {
     assert_eq!(pending.submitted_at, START_TS + 3_601);
 
     advance_to(&env, START_TS + 3_601 + 300);
-    client.auto_commit_score(&wallet, &pair).unwrap();
+    client.auto_commit_score(&wallet, &pair);
     assert_eq!(client.get_score(&wallet, &pair).score, 80);
     assert_eq!(client.get_score_count(&wallet, &pair), 1);
 }

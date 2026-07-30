@@ -41,6 +41,16 @@ fn pubkey_bytes(env: &Env, key: &SigningKey) -> Bytes {
     Bytes::from_slice(env, point.as_bytes())
 }
 
+fn contract_id_bytes(env: &Env, contract_id: &Address) -> BytesN<32> {
+    use soroban_sdk::xdr::ToXdr;
+    let xdr = contract_id.to_xdr(env);
+    let mut bytes = [0u8; 32];
+    if xdr.len() >= 32 {
+        xdr.slice(xdr.len() - 32..xdr.len()).copy_into_slice(&mut bytes);
+    }
+    BytesN::from_array(env, &bytes)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn commitment(
     env: &Env,
@@ -53,7 +63,9 @@ fn commitment(
     timestamp: u64,
     confidence: u32,
     model_version: u32,
+    nonce: u64,
 ) -> [u8; 32] {
+    let cid_bytes = contract_id_bytes(env, contract_id);
     env.as_contract(contract_id, || {
         LedgerLensScoreContract::compute_commitment(
             env,
@@ -65,7 +77,9 @@ fn commitment(
             timestamp,
             confidence,
             model_version,
-            0, // nonce for test
+            &cid_bytes,
+            crate::constants::CONTRACT_VERSION,
+            nonce,
         )
         .unwrap()
         .to_bytes()
@@ -73,7 +87,13 @@ fn commitment(
     })
 }
 
-fn attest(env: &Env, key: &SigningKey, digest: [u8; 32]) -> ScoreAttestation {
+fn attest(
+    env: &Env,
+    key: &SigningKey,
+    digest: [u8; 32],
+    contract_id: &Address,
+    nonce: u64,
+) -> ScoreAttestation {
     let Ok((sig, recid)) = key.sign_prehash_recoverable(&digest) else { panic!("sign failed") };
     let mut sig_bytes = [0u8; 65];
     sig_bytes[..64].copy_from_slice(&sig.to_bytes());
@@ -81,7 +101,9 @@ fn attest(env: &Env, key: &SigningKey, digest: [u8; 32]) -> ScoreAttestation {
     ScoreAttestation {
         commitment: BytesN::from_array(env, &digest),
         signature: BytesN::from_array(env, &sig_bytes),
-        nonce: 0,
+        contract_id: contract_id_bytes(env, contract_id),
+        contract_version: crate::constants::CONTRACT_VERSION,
+        nonce,
     }
 }
 
@@ -99,6 +121,7 @@ fn model_submission(
     ml_flag: bool,
     timestamp: u64,
     model_version: u32,
+    nonce: u64,
 ) -> ModelSubmission {
     let digest = commitment(
         env,
@@ -111,6 +134,7 @@ fn model_submission(
         timestamp,
         confidence,
         model_version,
+        nonce,
     );
     ModelSubmission {
         model_version,
@@ -119,7 +143,7 @@ fn model_submission(
         confidence,
         benford_flag,
         ml_flag,
-        attestation: attest(env, key, digest),
+        attestation: attest(env, key, digest, &client.address, nonce),
     }
 }
 
@@ -191,6 +215,7 @@ fn test_consensus_accepts_converging_models() {
         true,
         START_TS,
         11,
+        0u64,
     ));
     submissions.push_back(model_submission(
         &env,
@@ -205,6 +230,7 @@ fn test_consensus_accepts_converging_models() {
         true,
         START_TS,
         12,
+        1u64,
     ));
     submissions.push_back(model_submission(
         &env,
@@ -219,6 +245,7 @@ fn test_consensus_accepts_converging_models() {
         true,
         START_TS,
         13,
+        2u64,
     ));
 
     do_consensus(&env, &client, &wallet, &pair, &submissions, START_TS);
@@ -251,6 +278,7 @@ fn test_consensus_rejects_diverging_models() {
         false,
         START_TS,
         21,
+        0u64,
     ));
     submissions.push_back(model_submission(
         &env,
@@ -265,6 +293,7 @@ fn test_consensus_rejects_diverging_models() {
         true,
         START_TS,
         22,
+        1u64,
     ));
     submissions.push_back(model_submission(
         &env,
@@ -279,6 +308,7 @@ fn test_consensus_rejects_diverging_models() {
         true,
         START_TS,
         23,
+        2u64,
     ));
 
     let result = try_do_consensus(&env, &client, &wallet, &pair, &submissions, START_TS);
@@ -308,6 +338,7 @@ fn test_consensus_tampered_attestation_excluded() {
         true,
         START_TS,
         31,
+        0u64,
     ));
     submissions.push_back(model_submission(
         &env,
@@ -322,6 +353,7 @@ fn test_consensus_tampered_attestation_excluded() {
         true,
         START_TS,
         32,
+        1u64,
     ));
     let mut tampered = model_submission(
         &env,
@@ -336,6 +368,7 @@ fn test_consensus_tampered_attestation_excluded() {
         true,
         START_TS,
         33,
+        2u64,
     );
     let mut corrupted = tampered.attestation.commitment.to_array();
     corrupted[0] ^= 0xFF;
@@ -371,6 +404,7 @@ fn test_consensus_median_stored_correctly() {
         false,
         START_TS,
         41,
+        0u64,
     ));
     submissions.push_back(model_submission(
         &env,
@@ -385,6 +419,7 @@ fn test_consensus_median_stored_correctly() {
         false,
         START_TS,
         42,
+        1u64,
     ));
     submissions.push_back(model_submission(
         &env,
@@ -399,6 +434,7 @@ fn test_consensus_median_stored_correctly() {
         false,
         START_TS,
         43,
+        2u64,
     ));
     submissions.push_back(model_submission(
         &env,
@@ -413,6 +449,7 @@ fn test_consensus_median_stored_correctly() {
         true,
         START_TS,
         44,
+        3u64,
     ));
 
     do_consensus(&env, &client, &wallet, &pair, &submissions, START_TS);
@@ -455,6 +492,7 @@ fn test_consensus_snapshot() {
         false,
         START_TS,
         51,
+        0u64,
     ));
     submissions.push_back(model_submission(
         &env,
@@ -469,6 +507,7 @@ fn test_consensus_snapshot() {
         false,
         START_TS,
         52,
+        1u64,
     ));
     submissions.push_back(model_submission(
         &env,
@@ -483,12 +522,16 @@ fn test_consensus_snapshot() {
         true,
         START_TS,
         53,
+        2u64,
     ));
 
     do_consensus(&env, &client, &wallet, &pair, &submissions, START_TS);
 
     let stored = client.get_score(&wallet, &pair);
-    assert_eq!(stored.score, 70);
+    // Reputation-weighted mean of [68, 71, 70] with equal (fresh-signer)
+    // weights is the arithmetic mean 209/3 = 69 (integer division), not the
+    // median 70 — see `weighted_mean_score`.
+    assert_eq!(stored.score, 69);
     assert_eq!(stored.confidence, 90);
     assert!(stored.benford_flag);
     assert!(stored.ml_flag);
@@ -521,6 +564,7 @@ fn test_consensus_reveal_window_expired() {
         true,
         START_TS,
         11,
+        0u64,
     ));
 
     // Commit
@@ -582,6 +626,7 @@ fn test_consensus_commitment_mismatch() {
         true,
         START_TS,
         11,
+        0u64,
     ));
 
     let sub = submissions.get(0).unwrap();

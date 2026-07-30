@@ -164,6 +164,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AdminAuditRoot"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Service"
                             }
                           ]
@@ -516,7 +528,23 @@
                                   "symbol": "commitment"
                                 },
                                 "val": {
-                                  "bytes": "e4405564aa2b5616df2540c7807f0e87e2baefc39802f33d3b83d220e2ca4ce5"
+                                  "bytes": "4955225779158de093c1feddebd3b9bf6239f7dd40dfc22eeb85019acf4cb3c2"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "contract_id"
+                                },
+                                "val": {
+                                  "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "contract_version"
+                                },
+                                "val": {
+                                  "u32": 4
                                 }
                               },
                               {
@@ -532,7 +560,7 @@
                                   "symbol": "signature"
                                 },
                                 "val": {
-                                  "bytes": "60512b1ab48dd33c85d70b93bb2ea7f8447bd75c2fa79d854ca5faaaf1011ed57c622a305896fe6285708d4d8c2cc613f539afeafa36add292aa2cd6ffa1a1f201"
+                                  "bytes": "b4af5aa2375495cb3aa70ad7df6bae09076de29355da0e3953a5def0982d810551b0c01567b224a25a9e68a330fa2402c8dfe9f16239940a22982bb249b3115700"
                                 }
                               }
                             ]
@@ -708,7 +736,23 @@
                                       "symbol": "commitment"
                                     },
                                     "val": {
-                                      "bytes": "e4405564aa2b5616df2540c7807f0e87e2baefc39802f33d3b83d220e2ca4ce5"
+                                      "bytes": "4955225779158de093c1feddebd3b9bf6239f7dd40dfc22eeb85019acf4cb3c2"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "contract_id"
+                                    },
+                                    "val": {
+                                      "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "contract_version"
+                                    },
+                                    "val": {
+                                      "u32": 4
                                     }
                                   },
                                   {
@@ -724,7 +768,7 @@
                                       "symbol": "signature"
                                     },
                                     "val": {
-                                      "bytes": "60512b1ab48dd33c85d70b93bb2ea7f8447bd75c2fa79d854ca5faaaf1011ed57c622a305896fe6285708d4d8c2cc613f539afeafa36add292aa2cd6ffa1a1f201"
+                                      "bytes": "b4af5aa2375495cb3aa70ad7df6bae09076de29355da0e3953a5def0982d810551b0c01567b224a25a9e68a330fa2402c8dfe9f16239940a22982bb249b3115700"
                                     }
                                   }
                                 ]

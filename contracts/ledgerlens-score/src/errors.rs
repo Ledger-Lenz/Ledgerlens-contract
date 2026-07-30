@@ -97,4 +97,13 @@ impl Error {
     pub const InvalidParameterKey: Error = Error::InvalidThreshold;
     pub const InvalidParameterValue: Error = Error::InvalidScore;
     pub const InvalidParameterTimeLock: Error = Error::InvalidUpgradeDelay;
+
+    /// `submit_score` rejected because no submission epoch is open (see
+    /// `open_epoch` / `close_epoch`), or a same-ledger flash-protection
+    /// rejection under `FlashProtectionMode::Reject`. Aliases `ContractPaused`
+    /// — both mean "submissions are not currently accepted".
+    pub const EpochClosed: Error = Error::ContractPaused;
+    /// `get_portfolio_var` rejected because fewer than 2 asset pairs have a
+    /// live score for the wallet, or their combined weight is zero.
+    pub const InsufficientPairData: Error = Error::ScoreNotFound;
 }

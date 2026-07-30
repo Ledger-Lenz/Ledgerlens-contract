@@ -224,6 +224,9 @@ fn test_risk_score_xdr_stability() {
         timestamp: 1_700_000_000,
         confidence: 92,
         model_version: 3,
+        benford_score: 0,
+        ml_score: 0,
+        network_score: 0,
     };
 
     // Round-trip through the host `Val` representation. This exercises the

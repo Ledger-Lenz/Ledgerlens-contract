@@ -123,6 +123,23 @@ pub const DEFAULT_ESCALATION_THRESHOLD: u32 = 5;
 /// Hard upper bound on the number of model versions that can be registered.
 pub const MAX_MODEL_VERSIONS: u32 = 20;
 
+// ── HyperLogLog unique-wallet estimation ──────────────────────────────────────
+
+/// Register-count precision `set_hll_precision` uses when no override has
+/// been configured. `2^8 = 256` registers.
+pub const HLL_DEFAULT_PRECISION: u32 = 8;
+/// Lower bound accepted by `set_hll_precision`.
+pub const HLL_MIN_PRECISION: u32 = 4;
+/// Upper bound accepted by `set_hll_precision`.
+pub const HLL_MAX_PRECISION: u32 = 16;
+
+// ── Rate-limit override audit log ─────────────────────────────────────────────
+
+/// Maximum number of `override_rate_limit` entries retained by
+/// `get_rate_limit_override_log`; oldest entries are dropped once the cap is
+/// reached so the log stays bounded.
+pub const MAX_RATE_LIMIT_OVERRIDE_LOG: u32 = 200;
+
 // ── Score dispute mechanism ─────────────────────────────────────────────────────
 //
 // A wallet operator can stake the fee token to challenge a risk score it

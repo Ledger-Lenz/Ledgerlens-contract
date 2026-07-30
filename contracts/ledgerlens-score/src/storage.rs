@@ -6,12 +6,11 @@ use crate::constants::{
 };
 use crate::errors::Error;
 use crate::types::{
-    AggregateRiskScore, DataKey, DecayCurve, EmbargoExpiry, GateDataKey, JumpStats,
-    ModelVersionStats, PendingScoreEntry, RiskScore, ScoreDispute, ScoreFloorPolicy,
-    ScoreHistogram, ScoreTrend, ScoreVelocityCap, SubscorePayload, UpgradeProposal,
-    AggregateRiskScore, DataKey, EmbargoExpiry, GateDataKey, JumpStats, ModelVersionStats,
-    ParameterProposalRecord, ParameterProposalStatus, PendingScoreEntry, RiskScore, ScoreDispute,
-    ScoreFloorPolicy, ScoreHistogram, ScoreTrend, ScoreVelocityCap, UpgradeProposal,
+    AdaptiveRateLimit, AggregateRiskScore, DataKey, DecayCurve, EmbargoExpiry,
+    FlashProtectionMode, GateDataKey, HllSketch, JumpStats, ModelVersionStats,
+    PairVolatilityState, ParameterProposalRecord, ParameterProposalStatus, PendingScoreEntry,
+    RateLimitOverrideEntry, RiskScore, ScoreDispute, ScoreFloorPolicy, ScoreHistogram,
+    ScoreTrend, ScoreVelocityCap, SignerAccuracyRecord, SubscorePayload, UpgradeProposal,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Symbol, Vec};
 
@@ -965,12 +964,8 @@ pub fn set_unique_wallets_hll(env: &Env, asset_pair: &Symbol, sketch: &HllSketch
     env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
 }
 
-fn hll_default_precision() -> u8 {
-    8
-}
-
-fn hll_new_sketch(env: &Env, precision: u8) -> HllSketch {
-    let mut registers: Vec<u8> = Vec::new(env);
+fn hll_new_sketch(env: &Env, precision: u32) -> HllSketch {
+    let mut registers = Bytes::new(env);
     let len = 1u32 << precision;
     for _ in 0..len {
         registers.push_back(0);
@@ -984,10 +979,10 @@ fn hll_hash_wallet(env: &Env, wallet: &Address) -> [u8; 32] {
     wallet_str.copy_into_slice(&mut wallet_buf);
     let len = wallet_str.len().min(56) as usize;
     let bytes = soroban_sdk::Bytes::from_slice(env, &wallet_buf[..len]);
-    env.crypto().sha256(&bytes).to_bytes()
+    env.crypto().sha256(&bytes).to_bytes().to_array()
 }
 
-fn hll_register_index(hash: &[u8; 32], precision: u8) -> u32 {
+fn hll_register_index(hash: &[u8; 32], precision: u32) -> u32 {
     let mut index = 0u32;
     for bit in 0..precision as usize {
         let byte = hash[bit / 8];
@@ -997,7 +992,7 @@ fn hll_register_index(hash: &[u8; 32], precision: u8) -> u32 {
     index
 }
 
-fn hll_rho(hash: &[u8; 32], precision: u8) -> u8 {
+fn hll_rho(hash: &[u8; 32], precision: u32) -> u8 {
     let mut count = 1u8;
     let mut bit_pos = precision as usize;
     while bit_pos < 256 {
@@ -1012,7 +1007,7 @@ fn hll_rho(hash: &[u8; 32], precision: u8) -> u8 {
     count
 }
 
-fn hll_alpha(precision: u8) -> f64 {
+fn hll_alpha(precision: u32) -> f64 {
     let m = 1u64 << precision;
     let m_f = m as f64;
     0.7213 / (1.0 + 1.079 / m_f)
@@ -1031,10 +1026,10 @@ pub fn estimate_unique_wallets(env: &Env, asset_pair: &Symbol) -> u64 {
     let mut zeros = 0u32;
     for i in 0..sketch.registers.len() {
         let r = sketch.registers.get(i).unwrap();
-        if *r == 0 {
+        if r == 0 {
             zeros += 1;
         }
-        sum += 2.0_f64.powf(-(*r as f64));
+        sum += 2.0_f64.powf(-(r as f64));
     }
     let estimate = hll_alpha(sketch.precision) * (m as f64).powi(2) / sum;
     if zeros > 0 && estimate <= 2.5 * (m as f64) {
@@ -1047,16 +1042,41 @@ pub fn estimate_unique_wallets(env: &Env, asset_pair: &Symbol) -> u64 {
 
 fn update_unique_wallets_hll(env: &Env, asset_pair: &Symbol, wallet: &Address) {
     let mut sketch = get_unique_wallets_hll(env, asset_pair)
-        .unwrap_or_else(|| hll_new_sketch(env, hll_default_precision()));
+        .unwrap_or_else(|| hll_new_sketch(env, get_hll_precision(env)));
     let hash = hll_hash_wallet(env, wallet);
     let idx = hll_register_index(&hash, sketch.precision) as u32;
     let rank = hll_rho(&hash, sketch.precision);
     if let Some(current) = sketch.registers.get(idx) {
-        if rank > *current {
+        if rank > current {
             sketch.registers.set(idx, rank);
             set_unique_wallets_hll(env, asset_pair, &sketch);
         }
     }
+}
+
+/// Adds `wallet` to the per-`asset_pair` HyperLogLog sketch. Called once per
+/// (wallet, asset_pair) on the first successful submission.
+pub fn hll_update(env: &Env, asset_pair: &Symbol, wallet: &Address) {
+    update_unique_wallets_hll(env, asset_pair, wallet);
+}
+
+/// Estimates the number of unique wallets scored for `asset_pair`.
+pub fn hll_estimate(env: &Env, asset_pair: &Symbol) -> u64 {
+    estimate_unique_wallets(env, asset_pair)
+}
+
+/// Sets the register-count precision used when a *new* per-pair HLL sketch is
+/// created. Existing sketches keep the precision they were created with.
+pub fn set_hll_precision(env: &Env, precision: u32) {
+    env.storage().instance().set(&DataKey::HllPrecision, &precision);
+}
+
+/// Returns the configured HLL precision, defaulting to `HLL_DEFAULT_PRECISION`.
+pub fn get_hll_precision(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::HllPrecision)
+        .unwrap_or(crate::constants::HLL_DEFAULT_PRECISION)
 }
 
 // ── Score trend state ─────────────────────────────────────────────────────────
@@ -2162,6 +2182,8 @@ pub fn get_score_breakdown(
 ) -> Option<SubscorePayload> {
     let key = DataKey::ScoreBreakdown(wallet.clone(), asset_pair.clone());
     env.storage().persistent().get(&key)
+}
+
 // ── Per-pair score submission counter ────────────────────────────────────────
 
 /// Increments the running total of successful score submissions for
@@ -2204,4 +2226,278 @@ pub fn increment_total_wallets_scored(env: &Env) {
 /// protocol-health metric.
 pub fn get_total_wallets_scored(env: &Env) -> u64 {
     env.storage().instance().get(&DataKey::TotalWalletsScored).unwrap_or(0)
+}
+
+// ── Epoch sealing (#301) ──────────────────────────────────────────────────────
+
+/// Returns `true` when submissions are currently accepted. Defaults to `true`
+/// so contracts that never call `open_epoch`/`close_epoch` are unaffected —
+/// epoch sealing is an opt-in restriction, not an opt-in requirement.
+pub fn is_epoch_open(env: &Env) -> bool {
+    env.storage().instance().get(&DataKey::EpochOpen).unwrap_or(true)
+}
+
+pub fn set_epoch_open(env: &Env, open: bool) {
+    env.storage().instance().set(&DataKey::EpochOpen, &open);
+}
+
+pub fn get_current_epoch(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::CurrentEpoch).unwrap_or(0)
+}
+
+pub fn set_current_epoch(env: &Env, epoch_id: u32) {
+    env.storage().instance().set(&DataKey::CurrentEpoch, &epoch_id);
+}
+
+// ── Flash-loan / same-ledger gate-read protection (#300) ─────────────────────
+
+/// Returns the ledger sequence at which `query_risk_gate` last read
+/// `(wallet, asset_pair)`, or `None` if it has never been read.
+pub fn get_gate_read_ledger(env: &Env, wallet: &Address, asset_pair: &Symbol) -> Option<u32> {
+    let key = DataKey::GateReadLedger(wallet.clone(), asset_pair.clone());
+    env.storage().temporary().get(&key)
+}
+
+pub fn set_gate_read_ledger(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    let key = DataKey::GateReadLedger(wallet.clone(), asset_pair.clone());
+    env.storage().temporary().set(&key, &env.ledger().sequence());
+    env.storage().temporary().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+pub fn get_flash_protection_mode(env: &Env) -> FlashProtectionMode {
+    env.storage()
+        .instance()
+        .get(&DataKey::FlashProtectionModeKey)
+        .unwrap_or(FlashProtectionMode::Log)
+}
+
+pub fn set_flash_protection_mode(env: &Env, mode: &FlashProtectionMode) {
+    env.storage().instance().set(&DataKey::FlashProtectionModeKey, mode);
+}
+
+// ── Query-gate fee accounting ─────────────────────────────────────────────────
+
+pub fn set_gate_query_fee(env: &Env, amount: i128) {
+    env.storage().instance().set(&DataKey::GateQueryFee, &amount);
+}
+
+pub fn get_gate_query_fee(env: &Env) -> i128 {
+    env.storage().instance().get(&DataKey::GateQueryFee).unwrap_or(0)
+}
+
+pub fn get_accumulated_fees(env: &Env) -> i128 {
+    env.storage().instance().get(&DataKey::AccumulatedFees).unwrap_or(0)
+}
+
+pub fn add_accumulated_fees(env: &Env, amount: i128) {
+    let current = get_accumulated_fees(env);
+    env.storage().instance().set(&DataKey::AccumulatedFees, &current.saturating_add(amount));
+}
+
+/// Returns `true` when `query_risk_gate*` enforces the gate-caller allowlist
+/// (#302). Defaults to `false` (no enforcement) until an operator opts in.
+pub fn get_gate_enforcement_mode(env: &Env) -> bool {
+    env.storage().instance().get(&DataKey::GateEnforcementMode).unwrap_or(false)
+}
+
+pub fn set_gate_enforcement_mode(env: &Env, strict: bool) {
+    env.storage().instance().set(&DataKey::GateEnforcementMode, &strict);
+}
+
+// ── IQR outlier rejection (#297) ──────────────────────────────────────────────
+
+/// IQR rejection multiplier, scaled ×100 (e.g. `150` = 1.5×). Defaults to
+/// `150`, a conventional Tukey-fence multiplier.
+pub fn get_iqr_rejection_multiplier(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::IqrRejectionMultiplier).unwrap_or(150)
+}
+
+pub fn set_iqr_rejection_multiplier(env: &Env, multiplier: u32) {
+    env.storage().instance().set(&DataKey::IqrRejectionMultiplier, &multiplier);
+}
+
+pub fn increment_signer_rejection_count(env: &Env, signer: &Address) {
+    let key = DataKey::SignerRejectionCount(signer.clone());
+    let current: u32 = env.storage().instance().get(&key).unwrap_or(0);
+    env.storage().instance().set(&key, &(current + 1));
+}
+
+pub fn get_signer_rejection_count(env: &Env, signer: &Address) -> u32 {
+    env.storage().instance().get(&DataKey::SignerRejectionCount(signer.clone())).unwrap_or(0)
+}
+
+// ── Oracle adapter (#276) ─────────────────────────────────────────────────────
+
+pub fn get_registered_oracle(env: &Env, asset_pair: &Symbol) -> Option<Address> {
+    env.storage().instance().get(&DataKey::RegisteredOracle(asset_pair.clone()))
+}
+
+pub fn set_registered_oracle(env: &Env, asset_pair: &Symbol, oracle_contract: &Address) {
+    env.storage()
+        .instance()
+        .set(&DataKey::RegisteredOracle(asset_pair.clone()), oracle_contract);
+}
+
+pub fn remove_registered_oracle(env: &Env, asset_pair: &Symbol) {
+    env.storage().instance().remove(&DataKey::RegisteredOracle(asset_pair.clone()));
+}
+
+// ── Portfolio VaR: pair correlation matrix ────────────────────────────────────
+
+/// Correlation coefficient (×10 000) between two pairs. Symmetric — stored
+/// under a canonically ordered key so `(a, b)` and `(b, a)` resolve to the
+/// same entry. Defaults to `0` (uncorrelated).
+pub fn set_pair_correlation(env: &Env, pair_a: &Symbol, pair_b: &Symbol, corr: i32) {
+    let (a, b) = order_pair(pair_a, pair_b);
+    env.storage().instance().set(&DataKey::PairCorrelation(a, b), &corr);
+}
+
+pub fn get_pair_correlation(env: &Env, pair_a: &Symbol, pair_b: &Symbol) -> i32 {
+    let (a, b) = order_pair(pair_a, pair_b);
+    env.storage().instance().get(&DataKey::PairCorrelation(a, b)).unwrap_or(0)
+}
+
+fn order_pair(pair_a: &Symbol, pair_b: &Symbol) -> (Symbol, Symbol) {
+    if pair_a <= pair_b {
+        (pair_a.clone(), pair_b.clone())
+    } else {
+        (pair_b.clone(), pair_a.clone())
+    }
+}
+
+// ── Per-pair score volatility (#270) ──────────────────────────────────────────
+
+pub fn get_pair_volatility_state(env: &Env, asset_pair: &Symbol) -> Option<PairVolatilityState> {
+    env.storage().instance().get(&DataKey::PairVolatilityState(asset_pair.clone()))
+}
+
+pub fn set_pair_volatility_state(env: &Env, asset_pair: &Symbol, state: &PairVolatilityState) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PairVolatilityState(asset_pair.clone()), state);
+}
+
+/// Rolling window (seconds) used for volatility computation. Defaults to
+/// 86400 (24 hours).
+pub fn get_pair_volatility_window(env: &Env) -> u64 {
+    env.storage().instance().get(&DataKey::PairVolatilityWindow).unwrap_or(86_400)
+}
+
+pub fn set_pair_volatility_window(env: &Env, secs: u64) {
+    env.storage().instance().set(&DataKey::PairVolatilityWindow, &secs);
+}
+
+// ── Wallet risk cluster assignment (#288) ─────────────────────────────────────
+
+pub fn get_cluster_boundaries(env: &Env) -> Vec<u32> {
+    env.storage().instance().get(&DataKey::ClusterBoundaries).unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn set_cluster_boundaries(env: &Env, boundaries: &Vec<u32>) {
+    env.storage().instance().set(&DataKey::ClusterBoundaries, boundaries);
+}
+
+pub fn get_wallet_cluster(env: &Env, wallet: &Address) -> Option<u32> {
+    env.storage().instance().get(&DataKey::WalletCluster(wallet.clone()))
+}
+
+pub fn set_wallet_cluster(env: &Env, wallet: &Address, cluster: u32) {
+    env.storage().instance().set(&DataKey::WalletCluster(wallet.clone()), &cluster);
+}
+
+// ── Signer reputation (#274) ──────────────────────────────────────────────────
+
+pub fn get_signer_accuracy(env: &Env, signer: &Address) -> Option<SignerAccuracyRecord> {
+    env.storage().instance().get(&DataKey::SignerAccuracy(signer.clone()))
+}
+
+pub fn set_signer_accuracy(env: &Env, signer: &Address, record: &SignerAccuracyRecord) {
+    env.storage().instance().set(&DataKey::SignerAccuracy(signer.clone()), record);
+}
+
+pub fn remove_signer_accuracy(env: &Env, signer: &Address) {
+    env.storage().instance().remove(&DataKey::SignerAccuracy(signer.clone()));
+}
+
+// ── Adaptive consensus epsilon: scale-factor mode (#204) ─────────────────────
+
+pub fn set_adaptive_epsilon_scale_factor(env: &Env, scale_factor: u32) {
+    env.storage().instance().set(&DataKey::AdaptiveEpsilonScaleFactor, &scale_factor);
+}
+
+pub fn get_adaptive_epsilon_scale_factor(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::AdaptiveEpsilonScaleFactor).unwrap_or(0)
+}
+
+// ── Upgrade co-signature accumulator (#298) ───────────────────────────────────
+
+pub fn get_upgrade_approvals(env: &Env) -> Vec<Address> {
+    env.storage().instance().get(&DataKey::UpgradeApprovals).unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn set_upgrade_approvals(env: &Env, approvals: &Vec<Address>) {
+    env.storage().instance().set(&DataKey::UpgradeApprovals, approvals);
+}
+
+pub fn clear_upgrade_approvals(env: &Env) {
+    env.storage().instance().remove(&DataKey::UpgradeApprovals);
+}
+
+// ── Rate-limit override audit log ─────────────────────────────────────────────
+
+/// Appends `entry` to the bounded audit log, dropping the oldest entry once
+/// `MAX_RATE_LIMIT_OVERRIDE_LOG` is reached so storage stays bounded.
+pub fn append_rate_limit_override_log(env: &Env, entry: &RateLimitOverrideEntry) {
+    let mut log = get_rate_limit_override_log(env);
+    if log.len() >= crate::constants::MAX_RATE_LIMIT_OVERRIDE_LOG {
+        log.remove(0);
+    }
+    log.push_back(entry.clone());
+    env.storage().instance().set(&DataKey::RateLimitOverrideLog, &log);
+}
+
+pub fn get_rate_limit_override_log(env: &Env) -> Vec<RateLimitOverrideEntry> {
+    env.storage().instance().get(&DataKey::RateLimitOverrideLog).unwrap_or_else(|| Vec::new(env))
+}
+
+// ── Service-pubkey rotation overlap window (issue #697) ──────────────────────
+
+/// Stores the incoming pubkey and the ledger timestamp after which it
+/// becomes the sole accepted key (`overlap_expiry`). While `now <=
+/// overlap_expiry` both the active key and this pending key verify
+/// attestations; once elapsed, `verify_signature` promotes it to active and
+/// clears this entry.
+pub fn set_pending_service_pubkey(env: &Env, pubkey: &Bytes, overlap_expiry: u64) {
+    env.storage().instance().set(&DataKey::PendingServicePubKey, &(pubkey.clone(), overlap_expiry));
+}
+
+pub fn get_pending_service_pubkey(env: &Env) -> Option<(Bytes, u64)> {
+    env.storage().instance().get(&DataKey::PendingServicePubKey)
+}
+
+pub fn clear_pending_service_pubkey(env: &Env) {
+    env.storage().instance().remove(&DataKey::PendingServicePubKey);
+}
+
+/// Compares a recovered secp256k1 public key (always 65-byte uncompressed)
+/// against a stored key that may be 33-byte compressed or 65-byte
+/// uncompressed, using the same compression logic as `verify_signature`.
+pub fn pubkeys_match(recovered: &BytesN<65>, stored: &Bytes) -> bool {
+    match stored.len() {
+        65 => {
+            let mut stored_arr = [0u8; 65];
+            stored.copy_into_slice(&mut stored_arr);
+            recovered.to_array() == stored_arr
+        }
+        33 => {
+            let recovered_arr = recovered.to_array();
+            let mut compressed = [0u8; 33];
+            compressed[0] = if recovered_arr[64] % 2 == 0 { 0x02 } else { 0x03 };
+            compressed[1..33].copy_from_slice(&recovered_arr[1..33]);
+            let mut stored_arr = [0u8; 33];
+            stored.copy_into_slice(&mut stored_arr);
+            compressed == stored_arr
+        }
+        _ => false,
+    }
 }

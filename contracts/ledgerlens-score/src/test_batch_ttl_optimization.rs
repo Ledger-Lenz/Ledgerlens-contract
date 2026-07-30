@@ -53,6 +53,9 @@ fn risk_score(sub: &ScoreSubmission) -> RiskScore {
         timestamp: sub.timestamp,
         confidence: sub.confidence,
         model_version: sub.model_version,
+        benford_score: 0,
+        ml_score: 0,
+        network_score: 0,
     }
 }
 
@@ -129,6 +132,9 @@ fn test_lazy_ttl_skips_extend_when_entry_is_fresh() {
             timestamp: 1_700_000_000,
             confidence: 90,
             model_version: 1,
+            benford_score: 0,
+            ml_score: 0,
+            network_score: 0,
         };
         storage::set_score(&env, &wallet, &pair, &score);
 

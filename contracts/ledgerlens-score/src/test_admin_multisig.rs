@@ -102,7 +102,7 @@ fn test_require_admin_auth_multisig_success() {
     assert_eq!(client.get_risk_threshold(), 60);
 }
 
-// ── 6. Providing fewer than M signers returns InsufficientAdminSigners ────────
+// ── 6. Providing fewer than M signers is denied ────────────────────────────────
 
 #[test]
 fn test_require_admin_auth_insufficient_signers() {
@@ -113,13 +113,15 @@ fn test_require_admin_auth_insufficient_signers() {
     client.add_admin_signer(&Vec::new(&env), &s2);
     client.set_admin_threshold(&Vec::new(&env), &2);
 
-    // Supplying only 1 signer when threshold is 2.
+    // Supplying only 1 signer when threshold is 2. #694: collapsed to a
+    // single generic Unauthorized — see test_auth_denial_telemetry.rs for
+    // the event-schema and anti-probing coverage.
     let one_signer = signers_vec(&env, core::slice::from_ref(&s1));
     let result = client.try_set_risk_threshold(&one_signer, &50);
-    assert_eq!(result, Err(Ok(Error::InsufficientAdminSigners)));
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
 
-// ── 7. Zero signers in multisig mode returns InsufficientAdminSigners ─────────
+// ── 7. Zero signers in multisig mode is denied ─────────────────────────────────
 
 #[test]
 fn test_require_admin_auth_zero_signers_in_multisig_mode() {
@@ -132,10 +134,10 @@ fn test_require_admin_auth_zero_signers_in_multisig_mode() {
 
     // Zero signers when threshold > 0.
     let result = client.try_pause(&Vec::new(&env));
-    assert_eq!(result, Err(Ok(Error::InsufficientAdminSigners)));
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
 
-// ── 8. Signer not in the admin set returns AdminSignerNotInSet ────────────────
+// ── 8. Signer not in the admin set is denied ───────────────────────────────────
 
 #[test]
 fn test_require_admin_auth_signer_not_in_set() {
@@ -144,10 +146,14 @@ fn test_require_admin_auth_signer_not_in_set() {
     client.add_admin_signer(&Vec::new(&env), &s1);
     client.set_admin_threshold(&Vec::new(&env), &1);
 
+    // #694: this used to return AdminSignerNotInSet, which let an
+    // unauthenticated caller fingerprint individual admin-set members by
+    // probing single candidate addresses. Now collapsed to the same
+    // Unauthorized returned for "too few signers".
     let outsider = Address::generate(&env);
     let bad_signers = signers_vec(&env, &[outsider]);
     let result = client.try_pause(&bad_signers);
-    assert_eq!(result, Err(Ok(Error::AdminSignerNotInSet)));
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
 
 // ── 9. Remove signer auto-adjusts threshold ───────────────────────────────────

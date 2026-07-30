@@ -119,6 +119,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AdminAuditRoot"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "bytes": "05c7d26c0980b9541d546f766cf9196dc1d336c9b5aca8e2f3975a8c687f5496"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "PendingUpgrade"
                             }
                           ]
@@ -401,6 +413,26 @@
           "v0": {
             "topics": [
               {
+                "symbol": "gov_app"
+              }
+            ],
+            "data": {
+              "bytes": "daf6d3e6ad66990aba2fae6e6c61f18b2d48f0ca6c29d2cfa19ab41f5a865231"
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
                 "symbol": "upg_prop"
               }
             ],
@@ -534,6 +566,26 @@
                   "bytes": "0707070707070707070707070707070707070707070707070707070707070707"
                 }
               ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "gov_app"
+              }
+            ],
+            "data": {
+              "bytes": "db52ccae0f51c90bf826fbff5299cf89d3be30b40eeb008a7abdcc12a173cc9c"
             }
           }
         }

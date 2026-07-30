@@ -128,6 +128,10 @@ pub struct ScoreAttestation {
     pub signature: BytesN<65>,
     pub contract_id: BytesN<32>,
     pub contract_version: u32,
+    /// Per-signer replay-protection nonce. Bound into the signed digest (see
+    /// `compute_commitment`) and cross-checked against `SignerNonce` storage
+    /// so a captured, previously-valid attestation cannot be resubmitted.
+    pub nonce: u64,
 }
 
 /// Threshold-signature attestation: t-of-n signers produce one 65-byte proof.
@@ -140,6 +144,9 @@ pub struct ThresholdAttestation {
     pub participating_signers: soroban_sdk::Vec<Address>,
     pub contract_id: BytesN<32>,
     pub contract_version: u32,
+    /// Shared replay-protection nonce checked against every participating
+    /// signer's `SignerNonce` entry. Bound into the signed digest.
+    pub nonce: u64,
 }
 
 /// Unified attestation input for `submit_score`.
@@ -185,8 +192,83 @@ pub struct PendingScoreEntry {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HllSketch {
-    pub precision: u8,
-    pub registers: Vec<u8>,
+    pub precision: u32,
+    /// Register bucket bytes. `Bytes` (not `Vec<u8>`) because Soroban's
+    /// typed `Vec<T>` does not support raw `u8` elements.
+    pub registers: Bytes,
+}
+
+/// Adaptive rate-limit configuration: scales the submission cooldown by the
+/// current global score variance when `enabled`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdaptiveRateLimit {
+    pub enabled: bool,
+    pub variance_scale: u32,
+}
+
+/// Rolling accuracy record for a consensus signer, tracking how far their
+/// submissions deviate from the accepted consensus median (issue #274).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SignerAccuracyRecord {
+    pub count: u64,
+    /// Rolling mean absolute deviation, scaled ×1000.
+    pub mad_scaled: u64,
+}
+
+/// Incremental Welford accumulator for per-pair score volatility (issue #270).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PairVolatilityState {
+    pub count: u32,
+    pub mean_scaled: i64,
+    pub m2_scaled: i64,
+    pub last_updated: u64,
+}
+
+/// Audit-log entry recorded by `override_rate_limit`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateLimitOverrideEntry {
+    pub admin: Address,
+    pub wallet: Address,
+    pub asset_pair: Symbol,
+    pub timestamp: u64,
+    pub justification_hash: BytesN<32>,
+}
+
+/// Coarse, non-identifying category for a denied privileged-call
+/// authorization check (issue #694). Deliberately collapses "which signer
+/// was invalid" and "how many were invalid" into two buckets so that a
+/// caller who does not already control a full quorum of real signer keys
+/// cannot use the returned category — or the [`crate::events::authorization_denied`]
+/// event emitted alongside it — to fingerprint individual members of the
+/// admin/service signer set.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum AuthDenialReason {
+    /// The supplied signer count was outside the valid range for the
+    /// configured threshold (too few, or more than the set could ever
+    /// contain). This only restates information already public via
+    /// `get_admin_threshold` / `get_service_threshold`.
+    InvalidSignerCount,
+    /// The supplied signer set did not fully validate: at least one entry
+    /// was not a member of the configured set, had expired, or the
+    /// cryptographic authorization check failed. Deliberately does not
+    /// indicate which entry, or how many.
+    SignerValidationFailed,
+}
+
+/// Flash-loan / same-ledger gate-read protection mode (issue #300).
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum FlashProtectionMode {
+    /// Emit `flash_sub` event but allow the submission (default).
+    Log = 0,
+    /// Reject the submission outright.
+    Reject = 1,
 }
 
 #[contracttype]
@@ -521,6 +603,65 @@ pub enum DataKey {
     /// Running total of unique (wallet, asset_pair) combinations ever scored.
     /// Incremented on the *first* successful submission for each new combination.
     TotalWalletsScored,
+    /// Per-asset-pair HyperLogLog sketch for unique-wallet estimation.
+    UniqueWalletsHll(Symbol),
+    /// Configured HLL register-count precision (issue: HLL precision control).
+    HllPrecision,
+    /// Adaptive rate-limit configuration (scales cooldown by score variance).
+    AdaptiveRateLimit,
+    /// Merkle audit root chaining every privileged admin governance action.
+    AdminAuditRoot,
+    /// Next unused parameter-change proposal id.
+    ParameterProposalNextId,
+    /// A single parameter-change proposal record, keyed by proposal id.
+    ParameterProposal(u64),
+    /// Ids of all currently pending (not yet executed/vetoed/expired) proposals.
+    PendingParameterProposalIds,
+    /// Current submission epoch id (#301).
+    CurrentEpoch,
+    /// Whether the current epoch accepts submissions (#301).
+    EpochOpen,
+    /// Ledger sequence at which `query_risk_gate` last read `(wallet, asset_pair)`,
+    /// used for same-ledger flash-loan protection (#300).
+    GateReadLedger(Address, Symbol),
+    /// Per-query fee (fee-token stroops) charged by `query_risk_gate`.
+    GateQueryFee,
+    /// Running total of fees collected via `query_risk_gate`.
+    AccumulatedFees,
+    /// Whether `query_risk_gate*` enforces the gate-caller allowlist (#302).
+    GateEnforcementMode,
+    /// Flash-loan / same-ledger gate-read protection mode (#300).
+    FlashProtectionModeKey,
+    /// Accumulator of admin co-signatures for the pending upgrade proposal (#298).
+    UpgradeApprovals,
+    /// Bounded audit log of `override_rate_limit` calls.
+    RateLimitOverrideLog,
+    /// IQR outlier-rejection multiplier for consensus scoring, scaled ×100 (#297).
+    IqrRejectionMultiplier,
+    /// Count of times a signer's submission was rejected as an IQR outlier.
+    SignerRejectionCount(Address),
+    /// Registered price-oracle adapter contract for an asset pair (#276).
+    RegisteredOracle(Symbol),
+    /// Correlation coefficient (×10 000) between two asset pairs, for portfolio VaR.
+    PairCorrelation(Symbol, Symbol),
+    /// Incremental Welford accumulator for per-pair score volatility (#270).
+    PairVolatilityState(Symbol),
+    /// Rolling window (seconds) used for per-pair volatility computation.
+    PairVolatilityWindow,
+    /// Ordered ascending score-cluster boundaries (#288).
+    ClusterBoundaries,
+    /// Cluster index last assigned to a wallet (#288).
+    WalletCluster(Address),
+    /// Rolling accuracy record for a consensus signer (#274).
+    SignerAccuracy(Address),
+    /// Pending service-pubkey rotation: `(new_key, overlap_expiry)`.
+    PendingServicePubKey,
+    /// Scale factor for the adaptive-consensus-epsilon scale-factor mode (#204).
+    AdaptiveEpsilonScaleFactor,
+    /// Test-only counter of `extend_ttl` calls, used to assert TTL-renewal
+    /// call counts in `#[cfg(test)]` builds.
+    #[cfg(test)]
+    TestExtendCount,
 }
 
 impl DataKey {
@@ -639,6 +780,7 @@ impl DataKey {
             DataKey::JumpStats(w, s) => k2!("JumpStats", w, s),
             DataKey::FeeRecipient => k0!("FeeRecipient"),
             DataKey::EmbargoedWalletIndex => k0!("EmbargoedWIndex"),
+            DataKey::ActiveEmbargoCount => k0!("ActiveEmbargoCnt"),
             DataKey::DecayCurveConfig => k0!("DecayCurveConf"),
             DataKey::DecayCheckpoint(a, s) => k2!("DecayChkpt", a, s),
             DataKey::DormancyInactivitySecs => k0!("DrmInactSecs"),
@@ -648,6 +790,34 @@ impl DataKey {
             DataKey::ScoreBreakdown(a, s) => k2!("ScoreBreak", a, s),
             DataKey::PairScoreCount(s) => k1!("PairScoreCnt", s),
             DataKey::TotalWalletsScored => k0!("TotalWalletsScored"),
+            DataKey::HllPrecision => k0!("HllPrecision"),
+            DataKey::AdaptiveRateLimit => k0!("AdaptRateLimit"),
+            DataKey::AdminAuditRoot => k0!("AdminAuditRoot"),
+            DataKey::ParameterProposalNextId => k0!("ParamPropNextId"),
+            DataKey::ParameterProposal(id) => k1!("ParamProposal", id),
+            DataKey::PendingParameterProposalIds => k0!("PendParamPropIds"),
+            DataKey::CurrentEpoch => k0!("CurrentEpoch"),
+            DataKey::EpochOpen => k0!("EpochOpen"),
+            DataKey::GateReadLedger(a, s) => k2!("GateReadLedger", a, s),
+            DataKey::GateQueryFee => k0!("GateQueryFee"),
+            DataKey::AccumulatedFees => k0!("AccumFees"),
+            DataKey::GateEnforcementMode => k0!("GateEnfMode"),
+            DataKey::FlashProtectionModeKey => k0!("FlashProtMode"),
+            DataKey::UpgradeApprovals => k0!("UpgradeApprovals"),
+            DataKey::RateLimitOverrideLog => k0!("RlOverrideLog"),
+            DataKey::IqrRejectionMultiplier => k0!("IqrRejMult"),
+            DataKey::SignerRejectionCount(a) => k1!("SignerRejCnt", a),
+            DataKey::RegisteredOracle(s) => k1!("RegOracle", s),
+            DataKey::PairCorrelation(a, b) => k2!("PairCorr", a, b),
+            DataKey::PairVolatilityState(s) => k1!("PairVolState", s),
+            DataKey::PairVolatilityWindow => k0!("PairVolWindow"),
+            DataKey::ClusterBoundaries => k0!("ClusterBounds"),
+            DataKey::WalletCluster(a) => k1!("WalletCluster", a),
+            DataKey::SignerAccuracy(a) => k1!("SignerAccuracy", a),
+            DataKey::PendingServicePubKey => k0!("PendSvcPubKey"),
+            DataKey::AdaptiveEpsilonScaleFactor => k0!("AdaptEpsScale"),
+            #[cfg(test)]
+            DataKey::TestExtendCount => k0!("TestExtendCnt"),
         }
     }
 }
@@ -741,11 +911,4 @@ pub struct ScoreWithFinality {
     /// elapsed since the score was submitted — consumers should treat the
     /// score as provisional.
     pub finality_pending: bool,
-/// Configurable score decay profile.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DecayProfile {
-    Linear { lambda_num: u32, lambda_den: u32 },
-    Exponential { half_life_secs: u64 },
-    Step { steps: Vec<(u64, u32)> },
 }

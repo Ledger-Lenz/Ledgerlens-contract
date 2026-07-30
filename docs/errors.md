@@ -69,8 +69,10 @@ Soroban contract errors are returned as `u32` discriminant values. When a transa
 
 | Code | Name | Description | When returned | Client action |
 |-----:|------|-------------|---------------|---------------|
-| 14 | `InsufficientSigners` | Fewer than M signers were provided | `submit_score`, `submit_consensus_score`, or `submit_scores_batch_attested` when `signers.len() < threshold` | Include at least `threshold` valid signers. Check `get_service_threshold()`. |
-| 15 | `UnauthorizedSigner` | A signer is not in the service set | `submit_score`, `submit_consensus_score`, or `submit_scores_batch_attested` when a signer is not a member of the service set | Only include addresses added via `add_service_signer`. Check `get_service_signers()`. |
+| 14 | `InsufficientSigners` | Reserved — no longer returned by the service-signer gate. | N/A since #694 | See `Unauthorized` (3). |
+| 15 | `UnauthorizedSigner` | Reserved — no longer returned by the service-signer gate. | N/A since #694 | See `Unauthorized` (3). |
+
+> **Note on codes 14–15 (issue #694):** `submit_score`, `submit_consensus_score`, and `submit_scores_batch_attested` used to return `InsufficientSigners` when too few signers were supplied and `UnauthorizedSigner` when a supplied signer was not a service-set member. Because the membership check ran before any real signature check, an unauthenticated caller could plant one candidate address in the `signers` vector and use which of these two codes came back to test that address for service-set membership — at no cost and without controlling any real key. Both now collapse to `Unauthorized` (3), and a coarse `auth_den` event (`gate = service`, `reason = InvalidSignerCount | SignerValidationFailed`) is emitted instead, without naming any address. See `docs/authorization-telemetry.md`.
 | 16 | `InvalidThreshold` | Threshold is 0 or exceeds the set size | `set_service_threshold` or `set_admin_threshold` with `threshold == 0` or `threshold > set.len()` | Use a value in `[1, current_set_size]`. |
 | 17 | `ServiceSetFull` | Service signer set is at capacity (10 members) | `add_service_signer` when the set already has `MAX_SERVICE_SIGNERS` (10) members | Remove an existing signer before adding a new one. |
 | 18 | `SignerAlreadyInSet` | Address is already a member | `add_service_signer` or `add_admin_signer` with a duplicate address | No action needed — the signer is already registered. |
@@ -128,8 +130,10 @@ Soroban contract errors are returned as `u32` discriminant values. When a transa
 | Code | Name | Description | When returned | Client action |
 |-----:|------|-------------|---------------|---------------|
 | 35 | `AdminSetFull` | Admin signer set is at capacity (5 members) | `add_admin_signer` when the set already has `MAX_ADMIN_SIGNERS` (5) members | Remove an existing admin signer before adding a new one. |
-| 36 | `AdminSignerNotInSet` | Address is not in the admin signer set | `remove_admin_signer` with an address not in the set, or `require_admin_auth` with a non-member signer | Verify the address. Check `get_admin_signers()`. |
-| 37 | `InsufficientAdminSigners` | Fewer than M admin signers were supplied | Any admin-gated function when `admin_signers.len() < admin_threshold` | Include at least `threshold` valid admin signers. Check `get_admin_threshold()`. |
+| 36 | `AdminSignerNotInSet` | Address is not in the admin signer set | `remove_admin_signer` with an address not in the set | Verify the address. Check `get_admin_signers()`. |
+| 37 | `InsufficientAdminSigners` | Reserved — no longer returned by `require_admin_auth`. | N/A since #694 | See `Unauthorized` (3). |
+
+> **Note on codes 36–37 (issue #694):** `require_admin_auth` (the gate behind every admin-only function) used to return `InsufficientAdminSigners` for too few signers and `AdminSignerNotInSet` when a supplied signer was not an admin-set member — checked before any real signature, so an unauthenticated caller could probe a single candidate address per call and learn its admin-set membership for free. It now always returns `Unauthorized` (3), paired with the same `auth_den` event described above (`gate = admin`). `AdminSignerNotInSet` (36) remains reachable, unchanged, from `remove_admin_signer`'s post-authorization "target address not found" check — that path requires the caller to have already passed full M-of-N authorization, so it carries no probing risk. See `docs/authorization-telemetry.md`.
 
 ### Wallet-score delegation
 
