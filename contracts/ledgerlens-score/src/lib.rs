@@ -62,6 +62,9 @@ mod test_interface;
 #[cfg(test)]
 mod test_deprecation_compat;
 
+#[cfg(test)]
+mod test_pubkey_canonicalization;
+
 // #[cfg(test)]
 // mod test_rate_limit;
 
@@ -5301,7 +5304,12 @@ impl LedgerLensScoreContract {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
         }
-        if pubkey.len() != 33 && pubkey.len() != 65 {
+        // Enforce SEC-1 canonicalization: must be 33 bytes (compressed, prefix
+        // 0x02/0x03) or 65 bytes (uncompressed, prefix 0x04).  Any other length
+        // or a wrong prefix byte is rejected here rather than silently stored,
+        // because a key with the wrong prefix will never match any recovered
+        // key during verify_signature, effectively bricking attestation.
+        if !storage::validate_pubkey_format(&pubkey) {
             return Err(Error::InvalidPubkeyLength);
         }
         Self::require_admin_auth(&env, &admin_signers)?;
@@ -5337,7 +5345,9 @@ impl LedgerLensScoreContract {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
         }
-        if new_key.len() != 33 && new_key.len() != 65 {
+        // Same SEC-1 canonicalization gate as set_service_pubkey: 33 bytes with
+        // prefix 0x02/0x03, or 65 bytes with prefix 0x04.
+        if !storage::validate_pubkey_format(&new_key) {
             return Err(Error::InvalidPubkeyLength);
         }
         Self::require_admin_auth(&env, &admin_signers)?;

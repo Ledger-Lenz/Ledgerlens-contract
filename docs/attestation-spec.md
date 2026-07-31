@@ -125,14 +125,73 @@ instance) cannot be replayed against another.
      known.
 5. Any mismatch at any step is `Error::InvalidAttestation`.
 
-## 5. Key format
+## 5. Key format and canonicalization
 
-`set_service_pubkey` accepts a SEC-1-encoded secp256k1 public key, either:
+`set_service_pubkey` (and `rotate_service_pubkey`) enforce **SEC-1 canonical
+encoding** on the supplied public key. The check is performed by
+`storage::validate_pubkey_format` before the key is written to storage.
 
-- 33 bytes, compressed (`0x02`/`0x03` prefix + x-coordinate), or
-- 65 bytes, uncompressed (`0x04` prefix + x + y coordinates).
+### 5.1 Accepted encodings
 
-Any other length is rejected with `Error::InvalidPubkeyLength`.
+| Length | Prefix byte | SEC-1 meaning       | Accepted? |
+|--------|-------------|---------------------|-----------|
+| 33     | `0x02`      | Compressed, even y  | ✅ yes    |
+| 33     | `0x03`      | Compressed, odd y   | ✅ yes    |
+| 65     | `0x04`      | Uncompressed        | ✅ yes    |
+
+### 5.2 Rejected encodings
+
+Any input **not** matching the table above is rejected with
+`Error::InvalidPubkeyLength`. This covers both wrong-length and wrong-prefix
+cases — the error code is reused for prefix violations because the error enum
+is at the XDR 50-variant limit and a prefix error has the same operational
+meaning (the key is not usable).
+
+Examples of rejected inputs:
+
+| Length | Prefix byte | Reason for rejection                                   |
+|--------|-------------|--------------------------------------------------------|
+| 0      | —           | Empty; wrong length                                    |
+| 1      | any         | Wrong length                                           |
+| 32     | any         | Wrong length (one byte short of a compressed key)      |
+| 34     | any         | Wrong length (one byte over a compressed key)          |
+| 64     | any         | Wrong length (one byte short of an uncompressed key)   |
+| 66     | any         | Wrong length (one byte over an uncompressed key)       |
+| 33     | `0x00`      | Invalid prefix for compressed key                      |
+| 33     | `0x01`      | Invalid prefix for compressed key                      |
+| 33     | `0x04`      | `0x04` is only valid for 65-byte uncompressed keys     |
+| 33     | `0x05`–`0xFF` | Invalid prefix for compressed key                   |
+| 65     | `0x00`–`0x03` | Invalid prefix for uncompressed key                 |
+| 65     | `0x05`–`0xFF` | Invalid prefix for uncompressed key                 |
+
+### 5.3 What canonicalization does NOT check
+
+- **Point-on-curve validity**: Soroban's host does not expose a secp256k1
+  point-validation function at key-set time. A blob with a valid prefix but
+  coordinates that do not lie on secp256k1 is accepted at storage time; it
+  will simply never match any key recovered by `secp256k1_recover` during
+  `verify_attestation`, making every subsequent attestation fail with
+  `Error::InvalidAttestation`. Operators should set only genuine public keys.
+- **Low-order or weak points**: same reasoning — rejected at signature-verify
+  time by the host, not at key-set time.
+- **All-zero or all-`0xFF` payloads**: a 33-byte `0x02 || 0x00…00` passes the
+  prefix check. It is not a valid secp256k1 point, so no signature will ever
+  verify against it.
+
+### 5.4 Verification path (recap from §4)
+
+`secp256k1_recover` always returns a 65-byte uncompressed point. Comparison
+against the stored key depends on the stored format:
+
+- **Stored as 65 bytes**: constant-time compare directly.
+- **Stored as 33 bytes**: derive the compressed form from the recovered point
+  (`0x02`/`0x03` parity prefix + x-coordinate), then constant-time compare.
+  No additional elliptic-curve arithmetic is required — the recovered point's
+  coordinates are already available.
+
+The `pubkeys_match` helper in `storage.rs` encapsulates this dispatch and is
+shared between the active-key and pending-key (overlap-window) comparison
+paths.
 
 ## 6. Migration & Cross-Deployment Binding
 
@@ -241,3 +300,60 @@ proving this, including the post-expiry rejection case.
   extra signature comparison, regardless of how many rotations have
   occurred — there is exactly one pending-key slot per key type, not a
   growing history.
+
+## 8. Compatibility impact of prefix-byte canonicalization (issue #700)
+
+### 8.1 Behavior change
+
+Before issue #700, `set_service_pubkey` and `rotate_service_pubkey` checked
+only the **length** of the supplied key (`33` or `65` bytes). Any blob of the
+right length was stored, regardless of its first byte.
+
+After #700, both functions additionally check the **prefix byte** via
+`storage::validate_pubkey_format`. A key with correct length but an invalid
+prefix is now rejected with `Error::InvalidPubkeyLength`.
+
+### 8.2 ABI compatibility
+
+- **Error codes**: no new error variants were added. `Error::InvalidPubkeyLength`
+  (discriminant `28`) is reused for prefix violations. Its documented meaning
+  now covers "wrong length **or** wrong prefix". Off-chain code that already
+  treats `InvalidPubkeyLength` as "key was rejected" requires no change.
+- **Function signatures**: `set_service_pubkey` and `rotate_service_pubkey`
+  are unchanged. No new parameters, no return-type change.
+- **Storage layout**: the key is stored as-is after passing validation. The
+  `ServicePubKey` storage slot format is unchanged.
+- **Events**: `mg_pub` / `service_pubkey_rotation_started` are emitted
+  identically to before — only when the key is accepted. No new events.
+
+### 8.3 Impact on existing deployments
+
+Any deployment whose admin has already called `set_service_pubkey` with a
+**valid** 33- or 65-byte SEC-1 key (i.e. one produced by a real secp256k1
+library) is unaffected — all properly-encoded keys already have the correct
+prefix byte.
+
+The only affected case would be a deployment that previously stored a key with
+a semantically wrong prefix (`0x00`, `0x01`, `0x04` on a 33-byte key, etc.).
+Such a key would have caused every attestation to fail with
+`InvalidAttestation` anyway (it would never match any recovered point), so the
+practical impact is that the error surfaces earlier — at key-set time — and
+with the more meaningful `InvalidPubkeyLength` code instead of a later
+`InvalidAttestation`.
+
+### 8.4 Resource usage
+
+`validate_pubkey_format` reads a single byte (`pubkey.get(0)`) and performs a
+constant-time match against two or one literal values. Cost is O(1) with
+negligible compute budget impact.
+
+### 8.5 Test coverage added (issue #700)
+
+`test_pubkey_canonicalization.rs` covers:
+
+- `storage::validate_pubkey_format` directly (unit tests for all table entries
+  in §5.1 and §5.2).
+- `set_service_pubkey` and `rotate_service_pubkey` at the contract level: each
+  accepted encoding, each rejected prefix byte, each boundary length.
+- Round-trip: stored key bytes are returned unchanged by `get_service_pubkey`.
+- Adversarial fill patterns (all-zero, all-`0xFF` payloads with valid prefix).

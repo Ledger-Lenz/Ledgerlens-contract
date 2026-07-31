@@ -2979,6 +2979,52 @@ pub fn clear_pending_aggregate_service_pubkey(env: &Env) {
     env.storage().instance().remove(&DataKeyD::PendingAggregateServicePubKey);
 }
 
+/// Validates the SEC-1 encoding of a secp256k1 public key supplied by the
+/// caller.
+///
+/// # Accepted encodings
+///
+/// | Length | Required prefix byte | SEC-1 meaning          |
+/// |--------|----------------------|------------------------|
+/// | 33     | `0x02` or `0x03`     | Compressed point       |
+/// | 65     | `0x04`               | Uncompressed point     |
+///
+/// Any other length returns `false`. A 33-byte blob whose first byte is not
+/// `0x02`/`0x03`, or a 65-byte blob whose first byte is not `0x04`, is also
+/// rejected.
+///
+/// Point-on-curve validation is intentionally out of scope: Soroban's host
+/// does not expose a secp256k1 point-validation function at storage time,
+/// and the signature-recovery path (`secp256k1_recover`) already rejects
+/// off-curve or low-order points at verification time.
+///
+/// # What this catches
+///
+/// - Wrong lengths (e.g. 32, 34, 64, 66, 0, …) → `false`
+/// - 33-byte keys with an invalid prefix (`0x00`, `0x01`, `0x04`–`0xFF`) → `false`
+/// - 65-byte keys with an invalid prefix (`0x00`–`0x03`, `0x05`–`0xFF`) → `false`
+///
+/// # What this does NOT catch
+///
+/// - Off-curve points (no Soroban host API for this at key-set time)
+/// - Weak / low-order points (would require curve math unavailable on-chain)
+/// - All-zero or all-`0xFF` payloads whose prefix happens to be `0x02` or
+///   `0x04` (these are not valid curve points but pass the prefix check; they
+///   will simply never match any honest recovered key at signature-verify time)
+pub fn validate_pubkey_format(pubkey: &Bytes) -> bool {
+    match pubkey.len() {
+        33 => {
+            // Compressed form: prefix must be 0x02 (even y) or 0x03 (odd y).
+            matches!(pubkey.get(0), Some(0x02) | Some(0x03))
+        }
+        65 => {
+            // Uncompressed form: prefix must be 0x04.
+            matches!(pubkey.get(0), Some(0x04))
+        }
+        _ => false,
+    }
+}
+
 /// Compares a recovered 65-byte uncompressed secp256k1 pubkey against a
 /// stored pubkey, which may be either the same 65-byte uncompressed form or
 /// the 33-byte compressed form.
