@@ -23,6 +23,19 @@ pub fn pair_weight_reset(env: &Env, asset_pair: &Symbol) {
     env.events().publish((symbol_short!("pw_rst"), asset_pair.clone()), ());
 }
 
+/// Emitted when the admin assigns an asset pair to a policy class via
+/// `set_pair_asset_class`.
+pub fn pair_asset_class_updated(env: &Env, asset_pair: &Symbol, class: &Symbol) {
+    env.events()
+        .publish((symbol_short!("pac_upd"), EVENT_VERSION, asset_pair.clone()), class.clone());
+}
+
+/// Emitted when the admin sets a risk-threshold override for an asset class
+/// via `set_asset_class_policy`.
+pub fn asset_class_policy_updated(env: &Env, class: &Symbol, threshold: u32) {
+    env.events().publish((symbol_short!("acp_upd"), EVENT_VERSION, class.clone()), threshold);
+}
+
 pub fn score_submitted(env: &Env, wallet: &Address, asset_pair: &Symbol, score: &RiskScore) {
     env.events().publish(
         (symbol_short!("score"), EVENT_VERSION, wallet.clone(), asset_pair.clone()),

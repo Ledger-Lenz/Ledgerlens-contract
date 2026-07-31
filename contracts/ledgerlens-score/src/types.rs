@@ -842,6 +842,12 @@ pub enum DataKeyD {
     /// The disjoint approver address for a named administrative capability
     /// policy (issue #695), when its `PolicyApprovalEnabled` slot is `true`.
     PolicyApprovalApprover(Policy),
+    /// Asset-class label (e.g. `stable`, `volatile`, `thin`, `hivalue`) assigned
+    /// to an asset pair for policy-profile lookup. Unset pairs have no class.
+    PairAssetClass(Symbol),
+    /// Risk threshold override for an asset class, set via
+    /// `set_asset_class_policy`. Absent when the class has no override.
+    AssetClassRiskThreshold(Symbol),
 }
 
 #[contracttype]

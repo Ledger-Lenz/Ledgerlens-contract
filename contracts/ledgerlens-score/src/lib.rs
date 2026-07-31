@@ -62,6 +62,9 @@ mod test_interface;
 #[cfg(test)]
 mod test_deprecation_compat;
 
+#[cfg(test)]
+mod test_asset_class_policy;
+
 // #[cfg(test)]
 // mod test_rate_limit;
 
@@ -3576,6 +3579,60 @@ impl LedgerLensScoreContract {
     /// (simple average) until the admin sets one explicitly.
     pub fn get_pair_weight(env: Env, asset_pair: Symbol) -> u32 {
         storage::get_pair_weight(&env, &asset_pair)
+    }
+
+    // ── Asset-class policy profiles (#725) ────────────────────────────────────
+
+    /// Assigns `asset_pair` to a policy `class` (e.g. `stable`, `volatile`,
+    /// `thin`, `hivalue`) for risk-threshold lookup via
+    /// `get_effective_risk_threshold`.
+    pub fn set_pair_asset_class(
+        env: Env,
+        admin_signers: Vec<Address>,
+        asset_pair: Symbol,
+        class: Symbol,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_pair_asset_class(&env, &asset_pair, &class);
+        events::pair_asset_class_updated(&env, &asset_pair, &class);
+        Ok(())
+    }
+
+    /// Returns the policy class assigned to `asset_pair`, if any.
+    pub fn get_pair_asset_class(env: Env, asset_pair: Symbol) -> Option<Symbol> {
+        storage::get_pair_asset_class(&env, &asset_pair)
+    }
+
+    /// Sets a risk-threshold override for every pair assigned to `class`.
+    /// Validated against the same bounds as the global risk threshold before
+    /// being stored.
+    pub fn set_asset_class_policy(
+        env: Env,
+        admin_signers: Vec<Address>,
+        class: Symbol,
+        risk_threshold: u32,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if risk_threshold > 100 {
+            return Err(Error::InvalidScore);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::set_asset_class_risk_threshold(&env, &class, risk_threshold);
+        events::asset_class_policy_updated(&env, &class, risk_threshold);
+        Ok(())
+    }
+
+    /// Resolves the effective risk threshold for `asset_pair`: the assigned
+    /// asset class's override when one is configured, otherwise the global
+    /// `risk_threshold` default. Deterministic and safe when no policy
+    /// profile exists for the pair.
+    pub fn get_effective_risk_threshold(env: Env, asset_pair: Symbol) -> u32 {
+        storage::get_effective_risk_threshold(&env, &asset_pair)
     }
 
     // ── Per-pair 24h score volatility index (#270) ────────────────────────────

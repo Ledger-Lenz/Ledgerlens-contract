@@ -365,6 +365,17 @@ Embargoed wallets are checked separately:
 
 ---
 
+## Asset-Class Policy Profiles
+
+Different asset categories (stablecoins, volatile assets, thin markets, high-value pairs) warrant different risk-threshold policies. `get_effective_risk_threshold(asset_pair)` resolves the threshold to use for a pair:
+
+1. If the pair has been assigned a class via `set_pair_asset_class(pair, class)` **and** that class has an override via `set_asset_class_policy(class, risk_threshold)`, the class override is returned.
+2. Otherwise, the global `risk_threshold` (set via `set_risk_threshold`) is returned.
+
+Lookup is a pure function of on-chain storage — same inputs always produce the same result — and pairs with no assigned class, or classes with no configured override, safely fall back to the global default rather than erroring. See `contracts/ledgerlens-score/src/test_asset_class_policy.rs` for fixtures covering the default-fallback and override-resolution paths.
+
+---
+
 ## Precision Limits and Rounding
 
 ### Integer Truncation, Not Rounding

@@ -718,6 +718,53 @@ pub fn remove_pair_weight(env: &Env, asset_pair: &Symbol) {
     env.storage().persistent().remove(&key);
 }
 
+// ── Asset-class policy profiles ──────────────────────────────────────────────
+
+/// Returns the asset class assigned to `asset_pair`, if any.
+pub fn get_pair_asset_class(env: &Env, asset_pair: &Symbol) -> Option<Symbol> {
+    let key = DataKeyD::PairAssetClass(asset_pair.clone());
+    let class: Option<Symbol> = env.storage().persistent().get(&key);
+    if class.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    class
+}
+
+pub fn set_pair_asset_class(env: &Env, asset_pair: &Symbol, class: &Symbol) {
+    let key = DataKeyD::PairAssetClass(asset_pair.clone());
+    env.storage().persistent().set(&key, class);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+/// Returns the risk-threshold override configured for `class`, if any.
+pub fn get_asset_class_risk_threshold(env: &Env, class: &Symbol) -> Option<u32> {
+    let key = DataKeyD::AssetClassRiskThreshold(class.clone());
+    let threshold: Option<u32> = env.storage().persistent().get(&key);
+    if threshold.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    threshold
+}
+
+pub fn set_asset_class_risk_threshold(env: &Env, class: &Symbol, threshold: u32) {
+    let key = DataKeyD::AssetClassRiskThreshold(class.clone());
+    env.storage().persistent().set(&key, &threshold);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+/// Resolves the effective risk threshold for `asset_pair`: the asset class's
+/// override when both the pair is classified and the class has one
+/// configured, otherwise the global `risk_threshold` default. Deterministic
+/// and safe when no policy profile exists for the pair.
+pub fn get_effective_risk_threshold(env: &Env, asset_pair: &Symbol) -> u32 {
+    if let Some(class) = get_pair_asset_class(env, asset_pair) {
+        if let Some(threshold) = get_asset_class_risk_threshold(env, &class) {
+            return threshold;
+        }
+    }
+    get_risk_threshold(env)
+}
+
 pub fn set_aggregate_score(env: &Env, wallet: &Address, aggregate: &AggregateRiskScore) {
     let key = DataKey::AggregateScore(wallet.clone());
     env.storage().persistent().set(&key, aggregate);
@@ -948,34 +995,6 @@ pub fn set_service_threshold(env: &Env, threshold: u32) {
 
 pub fn get_service_threshold(env: &Env) -> u32 {
     env.storage().instance().get(&DataKey::ServiceThreshold).unwrap_or(1)
-}
-
-// ── Escalation / breach count ─────────────────────────────────────────────────
-
-pub fn get_escalation_threshold(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKeyC::EscalationThreshold)
-        .unwrap_or(crate::constants::DEFAULT_ESCALATION_THRESHOLD)
-}
-
-pub fn set_escalation_threshold(env: &Env, n: u32) {
-    env.storage().instance().set(&DataKeyC::EscalationThreshold, &n);
-}
-
-pub fn get_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 {
-    let key = DataKeyC::BreachCount(wallet.clone(), asset_pair.clone());
-    env.storage().temporary().get(&key).unwrap_or(0)
-}
-
-pub fn set_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol, count: u32) {
-    let key = DataKeyC::BreachCount(wallet.clone(), asset_pair.clone());
-    env.storage().temporary().set(&key, &count);
-}
-
-pub fn clear_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) {
-    let key = DataKeyC::BreachCount(wallet.clone(), asset_pair.clone());
-    env.storage().temporary().remove(&key);
 }
 
 // ── Model stats ───────────────────────────────────────────────────────────────
@@ -3100,16 +3119,16 @@ mod test_instrumentation {
 }
 
 pub fn get_escalation_threshold(env: &Env) -> u32 {
-    let result: Option<u32> = env.storage().instance().get(&DataKey::EscalationThreshold);
+    let result: Option<u32> = env.storage().instance().get(&DataKeyC::EscalationThreshold);
     result.unwrap_or(crate::constants::DEFAULT_ESCALATION_THRESHOLD)
 }
 
 pub fn set_escalation_threshold(env: &Env, threshold: u32) {
-    env.storage().instance().set(&DataKey::EscalationThreshold, &threshold);
+    env.storage().instance().set(&DataKeyC::EscalationThreshold, &threshold);
 }
 
 pub fn get_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 {
-    let key = DataKey::BreachCount(wallet.clone(), asset_pair.clone());
+    let key = DataKeyC::BreachCount(wallet.clone(), asset_pair.clone());
     let result: Option<u32> = env.storage().persistent().get(&key);
     if result.is_some() {
         env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
@@ -3118,7 +3137,7 @@ pub fn get_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32
 }
 
 pub fn set_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol, count: u32) {
-    let key = DataKey::BreachCount(wallet.clone(), asset_pair.clone());
+    let key = DataKeyC::BreachCount(wallet.clone(), asset_pair.clone());
     if count == 0 {
         env.storage().persistent().remove(&key);
     } else {
@@ -3128,6 +3147,6 @@ pub fn set_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol, count:
 }
 
 pub fn clear_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) {
-    let key = DataKey::BreachCount(wallet.clone(), asset_pair.clone());
+    let key = DataKeyC::BreachCount(wallet.clone(), asset_pair.clone());
     env.storage().persistent().remove(&key);
 }
