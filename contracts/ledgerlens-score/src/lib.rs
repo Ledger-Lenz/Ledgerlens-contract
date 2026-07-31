@@ -10,6 +10,7 @@ mod errors;
 mod events;
 mod event_causality;
 mod event_stability;
+mod governance_helpers;
 #[cfg(any(test, feature = "testutils"))]
 mod invariants;
 mod parameter_governance;
@@ -183,6 +184,9 @@ mod test_memory_exhaustion;
 
 #[cfg(test)]
 mod test_audit_replay;
+
+#[cfg(test)]
+mod test_signer_governance;
 
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN, Env,

@@ -57,6 +57,8 @@ pub const MAX_UPGRADE_DELAY_SECS: u64 = 1_209_600;
 pub const DEFAULT_UPGRADE_DELAY_SECS: u64 = 172_800;
 pub const MAX_SERVICE_SIGNERS: u32 = 10;
 pub const MAX_ADMIN_SIGNERS: u32 = 5;
+/// Grace period (seconds) before a newly added signer transitions from Pending to Active (issue #691).
+pub const DEFAULT_SIGNER_GRACE_PERIOD_SECS: u64 = 3_600; // 1 hour
 pub const DEFAULT_STALENESS_WINDOW_SECS: u64 = 604_800;
 
 /// Default maximum age (seconds) of an oracle's last price update before the
