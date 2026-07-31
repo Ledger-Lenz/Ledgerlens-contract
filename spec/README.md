@@ -54,6 +54,20 @@ These invariants model the `commit_consensus` / `reveal_consensus` K-of-N agreem
 
 20. **FinalScoreImmutableWithinRound** (`PROP-CR-2`): Once `cc_final_score` is written it is immutable within the round: if `cc_finalized` holds in both the current and next state, `cc_final_score` does not change. Prevents a late reveal from silently overwriting an already-committed consensus result.
 
+### Bounded Liveness Properties (new — issue #753)
+
+These properties prove that a valid submission is *not* blocked forever. Under the bounded state constraint (`now ≤ 10`), there are always enough ticks to drain the cooldown and refill the token bucket, after which `SubmitScore` becomes enabled. Permanent embargoes are explicitly excluded — the liveness argument applies only to time-bounded blocks.
+
+21. **SubmitEnabledWhenConditionsMet** (`INV-LIVE-1`): Whenever (a) no embargo is active, (b) the score-floor policy is satisfied, and (c) at least one token is available, the `SubmitScore` action is *enabled* (its precondition holds). This is the structural half of the liveness argument: once the cooldown has elapsed and no policy block is in effect, the submission can proceed.
+
+22. **ScoreFloorDoesNotBlockAllScores** (`INV-LIVE-2`): If the floor policy is active for a wallet (historical max ≥ `HWM_THRESHOLD`), there always exists at least one score in the modelled `Scores` set that is ≥ `FLOOR_VALUE`. This ensures the floor policy never makes every possible submission inadmissible — a valid score is always available.
+
+23. **CooldownExpiryEnablesSubmission** (`PROP-LIVE-1`): In every state where a wallet has no token and is not embargoed, time advances by one tick (or the token was already available). Combined with the token-bucket invariants, this proves the bucket refills within `COOLDOWN` ticks after exhaustion.
+
+24. **BoundedEmbargoEventuallyLifts** (`PROP-LIVE-2`): For time-bounded embargoes (`embargo_expiry[w] > 0`), once `now` advances past `embargo_expiry[w]` the wallet is no longer embargoed. Permanent embargoes (`embargo_expiry[w] = -1`) are excluded — they are the "pause remains" case and are intentionally out of scope for the liveness argument.
+
+25. **BoundedLivenessSubmissionAccepted** (`PROP-LIVE-3`): In every step where all three preconditions hold (no embargo, policy-compliant score, token available, last submit time < now), either the submission is accepted in that step (`last_submit_time'[w] = now`) or the state is unchanged — proving no state can indefinitely prevent an otherwise-enabled submission.
+
 ## Variables
 
 | Variable | Type | Description |
@@ -121,11 +135,11 @@ The model was checked with TLC using the configuration in [`LedgerLens.cfg`](Led
 | `CONSENSUS_K` | `2` | Minimum agreeing reveals; matches the K-of-N threshold explored in `test_consensus.rs` |
 | `CONSENSUS_EPSILON` | `10` | Score distance budget; scores {0, 50, 80} ensure both passing (50 and 50) and failing (0 vs 80) epsilon clusters exist in the state space |
 | `REVEAL_WINDOW` | `2` | Two ticks model the TTL boundary; with `now ≤ 5` this covers within-window, at-boundary, and past-window reveals |
-| `StateConstraint` | `now ≤ 5` | Bounds state-space while covering ≥ 2 full refill cycles and ≥ 1 full commit-reveal-finalize-reset cycle |
+| `StateConstraint` | `now ≤ 10` | Increased from 5 to 10 (issue #753): covers ≥ 2 full COOLDOWN cycles, ≥ 1 full commit-reveal-finalize-reset cycle, and leaves enough headroom for a subsequent policy-compliant submission — exercising all five new liveness properties |
 
 ### Outcome
 
-**No invariant violations found.** All 16 invariants and 5 temporal properties (including the 6 new consensus invariants and 2 new consensus temporal properties) held across all reachable states within the `now ≤ 5` bound.
+**No invariant violations found.** All 18 invariants and 8 temporal properties (including the 6 new consensus invariants, 2 new consensus temporal properties, 2 new liveness invariants, and 3 new bounded liveness temporal properties) held across all reachable states within the `now ≤ 10` bound.
 
 To reproduce:
 
@@ -135,7 +149,7 @@ curl -L -o tla2tools.jar \
   https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
 
 # Run TLC
-java -jar tla2tools.jar -config LedgerLens.cfg -depth 8 LedgerLens.tla
+java -jar tla2tools.jar -config LedgerLens.cfg -depth 10 LedgerLens.tla
 ```
 
 Expected output: `Model checking completed. No error has been found.`
