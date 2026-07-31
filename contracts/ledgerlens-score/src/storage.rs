@@ -950,34 +950,6 @@ pub fn get_service_threshold(env: &Env) -> u32 {
     env.storage().instance().get(&DataKey::ServiceThreshold).unwrap_or(1)
 }
 
-// ── Escalation / breach count ─────────────────────────────────────────────────
-
-pub fn get_escalation_threshold(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKeyC::EscalationThreshold)
-        .unwrap_or(crate::constants::DEFAULT_ESCALATION_THRESHOLD)
-}
-
-pub fn set_escalation_threshold(env: &Env, n: u32) {
-    env.storage().instance().set(&DataKeyC::EscalationThreshold, &n);
-}
-
-pub fn get_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 {
-    let key = DataKeyC::BreachCount(wallet.clone(), asset_pair.clone());
-    env.storage().temporary().get(&key).unwrap_or(0)
-}
-
-pub fn set_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol, count: u32) {
-    let key = DataKeyC::BreachCount(wallet.clone(), asset_pair.clone());
-    env.storage().temporary().set(&key, &count);
-}
-
-pub fn clear_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) {
-    let key = DataKeyC::BreachCount(wallet.clone(), asset_pair.clone());
-    env.storage().temporary().remove(&key);
-}
-
 // ── Model stats ───────────────────────────────────────────────────────────────
 
 pub fn update_model_stats(env: &Env, model_version: u32, score: u32) {
@@ -3069,7 +3041,7 @@ pub fn get_accumulated_fees(env: &Env) -> i128 {
     env.storage().instance().get(&GateDataKey::AccumulatedFees).unwrap_or(0)
 }
 
- pub fn set_arch_owner(env: &Env, owner: &Address) {
+pub fn set_arch_owner(env: &Env, owner: &Address) {
     env.storage().instance().set(&DataKey::ArchOwner, owner);
 }
 
@@ -3088,6 +3060,35 @@ pub fn get_mandatory_reviewers(env: &Env) -> Vec<Address> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
+// ── #688: Submission provenance snapshots ────────────────────────────────────
+
+pub fn set_submission_provenance(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    provenance: &crate::types::SubmissionProvenance,
+) {
+    let key =
+        crate::types::DataKeyE::SubmissionProvenance(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, provenance);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+pub fn get_submission_provenance(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) -> Option<crate::types::SubmissionProvenance> {
+    let key =
+        crate::types::DataKeyE::SubmissionProvenance(wallet.clone(), asset_pair.clone());
+    let result: Option<crate::types::SubmissionProvenance> =
+        env.storage().persistent().get(&key);
+    if result.is_some() {
+        env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    }
+    result
+}
+
 #[cfg(test)]
 mod test_instrumentation {
     use soroban_sdk::contracttype;
@@ -3100,16 +3101,16 @@ mod test_instrumentation {
 }
 
 pub fn get_escalation_threshold(env: &Env) -> u32 {
-    let result: Option<u32> = env.storage().instance().get(&DataKey::EscalationThreshold);
+    let result: Option<u32> = env.storage().instance().get(&DataKeyC::EscalationThreshold);
     result.unwrap_or(crate::constants::DEFAULT_ESCALATION_THRESHOLD)
 }
 
 pub fn set_escalation_threshold(env: &Env, threshold: u32) {
-    env.storage().instance().set(&DataKey::EscalationThreshold, &threshold);
+    env.storage().instance().set(&DataKeyC::EscalationThreshold, &threshold);
 }
 
 pub fn get_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32 {
-    let key = DataKey::BreachCount(wallet.clone(), asset_pair.clone());
+    let key = DataKeyC::BreachCount(wallet.clone(), asset_pair.clone());
     let result: Option<u32> = env.storage().persistent().get(&key);
     if result.is_some() {
         env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
@@ -3118,7 +3119,7 @@ pub fn get_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) -> u32
 }
 
 pub fn set_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol, count: u32) {
-    let key = DataKey::BreachCount(wallet.clone(), asset_pair.clone());
+    let key = DataKeyC::BreachCount(wallet.clone(), asset_pair.clone());
     if count == 0 {
         env.storage().persistent().remove(&key);
     } else {
@@ -3128,6 +3129,6 @@ pub fn set_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol, count:
 }
 
 pub fn clear_breach_count(env: &Env, wallet: &Address, asset_pair: &Symbol) {
-    let key = DataKey::BreachCount(wallet.clone(), asset_pair.clone());
+    let key = DataKeyC::BreachCount(wallet.clone(), asset_pair.clone());
     env.storage().persistent().remove(&key);
 }
