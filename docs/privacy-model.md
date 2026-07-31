@@ -214,3 +214,32 @@ Operators that want case-specific hashes can call
 - The worst relevant cases are therefore still bounded by existing constants,
   and the existing batch/history TTL tests and benches remain the governing
   budget references for these paths.
+
+## Event Privacy Audit
+
+Every event published from `contracts/ledgerlens-score/src/events.rs` was
+reviewed for whether its topic/data fields leak information beyond what is
+already visible from the calling transaction's public arguments (which, on
+Soroban, are public regardless of event emission). Findings below list each
+risk-relevant event group, what it exposes, and the assessed risk. No event
+schema changes were made as a result of this audit — see rationale per
+finding.
+
+| Event(s) | Data exposed | Risk | Mitigation / rationale |
+|---|---|---|---|
+| `score_submitted` | `benford_flag`, `ml_flag`, `confidence`, `timestamp` alongside the score | **Medium** — exposes model-confidence and anomaly-flag internals per wallet/pair, which could let an observer infer when the scoring model is uncertain or flagging a wallet, beyond the raw score itself | Accepted: these flags are the mechanism's core output and downstream consumers (disputes, risk gates) require them on-chain to function; `get_private_aggregate_score` remains the noise-calibrated path for callers who need a privacy-preserving read |
+| `wallet_cluster_assigned`, `counterparty_link_added/removed`, `contagion_propagated` | Wallet-to-wallet relationships and cluster membership | **Medium** — reveals wallet monitoring/linkage strategy (which wallets are treated as related) | Accepted: correlation is the documented product behavior (contagion/cluster risk propagation); the alternative of suppressing it would break the on-chain audit trail these features exist to provide |
+| `embargo_set/lifted`, `delegate_set/removed`, `watchlist_updated` | Regulatory-hold, delegation, and watchlist status per wallet | **Medium** — publicly tags a wallet as flagged/embargoed/delegated | Accepted: these are admin-authorized compliance actions that must be auditable; addresses are already public on Stellar, so this adds status metadata rather than new identity linkage |
+| `signer_accuracy_updated/reset`, `consensus_signer_rejected`, `signer_tier_updated` | Per-signer accuracy/deviation stats and tier | **Low–Medium** — exposes signer performance/behavior, which is a service-operator concern rather than an end-user wallet, and is required for `signer_tier` gating to be independently verifiable | No change: signer addresses are already known from `signer_added`/`add_signer` calls; accuracy is operational telemetry, not end-user PII |
+| `score_jump_anomaly`, `momentum_threshold_crossed`, `dormancy_decay_applied`, `risk_band_entered/cleared`, `threshold_breach`, `escalation_triggered/resolved`, `failover_triggered`, `suspicious_same_ledger_submission` | Wallet + asset-pair + score/threshold values | **Low** — derivable from the existing `score_submitted`/`score` history already on-chain; these events only summarize state transitions over that same public data | No change: no new inference surface beyond the base score event already audited above |
+| Admin/config events (`*_updated`, `*_proposed`, `*_executed`, `pair_weight_*`, `cooldown_*`, `decay_rate_updated`, `fee_*`, upgrade/governance/model-version events) | Global parameters, proposal ids, admin addresses | **Low** — configuration is intentionally public for governance transparency | No change: no per-wallet or model-confidence data present |
+
+### Conclusion
+
+No event schema or field changes are required by this audit. The
+highest-exposure events (`score_submitted`, wallet-linkage events, and
+compliance-status events) are inherent to the contract's documented risk-gate
+and compliance features rather than incidental leakage, and callers needing a
+privacy-preserving score read already have `get_private_aggregate_score`
+available. Since no event schema changed, no new tests were added for this
+audit.
