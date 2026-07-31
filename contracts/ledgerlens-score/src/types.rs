@@ -538,6 +538,68 @@ pub enum GateDataKey {
     GateReadLedger(Address, Symbol),
 }
 
+/// Privacy-preserving export view modes for score data.
+/// Defines what fields are exposed based on the consumer's role.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ExportViewMode {
+    /// Public view: minimal disclosure for general consumers.
+    /// Only exposes: aggregate_score, risk_gate_decision, last_updated.
+    Public = 0,
+    /// Operator view: includes risk details needed for operations.
+    /// Includes: aggregate_score, all pair scores, timestamps, model_version.
+    Operator = 1,
+    /// Auditor view: full disclosure for compliance and incident response.
+    /// Includes: all fields including confidence, breakdown scores, flags.
+    Auditor = 2,
+}
+
+/// Public view of risk score: only risk-gate decision without full details.
+/// Used by `get_score_export_public` to minimize information disclosure.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PublicScoreExport {
+    pub wallet: Address,
+    pub asset_pair: Symbol,
+    pub risk_gate_decision: u32, // 0 = pass gate, >0 = breached (score value)
+    pub last_updated: u64,
+}
+
+/// Operator view of risk score: includes operational details without internals.
+/// Used by `get_score_export_operator` for system operations and monitoring.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OperatorScoreExport {
+    pub wallet: Address,
+    pub asset_pair: Symbol,
+    pub score: u32,
+    pub confidence: u32,
+    pub timestamp: u64,
+    pub model_version: u32,
+    pub last_updated: u64,
+    pub is_embargoed: bool,
+}
+
+/// Auditor view of risk score: complete disclosure for compliance.
+/// Used by `get_score_export_auditor` for full incident response and audits.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuditorScoreExport {
+    pub wallet: Address,
+    pub asset_pair: Symbol,
+    pub score: u32,
+    pub benford_flag: bool,
+    pub ml_flag: bool,
+    pub timestamp: u64,
+    pub confidence: u32,
+    pub model_version: u32,
+    pub benford_score: u32,
+    pub ml_score: u32,
+    pub network_score: u32,
+    pub last_updated: u64,
+    pub is_embargoed: bool,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {

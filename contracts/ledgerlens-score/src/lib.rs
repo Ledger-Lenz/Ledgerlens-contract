@@ -150,6 +150,15 @@ mod test_bulk_reset_pair_weight;
 mod test_query_helpers;
 
 #[cfg(test)]
+mod test_privacy_exports;
+
+#[cfg(test)]
+mod test_minimal_disclosure;
+
+#[cfg(test)]
+mod test_privacy_regression_history;
+
+#[cfg(test)]
 mod test_pair_score_count;
 
 #[cfg(test)]
@@ -203,11 +212,12 @@ pub use event_stability::{EventStability, EventStabilityRegistry};
 pub use events::{ServiceResumedEvent, ServiceSilenceAlertEvent};
 pub use types::{
     AdaptiveRateLimit, AdaptiveThresholdConfig, AggregateRiskScore, AlertAckRecord, AlertType,
-    BatchAttestation, BatchEntryResult, BatchResult, BatchScoreResult, DecayCurve,
-    EffectiveRiskScore, EmbargoExpiry, FlashProtectionMode, HllSketch, InterpolationMethod,
-    MaybeRiskScore, MaybeScoreAttestation, MaybeThresholdAttestation, ModelSubmission,
-    ModelVersionStats, ModelVersionStatus, ParamChangeProposal, ParamValue, ParameterProposal,
-    ParameterProposalRecord, ParameterProposalStatus, PendingScoreEntry, Policy, PolicyApproval,
+    AuditorScoreExport, BatchAttestation, BatchEntryResult, BatchResult, BatchScoreResult,
+    DecayCurve, EffectiveRiskScore, EmbargoExpiry, ExportViewMode, FlashProtectionMode, HllSketch,
+    InterpolationMethod, MaybeRiskScore, MaybeScoreAttestation, MaybeThresholdAttestation,
+    ModelSubmission, ModelVersionStats, ModelVersionStatus, OperatorScoreExport,
+    ParamChangeProposal, ParamValue, ParameterProposal, ParameterProposalRecord,
+    ParameterProposalStatus, PendingScoreEntry, Policy, PolicyApproval, PublicScoreExport,
     RiskScore, ScoreAttestation, ScoreAttestationInput, ScoreDispute, ScoreFloorPolicy,
     ScoreHistogram, ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof, ScoreTrend,
     ScoreVelocityCap, SignerAccuracyRecord, ThresholdAttestation, TierBounds, TokenBucket,
@@ -2011,6 +2021,236 @@ impl LedgerLensScoreContract {
             return false;
         }
         storage::peek_score(&env, &wallet, &asset_pair).is_some()
+    }
+
+    /// Returns a public-view export of a score: risk-gate decision only,
+    /// without exposing full score details. Minimal disclosure for general consumers.
+    ///
+    /// # Returns
+    /// - `PublicScoreExport` with only `risk_gate_decision` (0=pass, >0=breached).
+    /// - `ScoreNotFound` if the score does not exist.
+    /// - Respects embargo: embargoed wallets return `ScoreNotFound`.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let export = client.get_score_export_public(&wallet, &asset_pair)?;
+    /// // Only exposes: risk_gate_decision, last_updated
+    /// ```
+    pub fn get_score_export_public(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<PublicScoreExport, Error> {
+        Self::check_service_silence(&env);
+        let score = Self::lookup_score(&env, &wallet, &asset_pair)?.ok_or(Error::ScoreNotFound)?;
+        let risk_threshold = storage::get_risk_threshold(&env);
+
+        Ok(PublicScoreExport {
+            wallet,
+            asset_pair,
+            risk_gate_decision: if score.score >= risk_threshold { score.score } else { 0 },
+            last_updated: env.ledger().timestamp(),
+        })
+    }
+
+    /// Returns an operator-view export: includes operational details needed
+    /// for system operations and monitoring, without internal breakdown scores.
+    ///
+    /// # Returns
+    /// - `OperatorScoreExport` with: score, confidence, timestamp, model_version.
+    /// - `ScoreNotFound` if the score does not exist.
+    /// - Respects embargo: embargoed wallets return `ScoreNotFound`.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let export = client.get_score_export_operator(&wallet, &asset_pair)?;
+    /// // Includes: score, confidence, timestamp, model_version, is_embargoed
+    /// ```
+    pub fn get_score_export_operator(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<OperatorScoreExport, Error> {
+        Self::check_service_silence(&env);
+        let score = Self::lookup_score(&env, &wallet, &asset_pair)?.ok_or(Error::ScoreNotFound)?;
+        let is_embargoed = storage::get_score_embargo(&env, &wallet).is_some();
+
+        Ok(OperatorScoreExport {
+            wallet,
+            asset_pair,
+            score: score.score,
+            confidence: score.confidence,
+            timestamp: score.timestamp,
+            model_version: score.model_version,
+            last_updated: env.ledger().timestamp(),
+            is_embargoed,
+        })
+    }
+
+    /// Returns an auditor-view export: complete disclosure for compliance
+    /// and incident response, including internal breakdown scores and flags.
+    ///
+    /// # Returns
+    /// - `AuditorScoreExport` with all fields from `RiskScore` plus embargo status.
+    /// - `ScoreNotFound` if the score does not exist.
+    /// - Does NOT respect embargo: auditors can always view embargoed wallets.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let export = client.get_score_export_auditor(&wallet, &asset_pair)?;
+    /// // Full disclosure: all scores, flags, breakdown, confidence
+    /// ```
+    pub fn get_score_export_auditor(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<AuditorScoreExport, Error> {
+        Self::check_service_silence(&env);
+        // Auditors bypass embargo checks for full disclosure
+        let score = storage::peek_score(&env, &wallet, &asset_pair)
+            .flatten()
+            .ok_or(Error::ScoreNotFound)?;
+        let is_embargoed = storage::get_score_embargo(&env, &wallet).is_some();
+
+        Ok(AuditorScoreExport {
+            wallet,
+            asset_pair,
+            score: score.score,
+            benford_flag: score.benford_flag,
+            ml_flag: score.ml_flag,
+            timestamp: score.timestamp,
+            confidence: score.confidence,
+            model_version: score.model_version,
+            benford_score: score.benford_score,
+            ml_score: score.ml_score,
+            network_score: score.network_score,
+            last_updated: env.ledger().timestamp(),
+            is_embargoed,
+        })
+    }
+
+    /// Answers the risk-gate decision WITHOUT exposing the actual score.
+    /// Returns `true` if the score breaches the risk threshold, `false` otherwise.
+    ///
+    /// This minimal disclosure helper allows gate decisions to be made without
+    /// exposing full score details to consumers who only need to know "pass" or "fail".
+    /// Respects embargo and fail-closed semantics: embargoed wallets return `true` (BREACH).
+    ///
+    /// # Returns
+    /// - `true` if the score is >= risk threshold OR wallet is embargoed (fail-closed).
+    /// - `false` if the score is < risk threshold and wallet is not embargoed.
+    /// - `false` if the score does not exist (not found = safe default).
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let breached = client.is_score_risky(&wallet, &asset_pair);
+    /// if breached {
+    ///     // Risk gate decision: DENY
+    /// } else {
+    ///     // Risk gate decision: ALLOW
+    /// }
+    /// ```
+    pub fn is_score_risky(env: Env, wallet: Address, asset_pair: Symbol) -> bool {
+        Self::check_service_silence(&env);
+        let score = match Self::lookup_score(&env, &wallet, &asset_pair) {
+            Ok(score) => score,
+            Err(Error::ScoreEmbargoed) => return true, // Fail-closed: embargoed = risky
+            Err(_) => return false,                     // No score = safe default
+        };
+        let risk_threshold = storage::get_risk_threshold(&env);
+        score.score >= risk_threshold
+    }
+
+    /// Returns the risk-gate decision AND confidence level without exposing the actual score.
+    /// Allows gate decisions with confidence assessment without full score disclosure.
+    ///
+    /// # Returns
+    /// A tuple `(gate_decision, confidence_level)` where:
+    /// - `gate_decision`: `true` if breached, `false` if passed or not found.
+    /// - `confidence_level`: The confidence in this decision (0-100), or 0 if no score found.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let (breached, confidence) = client.is_score_risky_with_confidence(&wallet, &asset_pair);
+    /// if breached && confidence > 80 {
+    ///     // High-confidence risk: apply strict gate
+    /// } else if breached && confidence <= 80 {
+    ///     // Low-confidence risk: allow with monitoring
+    /// }
+    /// ```
+    pub fn is_score_risky_with_confidence(env: Env, wallet: Address, asset_pair: Symbol) -> (bool, u32) {
+        Self::check_service_silence(&env);
+        let score = match Self::lookup_score(&env, &wallet, &asset_pair) {
+            Ok(score) => score,
+            Err(Error::ScoreEmbargoed) => return (true, 100), // Embargoed = high-confidence breach
+            Err(_) => return (false, 0),                      // No score = 0 confidence
+        };
+        let risk_threshold = storage::get_risk_threshold(&env);
+        (score.score >= risk_threshold, score.confidence)
+    }
+
+    /// Answers "is this wallet safe to transact with?" without exposing the reason.
+    /// Complementary to [`is_score_risky`] — returns `true` if wallet is SAFE.
+    ///
+    /// Safe = score is below threshold AND not embargoed AND score exists.
+    /// Not found is treated as unknown/unsafe (returns `false`).
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// if client.is_wallet_safe(&wallet, &asset_pair) {
+    ///     // Proceed with transaction
+    /// } else {
+    ///     // Require additional verification or reject
+    /// }
+    /// ```
+    pub fn is_wallet_safe(env: Env, wallet: Address, asset_pair: Symbol) -> bool {
+        !Self::is_score_risky(&env, wallet, asset_pair)
+    }
+
+    /// Returns the aggregate risk-gate decision (any pair above threshold = RISKY)
+    /// without exposing individual pair scores or breakdown.
+    ///
+    /// # Returns
+    /// - `true` if ANY asset pair has score >= threshold (fail-open for any risk).
+    /// - `false` if ALL pairs are below threshold or wallet has no scores.
+    /// - Respects embargo: embargoed wallets return `true`.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// if client.is_aggregate_risky(&wallet) {
+    ///     // This wallet shows risk on at least one asset pair
+    /// }
+    /// ```
+    pub fn is_aggregate_risky(env: Env, wallet: Address) -> bool {
+        Self::check_service_silence(&env);
+
+        // Check embargo first (fail-closed)
+        if storage::get_score_embargo(&env, &wallet).is_some() {
+            return true;
+        }
+
+        // Check if ANY pair is at risk
+        let risk_threshold = storage::get_risk_threshold(&env);
+        let asset_pairs = storage::get_asset_pairs_for_wallet(&env, &wallet);
+
+        for i in 0..asset_pairs.len() {
+            if let Some(pair) = asset_pairs.get(i) {
+                if let Ok(Some(score)) = storage::peek_score(&env, &wallet, &pair) {
+                    if score.score >= risk_threshold {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
     }
 
     /// Reads the latest score for each requested wallet / asset-pair pair.

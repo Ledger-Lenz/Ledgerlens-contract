@@ -29,7 +29,7 @@ Noise is drawn from a discrete Laplace distribution `Lap(0, b)` with scale
 b = sensitivity / ε = 100 / ε
 ```
 
-using the inverse‑CDF (quantile) method:
+using the inverse-CDF (quantile) method:
 
 ```
 noise = sign × Lap_magnitude
@@ -214,3 +214,123 @@ Operators that want case-specific hashes can call
 - The worst relevant cases are therefore still bounded by existing constants,
   and the existing batch/history TTL tests and benches remain the governing
   budget references for these paths.
+
+---
+
+## Data Retention Boundaries
+
+This section maps every on-chain stored field and event to its retention and deletion
+expectations, clarifying what can be deleted, what remains immutable, and what operators
+must handle outside the contract.
+
+### On-Chain Persistent Storage
+
+| Field | Retention | Deletion | Notes |
+|-------|-----------|----------|-------|
+| Latest Risk Score (wallet, pair) | Indefinite until cleared | Operator-initiated via `clear_score()` | Immutable after submission; only full clearance removes it |
+| Score History (wallet, pair) | Configurable max-depth | Circular FIFO buffer; old entries evicted at `get_history_max_depth()` | Oldest entries removed when buffer fills; cleared via `clear_score_history()` |
+| Aggregate Score (wallet) | Recalculated on each submission | Cleared when all pair scores cleared | Derived from all pair scores; no independent TTL |
+| Score Embargo | Set per `set_score_embargo()`; expires at timestamp or indefinite | Manually via `lift_score_embargo()` or batch `batch_lift_score_embargo()` | Operator responsibility: track expiry offline |
+| Signer List (multi-sig) | Indefinite until member removal | Removed via `remove_service_signer()` | All signers remain active until explicitly deregistered |
+| Pair Weights | Indefinite until reset | Reset via `set_pair_weight()` or `reset_pair_weight()` | Admin-only; used to recompute aggregate scores |
+| Admin / Service Address | Indefinite (or rotated) | Rotated via `transfer_admin()` or `set_service()` | Immutable until admin explicitly rotates |
+
+### On-Chain Temporary Storage (TTL-Bounded)
+
+| Field | TTL | Automatic Expiry | Manual Deletion |
+|-------|-----|------------------|-----------------|
+| Pending Scores (finality buffer) | `finality_depth` ledgers | Yes, after finality period | `cancel_pending_score()` or `veto_score()` |
+| Open Disputes | Configurable reveal window + challenge period | Yes, on timeout | `resolve_dispute()` or manual operator cleanup |
+| Service Silence Alert | Heartbeat threshold seconds | Yes, auto-expired from temp storage | Resolved via `set_last_service_activity()` |
+
+### Off-Chain Responsibilities (Not Managed by Contract)
+
+The following data is **NOT stored in the contract** and must be managed by operators:
+
+| Data | Storage | Retention | Deletion | Operator Responsibility |
+|------|---------|-----------|----------|--------------------------|
+| Original submission payloads | Off-chain indexer | Operator policy | Operator logs/archives | Archive according to compliance policy |
+| Benford/ML model internals | Off-chain LedgerLens service | Model version lifecycle | Deprecated models archived | Keep audit trail for model version history |
+| Decision context (transactions, wallet labels) | Off-chain knowledge base | Operator policy | On incident closure | Map scores to real-world incidents; retain per SLA |
+| Breach / score-jump alerts | Off-chain SIEM or logging system | Operator policy | After investigation | Integrate with incident response workflow |
+| User-visible explanations | Off-chain frontend/API | Operator policy | Operator discretion | Never auto-delete; user consent required |
+
+### Event Emission and Indexing
+
+All events are **immutable and permanent** once committed to the ledger. Events serve as an audit trail.
+
+| Event | Emitted on | Indexed by | Retention Note |
+|-------|-----------|-----------|-----------------|
+| `score_submitted` | Every score submission | Off-chain indexer; audit log | Permanent; indexes every accepted score |
+| `score_cleared` | `clear_score()` call | Audit log | Permanent; proves deletion intent |
+| `score_history_cleared` | `clear_score_history()` call | Audit log | Permanent; proves buffer wipe |
+| `breach` | Score ≥ risk threshold | Alert system | Permanent; triggers incident response |
+| `embargo_set`, `embargo_lifted` | Embargo state changes | Compliance log | Permanent; tracks regulatory holds |
+| `score_delta` | Score value changes | Trend analysis | Permanent; tracks wallet risk evolution |
+
+### Immutable vs. Mutable Fields
+
+#### Immutable (Set Once, Read-Only)
+- Contract version (`get_version`)
+- Initial admin address (unless rotated)
+- Event schema version (bumped only on breaking changes)
+
+#### Mutable (Admin-Controlled)
+- Risk threshold (`set_threshold`)
+- Cooldown period (`set_cooldown_secs`)
+- History max-depth (`set_history_max_depth`)
+- Pair weights (`set_pair_weight`)
+- Service address (`set_service`)
+- Admin address (via `transfer_admin`)
+
+#### Ephemeral (Transient Storage)
+- Pending scores (cleared after finality buffer expires)
+- Open disputes (auto-expired or manually resolved)
+- Service heartbeat state (resets on activity)
+
+### Compliance and User Rights
+
+#### GDPR / Right to Erasure ("Right to be Forgotten")
+1. **Public scores cannot be deleted retroactively** — they are immutable and public.
+2. **Operators must implement a two-step process:**
+   - Use `clear_score()` and `clear_score_history()` to remove on-chain data.
+   - Publish a `score_cleared` event to notify off-chain indexers.
+3. **Off-chain data (logs, archives, ML models)** — operators handle separately per policy.
+4. **Cannot revoke past events** — they remain on the immutable ledger forever.
+
+#### Incident Investigation Window
+Operators should **retain full history for at least 6 months** (configurable per policy):
+- Latest score and history buffer (via contract)
+- Flagged wallets and embargoes (via events)
+- Signer accuracy records and model versions
+
+### Resource Usage and Bounded Behavior
+
+#### Score History Buffer
+- **Bounded size**: `HistoryMaxDepth` (default 128, configurable).
+- **FIFO eviction**: oldest entry removed when buffer is full.
+- **No pagination needed**: single read returns all buffered entries.
+- **Manual override**: `clear_score_history()` wipes the entire buffer in one call.
+
+#### Embargo Index
+- **Bounded size**: `MAX_EMBARGOED_WALLETS` (prevents runaway growth).
+- **Incremental maintenance**: O(1) add/remove for individual embargoes.
+- **Batch cleanup**: `batch_lift_score_embargo()` and `revoke_all_embargoes()` for bulk operations.
+
+#### Event Limits
+- Events have no on-contract limit; off-chain indexers must enforce rate limits.
+- Event topics are immutable once emitted; re-indexing does not change past events.
+
+### Audit and Verification Checklist
+
+For compliance audits, verify:
+
+- [ ] Latest score and embargo status match current on-chain state.
+- [ ] History buffer contains expected number of entries (≤ `history_max_depth`).
+- [ ] Score-cleared events correspond to user deletion requests.
+- [ ] Embargo-set events correspond to regulatory holds with expiry.
+- [ ] No field updates bypass the admin multi-sig check.
+- [ ] Service silence alerts were actioned within SLA.
+- [ ] Pending scores were resolved within finality buffer.
+
+---
