@@ -133,7 +133,21 @@ def verify_audit_chain(events, on_chain_root_bytes):
     return root == on_chain_root_bytes
 ```
 
-## 7. Audit Trail Use Cases
+## 7. Replay Evidence Bundles
+
+The replay harness in [tools/replay/src/main.rs](tools/replay/src/main.rs) can emit an incident evidence bundle that packages the replayed transactions, generated events, a configuration snapshot, issue references, and SHA-256 hashes into a single deterministic JSON document. This bundle is intended for operator handoffs, incident response, and audit workflows where the exact replay inputs and the resulting evidence need to be reproduced verbatim.
+
+The bundle layout is:
+
+- `transactions`: replayed submission evidence with sequence number, wallet, asset pair, score, timestamp, acceptance state, and optional rejection code.
+- `events`: replay-emitted event records with sequence number, kind, wallet, asset pair, and a human-readable message.
+- `config_snapshot`: a compact view of the replay configuration (admin/service identifiers and replay defaults).
+- `issue_references`: normalized issue/incident references supplied via `--issue-ref` flags.
+- `hashes`: SHA-256 hashes for the transactions, events, config snapshot, issue references, and the bundle as a whole.
+
+The bundle is deterministic: duplicate or out-of-order issues are normalized before hashing, and the same replay input yields the same bundle payload and hashes across reruns.
+
+## 8. Audit Trail Use Cases
 
 - **Compliance audits**: Prove that an admin upgrade was authorized and correctly ordered
 - **Incident response**: Reconstruct the sequence of governance actions leading up to an incident

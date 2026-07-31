@@ -18,6 +18,7 @@ blockchain usage.
 ## Features
 
 - **On-Chain Risk Score Registry**: Stores the latest LedgerLens risk score, flags, confidence, and timestamp per wallet/asset-pair
+- **Replay Forensics**: The replay harness can emit a deterministic incident evidence bundle that packages transactions, events, configuration snapshots, issue references, and hashes for audits and incident response.
 - **Authorized Score Submission**: Only the authorised LedgerLens off-chain service account can write scores
 - **Composable Read Access**: Any Soroban contract can query risk scores to gate suspicious activity via `query_risk_gate` (score-only) or `query_risk_gate_with_confidence` (score + confidence floor) — both infallible, side-effect free, and safe to call directly inside another protocol's guard clause
 - **Benford & ML Flags**: Distinguishes between statistical anomaly flags and ML classifier flags
@@ -53,12 +54,17 @@ blockchain usage.
 ### Core Components
 
 - **lib.rs**: Main contract implementation — entry points including `submit_score`, `submit_scores_batch`, and query functions
+- **tools/replay/src/main.rs**: Replay harness and incident evidence bundle generator for forensic workflows
 - **types.rs**: `RiskScore` data structure (score, flags, confidence, timestamp)
 - **storage.rs**: Persistent storage for per-wallet/asset-pair risk scores
 - **errors.rs**: Custom error types for contract operations
 - **test.rs**: Test suite covering submission, retrieval, and authorization
 
 ## Contract Functions
+
+### Replay and Forensics
+
+The replay harness in [tools/replay/src/main.rs](tools/replay/src/main.rs) consumes NDJSON snapshots, replays them into the contract, and emits a deterministic incident evidence bundle. The bundle is designed to be reproducible across reruns and is useful for incident response, operator handoffs, and audit trails. Operators can add issue references with `--issue-ref` flags; the bundle includes transaction evidence, emitted events, a config snapshot, and SHA-256 hashes for each section plus an overall bundle hash.
 
 ### `initialize(admin: Address, service: Address)`
 One-time setup. Sets the admin (who can rotate the service address) and the LedgerLens off-chain service account authorised to submit scores.

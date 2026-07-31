@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use replay::{compare_config_manifests, parse_manifest_json, recommended_manifest_template};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::env;
 use std::fs::File;
@@ -31,6 +33,53 @@ struct FailureEntry {
     model_version: Option<u32>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+struct ConfigSnapshot {
+    admin: String,
+    service: String,
+    cooldown_secs: u64,
+    default_score: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+struct TransactionEvidence {
+    sequence: u64,
+    wallet: String,
+    asset_pair: String,
+    score: u32,
+    timestamp: u64,
+    accepted: bool,
+    rejection_code: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+struct EventEvidence {
+    sequence: u64,
+    kind: String,
+    wallet: String,
+    asset_pair: String,
+    message: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+struct BundleHashes {
+    transactions_hash: String,
+    events_hash: String,
+    config_hash: String,
+    issue_refs_hash: String,
+    bundle_hash: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+struct IncidentEvidenceBundle {
+    bundle_version: u32,
+    transactions: Vec<TransactionEvidence>,
+    events: Vec<EventEvidence>,
+    config_snapshot: ConfigSnapshot,
+    issue_references: Vec<String>,
+    hashes: BundleHashes,
+}
+
 fn parse_price_average(trades: &Option<Vec<serde_json::Value>>) -> Option<f64> {
     trades.as_ref().and_then(|t| {
         let mut sum = 0.0f64;
@@ -49,15 +98,87 @@ fn parse_price_average(trades: &Option<Vec<serde_json::Value>>) -> Option<f64> {
     })
 }
 
+fn hash_json<T: Serialize>(value: &T) -> String {
+    let bytes = serde_json::to_vec(value).expect("evidence bundle values must serialize");
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+fn build_evidence_bundle(
+    transactions: Vec<TransactionEvidence>,
+    events: Vec<EventEvidence>,
+    config_snapshot: ConfigSnapshot,
+    issue_references: &[String],
+) -> IncidentEvidenceBundle {
+    let mut normalized_refs = issue_references.to_vec();
+    normalized_refs.sort();
+    normalized_refs.dedup();
+
+    let transactions_hash = hash_json(&transactions);
+    let events_hash = hash_json(&events);
+    let config_hash = hash_json(&config_snapshot);
+    let issue_refs_hash = hash_json(&normalized_refs);
+    let bundle_hash = hash_json(&json!({
+        "bundle_version": 1u32,
+        "transactions": transactions,
+        "events": events,
+        "config_snapshot": config_snapshot,
+        "issue_references": normalized_refs
+    }));
+
+    IncidentEvidenceBundle {
+        bundle_version: 1,
+        transactions,
+        events,
+        config_snapshot,
+        issue_references: normalized_refs,
+        hashes: BundleHashes {
+            transactions_hash,
+            events_hash,
+            config_hash,
+            issue_refs_hash,
+            bundle_hash,
+        },
+    }
+}
+
+fn parse_issue_references(args: &[String]) -> Vec<String> {
+    let mut refs = Vec::new();
+    let mut idx = 0usize;
+    while idx < args.len() {
+        let arg = &args[idx];
+        if arg == "--issue-ref" {
+            if let Some(value) = args.get(idx + 1) {
+                refs.push(value.clone());
+                idx += 2;
+                continue;
+            }
+        } else if let Some(rest) = arg.strip_prefix("--issue-ref=") {
+            refs.push(rest.to_string());
+            idx += 1;
+            continue;
+        }
+        idx += 1;
+    }
+    refs.sort();
+    refs.dedup();
+    refs
+}
+
 fn process_snapshot(
     path: &str,
     env: &Env,
     client: &LedgerLensScoreContractClient,
-) -> Result<usize> {
+    config_snapshot: &ConfigSnapshot,
+    issue_references: &[String],
+) -> Result<(usize, IncidentEvidenceBundle)> {
     let f = File::open(path).context("opening snapshot file")?;
     let reader = BufReader::new(f);
     let mut count = 0usize;
     let mut addr_map: HashMap<String, Address> = HashMap::new();
+    let mut transactions = Vec::new();
+    let mut events = Vec::new();
 
     for line in reader.lines() {
         let l = line?;
@@ -74,7 +195,7 @@ fn process_snapshot(
                 let s = (avg * 10.0).round() as i64;
                 s.clamp(0, 100) as u32
             })
-            .unwrap_or(50u32);
+            .unwrap_or(config_snapshot.default_score);
 
         let mut batch: SVec<ScoreSubmission> = SVec::new(env);
         batch.push_back(ScoreSubmission {
@@ -89,13 +210,34 @@ fn process_snapshot(
         });
 
         let result = client.submit_scores_batch(&batch);
-        println!(
-            "submitted wallet={}, pair={} -> accepted_count={} rejected_count={}",
-            entry.wallet, entry.asset_pair, result.accepted_count, result.rejected_count
-        );
+        let tx_sequence = count as u64 + 1;
+        let accepted = result.accepted_count > 0;
+        let rejection_code = if accepted { None } else { Some(result.rejected_count as u32) };
+
+        transactions.push(TransactionEvidence {
+            sequence: tx_sequence,
+            wallet: entry.wallet.clone(),
+            asset_pair: entry.asset_pair.clone(),
+            score,
+            timestamp: 1u64,
+            accepted,
+            rejection_code,
+        });
+        events.push(EventEvidence {
+            sequence: tx_sequence,
+            kind: "batch_submission".to_string(),
+            wallet: entry.wallet.clone(),
+            asset_pair: entry.asset_pair.clone(),
+            message: format!(
+                "submitted score {} for {} (accepted_count={}, rejected_count={})",
+                score, entry.asset_pair, result.accepted_count, result.rejected_count
+            ),
+        });
         count += 1;
     }
-    Ok(count)
+
+    let bundle = build_evidence_bundle(transactions, events, config_snapshot.clone(), issue_references);
+    Ok((count, bundle))
 }
 
 fn process_failure_scenario(
@@ -180,6 +322,7 @@ fn main() -> Result<()> {
         "replay" => {
             let path = args.get(2).map(|s| s.as_str()).unwrap_or("testdata/reference.ndjson");
             println!("Replay — reading {}", path);
+            let issue_references = parse_issue_references(&args[2..]);
 
             let env = Env::default();
             env.mock_all_auths();
@@ -189,8 +332,18 @@ fn main() -> Result<()> {
             let service = Address::generate(&env);
             client.initialize(&admin, &service);
 
-            match process_snapshot(path, &env, &client) {
-                Ok(n) => println!("processed {} entries", n),
+            let config_snapshot = ConfigSnapshot {
+                admin: "initialized-admin".to_string(),
+                service: "initialized-service".to_string(),
+                cooldown_secs: 3600,
+                default_score: 50,
+            };
+
+            match process_snapshot(path, &env, &client, &config_snapshot, &issue_references) {
+                Ok((n, bundle)) => {
+                    println!("processed {} entries", n);
+                    println!("evidence_bundle={}", serde_json::to_string_pretty(&bundle)?);
+                }
                 Err(e) => println!("error processing snapshot: {:#}", e),
             }
         }
@@ -222,4 +375,84 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_config() -> ConfigSnapshot {
+        ConfigSnapshot {
+            admin: "admin".to_string(),
+            service: "service".to_string(),
+            cooldown_secs: 3600,
+            default_score: 50,
+        }
+    }
+
+    #[test]
+    fn builds_a_deterministic_bundle_for_the_success_path() {
+        let transactions = vec![
+            TransactionEvidence {
+                sequence: 1,
+                wallet: "wallet-a".to_string(),
+                asset_pair: "XLM_USDC".to_string(),
+                score: 70,
+                timestamp: 1,
+                accepted: true,
+                rejection_code: None,
+            },
+            TransactionEvidence {
+                sequence: 2,
+                wallet: "wallet-b".to_string(),
+                asset_pair: "USD_USDC".to_string(),
+                score: 40,
+                timestamp: 1,
+                accepted: false,
+                rejection_code: Some(7),
+            },
+        ];
+        let events = vec![EventEvidence {
+            sequence: 1,
+            kind: "batch_submission".to_string(),
+            wallet: "wallet-a".to_string(),
+            asset_pair: "XLM_USDC".to_string(),
+            message: "submitted score 70 for XLM_USDC".to_string(),
+        }];
+        let issue_refs = vec!["ISSUE-2".to_string(), "ISSUE-1".to_string()];
+
+        let bundle = build_evidence_bundle(transactions.clone(), events.clone(), sample_config(), &issue_refs);
+
+        assert_eq!(bundle.bundle_version, 1);
+        assert_eq!(bundle.issue_references, vec!["ISSUE-1", "ISSUE-2"]);
+        assert_eq!(bundle.hashes.transactions_hash, hash_json(&transactions));
+        assert_eq!(bundle.hashes.events_hash, hash_json(&events));
+        assert_eq!(bundle.hashes.bundle_hash, hash_json(&json!({
+            "bundle_version": 1u32,
+            "transactions": transactions,
+            "events": events,
+            "config_snapshot": sample_config(),
+            "issue_references": vec!["ISSUE-1", "ISSUE-2"]
+        })));
+    }
+
+    #[test]
+    fn empty_inputs_still_produce_stable_hashes() {
+        let bundle = build_evidence_bundle(Vec::new(), Vec::new(), sample_config(), &[]);
+
+        assert!(bundle.transactions.is_empty());
+        assert!(bundle.events.is_empty());
+        assert_eq!(bundle.hashes.transactions_hash, hash_json(&Vec::<TransactionEvidence>::new()));
+        assert_eq!(bundle.hashes.events_hash, hash_json(&Vec::<EventEvidence>::new()));
+        assert_eq!(bundle.hashes.issue_refs_hash, hash_json(&Vec::<String>::new()));
+    }
+
+    #[test]
+    fn duplicate_and_unsorted_issue_references_are_normalized() {
+        let issue_refs = vec!["ISSUE-2".to_string(), "ISSUE-1".to_string(), "ISSUE-2".to_string()];
+        let bundle = build_evidence_bundle(Vec::new(), Vec::new(), sample_config(), &issue_refs);
+
+        assert_eq!(bundle.issue_references, vec!["ISSUE-1", "ISSUE-2"]);
+        assert_eq!(bundle.hashes.issue_refs_hash, hash_json(&vec!["ISSUE-1", "ISSUE-2"]));
+    }
 }
