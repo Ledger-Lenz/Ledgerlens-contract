@@ -198,14 +198,14 @@ pub use events::{ServiceResumedEvent, ServiceSilenceAlertEvent};
 pub use types::{
     AdaptiveRateLimit, AdaptiveThresholdConfig, AggregateRiskScore, AlertAckRecord, AlertType,
     BatchAttestation, BatchEntryResult, BatchResult, BatchScoreResult, DecayCurve,
-    EffectiveRiskScore, EmbargoExpiry, FlashProtectionMode, HllSketch, InterpolationMethod,
-    MaybeRiskScore, MaybeScoreAttestation, MaybeThresholdAttestation, ModelSubmission,
-    ModelVersionStats, ModelVersionStatus, ParamChangeProposal, ParamValue, ParameterProposal,
-    ParameterProposalRecord, ParameterProposalStatus, PendingScoreEntry, Policy, PolicyApproval,
-    RiskScore, ScoreAttestation, ScoreAttestationInput, ScoreDispute, ScoreFloorPolicy,
-    ScoreHistogram, ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof, ScoreTrend,
-    ScoreVelocityCap, SignerAccuracyRecord, ThresholdAttestation, TierBounds, TokenBucket,
-    UpgradeProposal, WelfordCorrState,
+    EffectiveRiskScore, EmbargoExpiry, FlashProtectionMode, HllSketch, InterfaceMetadata,
+    InterpolationMethod, MaybeRiskScore, MaybeScoreAttestation, MaybeThresholdAttestation,
+    ModelSubmission, ModelVersionStats, ModelVersionStatus, ParamChangeProposal, ParamValue,
+    ParameterProposal, ParameterProposalRecord, ParameterProposalStatus, PendingScoreEntry,
+    Policy, PolicyApproval, RiskScore, ScoreAttestation, ScoreAttestationInput, ScoreDispute,
+    ScoreFloorPolicy, ScoreHistogram, ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof,
+    ScoreTrend, ScoreVelocityCap, SignerAccuracyRecord, ThresholdAttestation, TierBounds,
+    TokenBucket, UpgradeProposal, WelfordCorrState,
 };
 /// The 32-byte all-zeros field element used as the value in non-membership proofs.
 pub use verkle::NON_MEMBER_SENTINEL;
@@ -307,6 +307,40 @@ impl LedgerLensScoreContract {
     /// ```
     pub fn get_version(env: Env) -> u32 {
         storage::get_contract_version(&env)
+    }
+
+    /// Exposes lightweight runtime metadata for integrators and tooling.
+    ///
+    /// The returned metadata is intentionally compact: it advertises the
+    /// interface version, contract version, the supported capability symbols,
+    /// and the semantic constraints that callers must respect. This allows
+    /// clients to discover the published surface without hard-coding the ABI.
+    pub fn get_interface_metadata(env: Env) -> InterfaceMetadata {
+        let mut capabilities = Vec::new(&env);
+        capabilities.push_back(Symbol::new(&env, "score"));
+        capabilities.push_back(Symbol::new(&env, "history"));
+        capabilities.push_back(Symbol::new(&env, "batch"));
+        capabilities.push_back(Symbol::new(&env, "gate"));
+        capabilities.push_back(Symbol::new(&env, "aggr"));
+        capabilities.push_back(Symbol::new(&env, "count"));
+        capabilities.push_back(Symbol::new(&env, "cgate"));
+        capabilities.push_back(Symbol::new(&env, "batch_attested"));
+        capabilities.push_back(Symbol::new(&env, "emb"));
+        capabilities.push_back(Symbol::new(&env, "cons"));
+        capabilities.push_back(Symbol::new(&env, "pr_rd"));
+        capabilities.push_back(Symbol::new(&env, "meta"));
+
+        let mut constraints = Vec::new(&env);
+        constraints.push_back(Symbol::new(&env, "fail_closed"));
+        constraints.push_back(Symbol::new(&env, "side_effect_free"));
+        constraints.push_back(Symbol::new(&env, "bounded_score_range"));
+
+        InterfaceMetadata {
+            interface_version: 3,
+            contract_version: storage::get_contract_version(&env),
+            capabilities,
+            semantic_constraints: constraints,
+        }
     }
 
     // ── Score submission ─────────────────────────────────────────────────────
@@ -4368,6 +4402,7 @@ impl LedgerLensScoreContract {
             || capability == symbol_short!("cons")
             || capability == symbol_short!("pr_rd")
             || capability == symbol_short!("dprv")
+            || capability == Symbol::new(&env, "meta")
     }
 
     // ── Service management ───────────────────────────────────────────────────
