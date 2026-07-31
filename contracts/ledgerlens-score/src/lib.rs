@@ -155,6 +155,15 @@ mod test_fail_closed_invariants;
 #[cfg(test)]
 mod test_memory_exhaustion;
 
+#[cfg(test)]
+mod test_monotonicity_reweight;
+#[cfg(test)]
+mod test_confidence_floor_truth_tables;
+#[cfg(test)]
+mod test_model_version_policy_compat;
+#[cfg(test)]
+mod test_bounded_drift;
+
 use soroban_sdk::{
     contract, contractimpl, crypto::Hash, symbol_short, token, Address, Bytes, BytesN, Env,
     IntoVal, Symbol, SymbolStr, TryFromVal, Vec,
