@@ -20,12 +20,16 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=deploy/validate_manifest.sh
+source "$SCRIPT_DIR/deploy/validate_manifest.sh"
+
 DRY_RUN=false
 CHECK_TOOLCHAIN_ONLY=false
 MANIFEST_OVERRIDE=""
 CANARY_KEYS=false
+PARAM_MANIFEST_PATH="$SCRIPT_DIR/deploy/manifest.json"
 POSITIONAL=()
-SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -238,6 +242,15 @@ log "RPC URL: $RPC_URL"
 if [ "$CHECK_TOOLCHAIN_ONLY" = true ]; then
   log "Manifest validated and toolchain drift check passed."
   exit 0
+fi
+
+# ── Validate deploy-time network parameters ────────────────────────────────────
+# Runs before any build/deploy command and submits no transactions.
+
+if ! validate_manifest "$NETWORK_SELECTOR" "$PARAM_MANIFEST_PATH" "$ADMIN_IDENTITY" "$SERVICE_ADDRESS"; then
+  echo "" >&2
+  echo "Deployment aborted: manifest validation failed for network '$NETWORK_SELECTOR'." >&2
+  exit 1
 fi
 
 if [ "$REQUIRE_MAINNET_CONFIRMATION" = "true" ]; then
