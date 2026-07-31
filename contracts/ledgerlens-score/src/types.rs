@@ -741,6 +741,17 @@ pub enum DataKeyD {
     /// Latest operator acknowledgement record for a given alert class.
     /// Keyed by `AlertType` so each class has its own O(1) slot (issue #630).
     AlertAcknowledgement(AlertType),
+
+    // ── SLO Burn-Rate Alerts (#677) ───────────────────────────────────────────
+    /// Global SLO burn-rate alert configuration. Instance-scoped.
+    SloBurnRateConfig,
+    /// Per-(wallet, asset_pair) SLO window state (short + long accumulators).
+    SloWindowState(Address, Symbol),
+    /// Per-(wallet, asset_pair) active SLO alert state.
+    SloAlertState(Address, Symbol),
+    /// Index of all (wallet, asset_pair) pairs with an active (non-None) SLO alert.
+    /// `Vec<(Address, Symbol)>` persisted in instance storage.
+    SloActiveAlertIndex,
 }
 
 #[contracttype]
@@ -895,3 +906,117 @@ pub struct TokenBucket {
     pub last_refill: u64,
 }
 
+// ── SLO Burn-Rate Alerts (#677) ───────────────────────────────────────────────
+
+/// Severity level for an SLO burn-rate alert.
+///
+/// Severity is determined deterministically from the computed burn-rate ratio
+/// against the short window (5 min) and long window (60 min) simultaneously:
+///
+/// | Level | Condition (both windows must fire) |
+/// |-------|-------------------------------------|
+/// | P3    | long_burn >= 1× AND short_burn >= 1× |
+/// | P2    | long_burn >= 2× AND short_burn >= 2× |
+/// | P1    | long_burn >= 5× AND short_burn >= 5× |
+///
+/// `None` means no active alert (all burn rates below P3 threshold).
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum SloSeverity {
+    /// No active SLO violation.
+    None = 0,
+    /// Warn: burn rate ≥ 1×; budget will be exhausted within the window period.
+    P3 = 1,
+    /// Critical: burn rate ≥ 2×; budget exhausted in half the window period.
+    P2 = 2,
+    /// Page: burn rate ≥ 5×; budget exhausted in 20% of the window period.
+    P1 = 3,
+}
+
+/// Measurement window descriptor for SLO burn-rate computation.
+///
+/// The burn rate for a window is:
+/// ```text
+/// burn_rate = seconds_above_threshold / window_secs
+/// ```
+/// Stored as a sliding counter: on each score write we add
+/// `min(elapsed, window_secs)` seconds to the "above-threshold" accumulator
+/// when the current score ≥ `slo_threshold`, then evict contributions older
+/// than `window_secs`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SloWindow {
+    /// Duration of this measurement window in seconds.
+    pub window_secs: u64,
+    /// Accumulated seconds where the score was ≥ `slo_threshold` within
+    /// this window, scaled by `SLO_BURN_SCALE` (1 000 000) to avoid
+    /// fixed-point division on-chain.
+    pub above_threshold_secs_scaled: u64,
+    /// Ledger timestamp of the most recent update.
+    pub last_updated: u64,
+}
+
+/// Global configuration for SLO burn-rate alerts, set by the admin.
+///
+/// Two windows are always tracked:
+/// - **short**: `short_window_secs` (default 300 s / 5 min)
+/// - **long**: `long_window_secs` (default 3 600 s / 60 min)
+///
+/// An alert fires when *both* windows independently compute a burn rate
+/// above the threshold for the severity tier. This dual-window approach
+/// avoids false positives from momentary spikes (short window alone) or
+/// slow-creeping degradation that never breaches the short window.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SloBurnRateConfig {
+    /// Whether SLO burn-rate alerts are enabled globally.
+    pub enabled: bool,
+    /// Score value at or above which a score is considered an SLO violation.
+    /// Must be in `[1, 100]`.
+    pub slo_threshold: u32,
+    /// Short measurement window in seconds. Default: 300 (5 min).
+    pub short_window_secs: u64,
+    /// Long measurement window in seconds. Default: 3 600 (60 min).
+    pub long_window_secs: u64,
+    /// Burn-rate multiplier (×1 000) at which P3 fires.
+    /// Default: 1 000 (= 1×). Must be ≥ 1 000.
+    pub p3_burn_rate_threshold_milli: u32,
+    /// Burn-rate multiplier (×1 000) at which P2 fires.
+    /// Default: 2 000 (= 2×). Must be > `p3_burn_rate_threshold_milli`.
+    pub p2_burn_rate_threshold_milli: u32,
+    /// Burn-rate multiplier (×1 000) at which P1 fires.
+    /// Default: 5 000 (= 5×). Must be > `p2_burn_rate_threshold_milli`.
+    pub p1_burn_rate_threshold_milli: u32,
+}
+
+/// Active SLO burn-rate alert state for a `(wallet, asset_pair)` pair.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SloAlert {
+    /// Current severity level.
+    pub severity: SloSeverity,
+    /// Ledger timestamp when this severity was first reached.
+    pub triggered_at: u64,
+    /// Ledger timestamp of the most recent escalation or de-escalation.
+    pub last_changed_at: u64,
+    /// Whether this alert has been acknowledged by an operator.
+    pub acknowledged: bool,
+    /// Ledger timestamp of acknowledgment (0 if not acknowledged).
+    pub acknowledged_at: u64,
+    /// Short-window burn rate at time of last change, scaled ×1 000.
+    pub short_burn_rate_milli: u32,
+    /// Long-window burn rate at time of last change, scaled ×1 000.
+    pub long_burn_rate_milli: u32,
+}
+
+/// Per-(wallet, asset_pair) SLO window counters persisted on-chain.
+/// Contains both the short and long window states.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SloWindowState {
+    /// Short measurement window state.
+    pub short: SloWindow,
+    /// Long measurement window state.
+    pub long: SloWindow,
+}

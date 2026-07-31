@@ -819,3 +819,84 @@ pub fn escalation_resolved(
 pub fn escalation_threshold_updated(env: &Env, old_threshold: u32, new_threshold: u32) {
     env.events().publish((symbol_short!("esc_thr"),), (old_threshold, new_threshold));
 }
+
+// ── SLO Burn-Rate Alerts (#677) ───────────────────────────────────────────────
+
+/// Emitted when a new SLO burn-rate alert is first raised for `(wallet, asset_pair)`.
+/// `severity` is `SloSeverity as u32`, `short_burn_rate_milli` and
+/// `long_burn_rate_milli` are the burn rates ×1000 that triggered the alert.
+pub fn slo_alert(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    severity: u32,
+    short_burn_rate_milli: u32,
+    long_burn_rate_milli: u32,
+) {
+    env.events().publish(
+        (symbol_short!("slo_alrt"), wallet.clone(), asset_pair.clone()),
+        (severity, short_burn_rate_milli, long_burn_rate_milli),
+    );
+}
+
+/// Emitted when an existing SLO alert escalates to a higher severity.
+/// `old_severity` → `new_severity` (both `SloSeverity as u32`).
+pub fn slo_escalate(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    old_severity: u32,
+    new_severity: u32,
+    short_burn_rate_milli: u32,
+    long_burn_rate_milli: u32,
+) {
+    env.events().publish(
+        (symbol_short!("slo_esc"), wallet.clone(), asset_pair.clone()),
+        (old_severity, new_severity, short_burn_rate_milli, long_burn_rate_milli),
+    );
+}
+
+/// Emitted when an existing SLO alert de-escalates to a lower severity or clears.
+/// When `new_severity == 0` the alert has been cleared entirely.
+pub fn slo_deescalate(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    old_severity: u32,
+    new_severity: u32,
+    short_burn_rate_milli: u32,
+    long_burn_rate_milli: u32,
+) {
+    env.events().publish(
+        (symbol_short!("slo_dsc"), wallet.clone(), asset_pair.clone()),
+        (old_severity, new_severity, short_burn_rate_milli, long_burn_rate_milli),
+    );
+}
+
+/// Emitted when an operator acknowledges an SLO alert via `acknowledge_slo_alert`.
+pub fn slo_ack(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    severity: u32,
+    acked_by: &Address,
+) {
+    env.events().publish(
+        (symbol_short!("slo_ack"), wallet.clone(), asset_pair.clone()),
+        (severity, acked_by.clone()),
+    );
+}
+
+/// Emitted when the admin updates the global SLO burn-rate configuration.
+pub fn slo_config_updated(
+    env: &Env,
+    enabled: bool,
+    slo_threshold: u32,
+    short_window_secs: u64,
+    long_window_secs: u64,
+) {
+    env.events().publish(
+        (symbol_short!("slo_cfg"),),
+        (enabled, slo_threshold, short_window_secs, long_window_secs),
+    );
+}

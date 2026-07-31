@@ -137,4 +137,12 @@ impl Error {
     pub const ReviewerAlreadyExists: Error = Error::SignerAlreadyInSet;
     /// Returned when a reviewer to be removed is not in the set.
     pub const ReviewerNotFound: Error = Error::SignerNotInSet;
+
+    // ── SLO Burn-Rate Alerts (#677) ───────────────────────────────────────────
+    /// Returned by `set_slo_config` when the config fields are out of range.
+    pub const InvalidSloConfig: Error = Error::InvalidThreshold;
+    /// Returned by `acknowledge_slo_alert` when no active alert exists.
+    pub const SloAlertNotFound: Error = Error::ScoreNotFound;
+    /// Returned by `acknowledge_slo_alert` when the alert is already acknowledged.
+    pub const SloAlreadyAcknowledged: Error = Error::AlreadyInitialized;
 }
