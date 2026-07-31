@@ -116,7 +116,7 @@ Confidence-gated extension of `query_risk_gate`. Returns `true` only when a scor
 Admin sets a system-wide minimum confidence floor (0–100). When configured, `query_risk_gate_with_confidence` uses `max(caller_param, global_floor)` as the effective floor, letting the contract operator enforce a baseline confidence requirement without requiring every integrating protocol to specify one. Defaults to `0` (no global floor). Returns `InvalidMinConfidence` for values above 100.
 
 ### `supports_interface(capability: Symbol) -> bool`
-Runtime capability detection for the composability interface. Returns `true` for the registered capabilities `score`, `history`, `batch`, `gate`, `aggr`, `count`, `cgate`, and `pr_rd`, letting integrators feature-detect instead of hardcoding contract version numbers.
+Runtime capability detection for the composability interface. Returns `true` for the registered capabilities `score`, `history`, `batch`, `gate`, `aggr`, `count`, `cgate`, `pr_rd`, and `slo`, letting integrators feature-detect instead of hardcoding contract version numbers.
 
 ### `propose_upgrade(new_wasm_hash: BytesN<32>)`
 Admin only. Starts a time-locked contract upgrade by committing to `new_wasm_hash`. Stores an `UpgradeProposal` with `executable_after = now + get_upgrade_delay()` and emits `upgrade_proposed`. Does not change the code. Rejected with `UpgradeAlreadyPending` if a proposal is already in flight. See [Upgrade Governance](#upgrade-governance).
@@ -414,6 +414,132 @@ pub struct ScoreFloorPolicy {
     pub floor_value: u32,      // minimum score [0, high_water_mark-1] for a high-risk wallet
 }
 ```
+
+## SLO Burn-Rate Alerts
+
+A single threshold breach tells you something is wrong *now*. A sustained high score over time tells you something is wrong *structurally*. LedgerLens SLO burn-rate alerts use the Google SRE error-budget model to detect the difference: instead of asking "is the score above threshold this instant?", they ask "how fast is this wallet/pair burning through its error budget?".
+
+### How it works
+
+Two rolling measurement windows are maintained per `(wallet, asset_pair)`:
+
+| Window | Default | Purpose |
+|--------|---------|---------|
+| Short | 5 min (300 s) | Fast-burn detection — catches sudden spikes |
+| Long | 60 min (3 600 s) | Slow-burn detection — catches sustained creep |
+
+On every `submit_score` write the engine:
+
+1. Accumulates "seconds above SLO threshold" into both windows using an exponential-decay approximation (O(1), no history buffer needed).
+2. Computes the burn rate for each window: `burn_rate = above_threshold_secs / window_secs` (×1000 for integer milli-units).
+3. Evaluates severity — an alert fires only when **both** windows independently exceed the threshold for that tier (dual-window prevents false positives from momentary spikes).
+4. Transitions the alert state machine deterministically: `None → P3 → P2 → P1` on escalation, reverse on de-escalation.
+
+| Severity | Default condition (both windows) | Meaning |
+|----------|----------------------------------|---------|
+| P3 | burn_rate ≥ 1× | Budget exhausted within the window period |
+| P2 | burn_rate ≥ 2× | Budget exhausted in half the window period |
+| P1 | burn_rate ≥ 5× | Budget exhausted in 20% of the window period |
+
+### Contract functions
+
+#### `set_slo_config(admin_signers, config: SloBurnRateConfig)`
+Admin only. Configures the global SLO alert system. Key fields:
+- `enabled` — master kill-switch; `false` disables all SLO evaluation without clearing stored state.
+- `slo_threshold` — score at or above which a submission counts as an error-budget violation (1–100).
+- `short_window_secs` / `long_window_secs` — measurement window durations.
+- `p3/p2/p1_burn_rate_threshold_milli` — burn-rate thresholds at each severity level (×1000).
+
+#### `get_slo_config() -> Option<SloBurnRateConfig>`
+Read-only. Returns the current config, or `None` until the admin has set one.
+
+#### `get_slo_alert(wallet, asset_pair) -> Option<SloAlert>`
+Read-only. Returns the active SLO alert for this pair, or `None` when no alert is firing.
+
+#### `acknowledge_slo_alert(admin_signers, wallet, asset_pair)`
+Admin only. Marks the active alert as acknowledged, suppressing repeated escalation notifications until severity changes. Acknowledgment is automatically cleared on the next escalation or de-escalation.
+
+#### `list_active_slo_alerts() -> Vec<(Address, Symbol)>`
+Read-only. Returns all `(wallet, asset_pair)` pairs with an active (non-None) SLO alert, capped at 200 entries.
+
+### `SloBurnRateConfig` structure
+
+```rust
+pub struct SloBurnRateConfig {
+    pub enabled: bool,
+    pub slo_threshold: u32,              // 1-100; score >= this is a violation
+    pub short_window_secs: u64,          // min 60s; default 300 (5 min)
+    pub long_window_secs: u64,           // min 300s, max 86400s; default 3600 (60 min)
+    pub p3_burn_rate_threshold_milli: u32, // default 1000 (1×); min 1000
+    pub p2_burn_rate_threshold_milli: u32, // default 2000 (2×); > p3
+    pub p1_burn_rate_threshold_milli: u32, // default 5000 (5×); > p2; max 100000
+}
+```
+
+### `SloAlert` structure
+
+```rust
+pub struct SloAlert {
+    pub severity: SloSeverity,        // None, P3, P2, P1
+    pub triggered_at: u64,            // timestamp when alert first fired
+    pub last_changed_at: u64,         // timestamp of last escalation/de-escalation
+    pub acknowledged: bool,
+    pub acknowledged_at: u64,         // 0 if not yet acknowledged
+    pub short_burn_rate_milli: u32,   // short-window burn rate ×1000 at last change
+    pub long_burn_rate_milli: u32,    // long-window burn rate ×1000 at last change
+}
+```
+
+### Events emitted
+
+| Event | Topics | Data | When |
+|-------|--------|------|------|
+| `slo_alrt` | `(wallet, pair)` | `(severity, short_burn_milli, long_burn_milli)` | New alert fires |
+| `slo_esc` | `(wallet, pair)` | `(old_sev, new_sev, short_burn_milli, long_burn_milli)` | Severity escalates |
+| `slo_dsc` | `(wallet, pair)` | `(old_sev, new_sev, short_burn_milli, long_burn_milli)` | Severity de-escalates or clears |
+| `slo_ack` | `(wallet, pair)` | `(severity, acked_by)` | Alert acknowledged |
+| `slo_cfg` | — | `(enabled, slo_threshold, short_window_secs, long_window_secs)` | Config updated |
+
+### Operator runbook
+
+**Responding to a P1 alert:**
+
+1. Query `get_slo_alert(wallet, pair)` to confirm severity and current burn rates.
+2. Check `get_score_history(wallet, pair)` to understand the recent score trajectory.
+3. If the alert is expected (e.g. a known high-risk wallet under investigation), call `acknowledge_slo_alert(admin_signers, wallet, pair)` to suppress further escalation notifications.
+4. If scores are incorrect, use `override_rate_limit` + `submit_score` to submit corrected scores.
+5. Watch for `slo_dsc` events — once the burn rate drops below the P1 threshold, severity automatically de-escalates.
+
+**Disabling SLO evaluation temporarily:**
+
+```bash
+soroban contract invoke --id <CONTRACT_ID> -- set_slo_config \
+  --admin_signers '[]' \
+  --config '{"enabled":false,"slo_threshold":75,...}'
+```
+
+**Monitoring queries (off-chain cron):**
+
+```bash
+# Check for any active alerts
+soroban contract invoke --id <CONTRACT_ID> -- list_active_slo_alerts
+
+# Check a specific pair
+soroban contract invoke --id <CONTRACT_ID> -- get_slo_alert \
+  --wallet <WALLET> --asset_pair XLM_USDC
+```
+
+### Design notes
+
+- **Fail-safe defaults**: no SLO evaluation runs until the admin calls `set_slo_config`. Existing integrations are completely unaffected until opt-in.
+- **Read-only paths unaffected**: `get_score`, `query_risk_gate`, and all read functions never touch SLO state.
+- **Bounded storage**: each `(wallet, asset_pair)` stores two `SloWindow` structs (two u64 each = 32 bytes total). The active-alert index is capped at 200 entries.
+- **Deterministic**: burn rates derive solely from `env.ledger().timestamp()` and the stored accumulators — no randomness, no external calls.
+- **Overflow-safe**: all arithmetic uses `saturating_*` operations; no panics in production.
+
+### `supports_interface`
+
+`supports_interface(symbol_short!("slo"))` returns `true` on deployments that include this feature, allowing integrators to feature-detect before using SLO functions.
 
 ## Storage Rent Management
 

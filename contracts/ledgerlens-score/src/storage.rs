@@ -3,6 +3,7 @@ use crate::constants::{
     DEFAULT_CONSENSUS_THRESHOLD_K, DEFAULT_COOLDOWN_SECS, DEFAULT_JUMP_THRESHOLD,
     DEFAULT_QUORUM_FAILURE_WINDOW_SECS, DEFAULT_RISK_THRESHOLD, DEFAULT_UPGRADE_DELAY_SECS,
     EMBARGO_TTL_EXTEND_TO, EMBARGO_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO, SCORE_TTL_THRESHOLD,
+    SLO_STATE_TTL_EXTEND_TO, SLO_STATE_TTL_THRESHOLD,
 };
 use crate::errors::Error;
 use crate::types::{
@@ -3050,6 +3051,126 @@ pub fn get_mandatory_reviewers(env: &Env) -> Vec<Address> {
         .instance()
         .get(&DataKey::MandatoryReviewers)
         .unwrap_or_else(|| Vec::new(env))
+}
+
+// ── SLO Burn-Rate Alerts (#677) ───────────────────────────────────────────────
+
+/// Read the global SLO burn-rate configuration. Returns `None` until the
+/// admin calls `set_slo_config`.
+pub fn get_slo_config(env: &Env) -> Option<crate::types::SloBurnRateConfig> {
+    env.storage().instance().get(&DataKeyD::SloBurnRateConfig)
+}
+
+/// Persist the global SLO burn-rate configuration (instance-scoped).
+pub fn set_slo_config(env: &Env, config: &crate::types::SloBurnRateConfig) {
+    env.storage().instance().set(&DataKeyD::SloBurnRateConfig, config);
+}
+
+/// Read the SLO window state for `(wallet, asset_pair)`.
+/// Returns `None` when no score has ever been submitted for this pair.
+pub fn get_slo_window_state(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) -> Option<crate::types::SloWindowState> {
+    let key = DataKeyD::SloWindowState(wallet.clone(), asset_pair.clone());
+    let state: Option<crate::types::SloWindowState> = env.storage().persistent().get(&key);
+    if state.is_some() {
+        env.storage().persistent().extend_ttl(
+            &key,
+            SLO_STATE_TTL_THRESHOLD,
+            SLO_STATE_TTL_EXTEND_TO,
+        );
+    }
+    state
+}
+
+/// Persist the SLO window state for `(wallet, asset_pair)`.
+pub fn set_slo_window_state(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    state: &crate::types::SloWindowState,
+) {
+    let key = DataKeyD::SloWindowState(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, state);
+    env.storage().persistent().extend_ttl(&key, SLO_STATE_TTL_THRESHOLD, SLO_STATE_TTL_EXTEND_TO);
+}
+
+/// Read the active SLO alert state for `(wallet, asset_pair)`.
+/// Returns `None` when no alert is active.
+pub fn get_slo_alert_state(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+) -> Option<crate::types::SloAlert> {
+    let key = DataKeyD::SloAlertState(wallet.clone(), asset_pair.clone());
+    let alert: Option<crate::types::SloAlert> = env.storage().persistent().get(&key);
+    if alert.is_some() {
+        env.storage().persistent().extend_ttl(
+            &key,
+            SLO_STATE_TTL_THRESHOLD,
+            SLO_STATE_TTL_EXTEND_TO,
+        );
+    }
+    alert
+}
+
+/// Persist the SLO alert state for `(wallet, asset_pair)`.
+pub fn set_slo_alert_state(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    alert: &crate::types::SloAlert,
+) {
+    let key = DataKeyD::SloAlertState(wallet.clone(), asset_pair.clone());
+    env.storage().persistent().set(&key, alert);
+    env.storage().persistent().extend_ttl(&key, SLO_STATE_TTL_THRESHOLD, SLO_STATE_TTL_EXTEND_TO);
+}
+
+/// Remove the SLO alert state for `(wallet, asset_pair)` when it clears.
+pub fn clear_slo_alert_state(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    env.storage().persistent().remove(&DataKeyD::SloAlertState(wallet.clone(), asset_pair.clone()));
+}
+
+/// Read the active-alert index (`Vec<(Address, Symbol)>`).
+pub fn get_slo_active_alert_index(env: &Env) -> Vec<(Address, Symbol)> {
+    env.storage().instance().get(&DataKeyD::SloActiveAlertIndex).unwrap_or_else(|| Vec::new(env))
+}
+
+/// Persist the active-alert index.
+pub fn set_slo_active_alert_index(env: &Env, index: &Vec<(Address, Symbol)>) {
+    env.storage().instance().set(&DataKeyD::SloActiveAlertIndex, index);
+}
+
+/// Add `(wallet, asset_pair)` to the active-alert index, capped at
+/// `MAX_SLO_ACTIVE_ALERTS`. Silently no-ops if already present or cap is full.
+pub fn slo_index_add(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    let mut index = get_slo_active_alert_index(env);
+    if index.len() >= crate::constants::MAX_SLO_ACTIVE_ALERTS {
+        return; // cap reached — still track the alert state, just not in the index
+    }
+    for i in 0..index.len() {
+        let entry = index.get(i).unwrap();
+        if &entry.0 == wallet && &entry.1 == asset_pair {
+            return; // already present
+        }
+    }
+    index.push_back((wallet.clone(), asset_pair.clone()));
+    set_slo_active_alert_index(env, &index);
+}
+
+/// Remove `(wallet, asset_pair)` from the active-alert index.
+pub fn slo_index_remove(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+    let index = get_slo_active_alert_index(env);
+    let mut new_index: Vec<(Address, Symbol)> = Vec::new(env);
+    for i in 0..index.len() {
+        let entry = index.get(i).unwrap();
+        if &entry.0 != wallet || &entry.1 != asset_pair {
+            new_index.push_back(entry);
+        }
+    }
+    set_slo_active_alert_index(env, &new_index);
 }
 
 #[cfg(test)]

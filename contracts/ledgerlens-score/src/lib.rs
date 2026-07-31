@@ -13,6 +13,7 @@ mod event_stability;
 #[cfg(any(test, feature = "testutils"))]
 mod invariants;
 mod parameter_governance;
+mod slo;
 mod storage;
 mod types;
 mod verkle;
@@ -38,6 +39,9 @@ mod test_batch_error_events;
 
 #[cfg(test)]
 mod test_parameter_governance;
+
+#[cfg(test)]
+mod test_slo;
 
 #[cfg(test)]
 mod test_batch_ttl_optimization;
@@ -696,6 +700,8 @@ impl LedgerLensScoreContract {
         Self::emit_score_delta(&env, &wallet, &asset_pair, previous_score, pending.score);
         storage::clear_pending_score(&env, &wallet, &asset_pair);
         events::score_committed(&env, &wallet, &asset_pair);
+        // ── SLO burn-rate evaluation (#677) ──────────────────────────────────
+        slo::evaluate_slo(&env, &wallet, &asset_pair, pending.score);
         Ok(())
     }
 
@@ -4368,6 +4374,127 @@ impl LedgerLensScoreContract {
             || capability == symbol_short!("cons")
             || capability == symbol_short!("pr_rd")
             || capability == symbol_short!("dprv")
+            || capability == symbol_short!("slo")
+    }
+
+    // ── SLO Burn-Rate Alerts (#677) ─────────────────────────────────────────
+
+    /// Configure the global SLO burn-rate alert system.  Admin only.
+    ///
+    /// Sets the thresholds, measurement windows, and enabled flag.  The
+    /// configuration is validated before being stored; invalid combinations
+    /// return [`Error::InvalidSloConfig`].
+    ///
+    /// # Fields
+    /// - `enabled` — master kill-switch; `false` disables SLO evaluation on
+    ///   every score write without clearing stored alert state.
+    /// - `slo_threshold` — score value at or above which a submission counts
+    ///   as an error-budget violation. Must be in `[1, 100]`.
+    /// - `short_window_secs` — duration of the short measurement window
+    ///   (minimum 60 s). Default: 300 (5 min).
+    /// - `long_window_secs` — duration of the long measurement window
+    ///   (must be > short, maximum 86 400 s). Default: 3 600 (60 min).
+    /// - `p3_burn_rate_threshold_milli` — burn rate ×1000 at which P3 fires
+    ///   (minimum 1000 = 1×). Default: 1 000.
+    /// - `p2_burn_rate_threshold_milli` — must be > P3. Default: 2 000.
+    /// - `p1_burn_rate_threshold_milli` — must be > P2. Default: 5 000.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialized.
+    /// - [`Error::InvalidSloConfig`] for any out-of-range field combination.
+    pub fn set_slo_config(
+        env: Env,
+        admin_signers: Vec<Address>,
+        config: crate::types::SloBurnRateConfig,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        slo::validate_slo_config(&config)?;
+        storage::set_slo_config(&env, &config);
+        events::slo_config_updated(
+            &env,
+            config.enabled,
+            config.slo_threshold,
+            config.short_window_secs,
+            config.long_window_secs,
+        );
+        Ok(())
+    }
+
+    /// Return the current SLO burn-rate configuration, or `None` if never set.
+    ///
+    /// Read-only, permissionless, side-effect free.
+    pub fn get_slo_config(env: Env) -> Option<crate::types::SloBurnRateConfig> {
+        storage::get_slo_config(&env)
+    }
+
+    /// Return the active SLO alert state for `(wallet, asset_pair)`.
+    ///
+    /// Returns `None` when no alert is active (severity is `None`).
+    /// Read-only, permissionless, side-effect free.
+    pub fn get_slo_alert(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Option<crate::types::SloAlert> {
+        storage::get_slo_alert_state(&env, &wallet, &asset_pair)
+    }
+
+    /// Acknowledge an active SLO alert, suppressing repeated escalation
+    /// notifications until the severity changes again.
+    ///
+    /// Admin only (requires the admin quorum). Acknowledgment is cleared
+    /// automatically whenever the severity escalates or de-escalates.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialized.
+    /// - [`Error::SloAlertNotFound`] if no active alert exists for this pair.
+    /// - [`Error::SloAlreadyAcknowledged`] if the alert is already acknowledged.
+    pub fn acknowledge_slo_alert(
+        env: Env,
+        admin_signers: Vec<Address>,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+
+        let mut alert = storage::get_slo_alert_state(&env, &wallet, &asset_pair)
+            .ok_or(Error::SloAlertNotFound)?;
+        if alert.acknowledged {
+            return Err(Error::SloAlreadyAcknowledged);
+        }
+        let now = env.ledger().timestamp();
+        alert.acknowledged = true;
+        alert.acknowledged_at = now;
+        storage::set_slo_alert_state(&env, &wallet, &asset_pair, &alert);
+
+        // Identify the acking admin for the event.
+        let admin_set = storage::get_admin_set(&env);
+        let acked_by = if !admin_set.is_empty() && !admin_signers.is_empty() {
+            admin_signers.get(0).unwrap()
+        } else {
+            storage::get_admin(&env)
+        };
+        events::slo_ack(&env, &wallet, &asset_pair, alert.severity as u32, &acked_by);
+        Ok(())
+    }
+
+    /// Return a list of `(wallet, asset_pair)` pairs that currently have an
+    /// active (non-None) SLO alert, in insertion order.
+    ///
+    /// Capped at [`constants::MAX_SLO_ACTIVE_ALERTS`] entries (200). When the
+    /// index is full, newly firing alerts are still stored in persistent
+    /// storage but do not appear here — use `get_slo_alert(wallet, pair)` to
+    /// query them directly.
+    ///
+    /// Read-only, permissionless, side-effect free.
+    pub fn list_active_slo_alerts(env: Env) -> Vec<(Address, Symbol)> {
+        storage::get_slo_active_alert_index(&env)
     }
 
     // ── Service management ───────────────────────────────────────────────────
@@ -9936,6 +10063,10 @@ impl LedgerLensScoreContract {
         );
 
         events::score_submitted(env, wallet, asset_pair, risk_score);
+        // ── SLO burn-rate evaluation (#677) ──────────────────────────────────
+        // Runs after the score is committed. Never returns an error — failures
+        // are absorbed so as not to block the score write.
+        slo::evaluate_slo(env, wallet, asset_pair, risk_score.score);
         Ok(())
     }
 

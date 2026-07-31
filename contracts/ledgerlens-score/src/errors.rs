@@ -143,4 +143,12 @@ impl Error {
     /// `Policy::DataDeletion`, which is configured via
     /// `set_deletion_approval_policy` instead.
     pub const InvalidPolicy: Error = Error::InvalidThreshold;
+
+    // ── SLO Burn-Rate Alerts (#677) ───────────────────────────────────────────
+    /// Returned by `set_slo_config` when the config fields are out of range.
+    pub const InvalidSloConfig: Error = Error::InvalidThreshold;
+    /// Returned by `acknowledge_slo_alert` when no active alert exists.
+    pub const SloAlertNotFound: Error = Error::ScoreNotFound;
+    /// Returned by `acknowledge_slo_alert` when the alert is already acknowledged.
+    pub const SloAlreadyAcknowledged: Error = Error::AlreadyInitialized;
 }
