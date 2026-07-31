@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "name": "boundary-and-malformed-payloads-are-contained",
+  "seed": 639003,
+  "operations": [
+    {
+      "op": "amm_swap",
+      "amount": "0",
+      "asset_pair": "XLM_USDC"
+    },
+    {
+      "op": "amm_liquidity",
+      "amount": "-1"
+    },
+    {
+      "op": "lending_borrow",
+      "amount": "170141183460469231731687303715884105727",
+      "asset_pair": ""
+    },
+    {
+      "op": "aggregator_gate",
+      "threshold": 4294967295,
+      "asset_pair": "123456789012345678901234567890123"
+    },
+    {
+      "op": "raw_invoke",
+      "target": "amm",
+      "function": "missing",
+      "args": []
+    },
+    {
+      "op": "raw_invoke",
+      "target": "lending",
+      "function": "borrow",
+      "args": [
+        {
+          "type": "u32",
+          "value": 1
+        }
+      ]
+    }
+  ]
+}

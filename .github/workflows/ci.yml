@@ -85,6 +85,18 @@ jobs:
           path: target/production-readiness-report.md
           retention-days: 14
 
+  invocation-fuzz:
+    name: Cross-contract invocation fuzz smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.81.0"
+      - uses: Swatinem/rust-cache@v2
+      - name: Replay corpus and run bounded mutations
+        run: cargo run -p invocation-fuzzer --locked -- smoke --seed 1666232542 --cases 32
+
   error-discriminants:
     name: Error discriminant stability
     runs-on: ubuntu-latest

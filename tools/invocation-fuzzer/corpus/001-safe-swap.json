@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "safe-score-allows-amm-and-lending",
+  "seed": 639001,
+  "operations": [
+    {
+      "op": "submit_score",
+      "score": 10,
+      "confidence": 90,
+      "advance_seconds": 1
+    },
+    {
+      "op": "amm_swap",
+      "amount": "1000",
+      "asset_pair": "XLM_USDC"
+    },
+    {
+      "op": "lending_borrow",
+      "amount": "1000",
+      "asset_pair": "XLM_USDC"
+    },
+    {
+      "op": "aggregator_gate",
+      "threshold": 75,
+      "asset_pair": "XLM_USDC"
+    }
+  ]
+}

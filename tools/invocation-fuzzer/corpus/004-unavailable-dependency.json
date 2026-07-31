@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "name": "unavailable-oracle-fails-without-score-corruption",
+  "seed": 639004,
+  "operations": [
+    {
+      "op": "submit_score",
+      "score": 5,
+      "confidence": 99,
+      "advance_seconds": 1
+    },
+    {
+      "op": "rotate_amm_to_unavailable"
+    },
+    {
+      "op": "amm_swap",
+      "amount": "1",
+      "asset_pair": "XLM_USDC"
+    },
+    {
+      "op": "amm_liquidity",
+      "amount": "1"
+    }
+  ]
+}
