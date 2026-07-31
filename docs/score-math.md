@@ -415,6 +415,234 @@ When building an off-chain simulator (indexer, backend, analytics):
 
 ---
 
+---
+
+## Monotonicity of Aggregate Score Under Pair Reweighting (#721)
+
+When pair weights are changed while input scores remain fixed, the aggregate
+score changes in predictable, monotone directions.
+
+### Monotonicity Properties
+
+| Property | Statement |
+|---|---|
+| M1 | Increasing the weight of a pair whose score is **above** the current aggregate **raises** (or preserves) the aggregate. |
+| M2 | Increasing the weight of a pair whose score is **below** the current aggregate **lowers** (or preserves) the aggregate. |
+| M3 | Setting all weights to zero is a degenerate case; the contract returns an error when `weight_sum = 0`. |
+| M4 | A single pair with a very large weight dominates the aggregate: `agg → score_dominant` as `weight_dominant → ∞`. |
+| M5 | If all pairs have the same score `S`, any positive reweighting leaves `agg = S`. |
+| M6 | `max_pair_score` always equals the maximum individual score, independent of reweighting. |
+
+### Worked Examples
+
+**Example 1 — raising a high-score pair's weight:**
+- Pairs: A (score=80, w=1), B (score=20, w=1) → `agg = floor((80+20)/2) = 50`
+- Raise A's weight to 10: `agg = floor((10×80 + 1×20)/11) = floor(820/11) = 74` ✓ (increased)
+
+**Example 2 — raising a low-score pair's weight:**
+- Pairs: A (score=20, w=1), B (score=80, w=1) → `agg = 50`
+- Raise A's weight to 10: `agg = floor((10×20 + 1×80)/11) = floor(280/11) = 25` ✓ (decreased)
+
+### Test Coverage
+
+Monotonicity properties are verified in
+`contracts/ledgerlens-score/src/test_monotonicity_reweight.rs` using
+deterministic unit tests with explicit expected values for each property.
+
+---
+
+## Confidence-Floor Semantics: Formal Truth Tables (#722)
+
+The gate function `query_risk_gate_with_confidence` passes only when **all
+three** of the following conditions hold simultaneously:
+
+```
+PASS  iff  score       >= threshold
+       AND confidence  >= query_conf
+       AND confidence  >= global_min_confidence
+```
+
+Where `global_min_confidence` is the admin-controlled floor set via
+`set_global_min_confidence`.
+
+### Table 1 — Score vs Threshold (confidence always passes)
+
+| score | threshold | conf | query_conf | global_floor | result | reason |
+|------:|----------:|-----:|-----------:|-------------:|:------:|--------|
+|    80 |        70 |   90 |          0 |            0 | PASS   | score > threshold |
+|    70 |        70 |   90 |          0 |            0 | PASS   | score == threshold (inclusive boundary) |
+|    69 |        70 |   90 |          0 |            0 | FAIL   | score < threshold |
+|     0 |         0 |   90 |          0 |            0 | PASS   | both zero |
+|   100 |       100 |   90 |          0 |            0 | PASS   | both max |
+|     0 |       100 |   90 |          0 |            0 | FAIL   | score 0, threshold max |
+
+### Table 2 — Confidence vs Per-Query Confidence Threshold
+
+| score | threshold | conf | query_conf | global_floor | result | reason |
+|------:|----------:|-----:|-----------:|-------------:|:------:|--------|
+|    80 |        70 |   80 |         80 |            0 | PASS   | conf == query_conf (inclusive) |
+|    80 |        70 |   79 |         80 |            0 | FAIL   | conf one below query_conf |
+|    80 |        70 |   81 |         80 |            0 | PASS   | conf above query_conf |
+|    80 |        70 |  100 |        100 |            0 | PASS   | conf == query_conf == max |
+|    80 |        70 |   99 |        100 |            0 | FAIL   | conf one below max query_conf |
+|    80 |        70 |    0 |          0 |            0 | PASS   | both zero |
+
+### Table 3 — Confidence vs Global Minimum Confidence Floor
+
+| score | threshold | conf | query_conf | global_floor | result | reason |
+|------:|----------:|-----:|-----------:|-------------:|:------:|--------|
+|    80 |        70 |   75 |          0 |           75 | PASS   | conf == global_floor (inclusive) |
+|    80 |        70 |   74 |          0 |           75 | FAIL   | conf one below global_floor |
+|    80 |        70 |   76 |          0 |           75 | PASS   | conf above global_floor |
+|    80 |        70 |    0 |          0 |            0 | PASS   | floor is zero, never blocks |
+|    80 |        70 |  100 |          0 |          100 | PASS   | conf == global_floor == max |
+
+### Table 4 — Combined Constraints
+
+| score | threshold | conf | query_conf | global_floor | result | reason |
+|------:|----------:|-----:|-----------:|-------------:|:------:|--------|
+|    80 |        70 |   85 |         80 |           75 | PASS   | all three conditions pass |
+|    65 |        70 |   85 |         80 |           75 | FAIL   | score < threshold |
+|    80 |        70 |   79 |         80 |           75 | FAIL   | conf < query_conf |
+|    80 |        70 |   74 |         70 |           75 | FAIL   | conf < global_floor |
+|    80 |        70 |   74 |         80 |           75 | FAIL   | conf fails both conf checks |
+|   100 |       100 |  100 |        100 |          100 | PASS   | all at maximum |
+
+### Configuration Notes
+
+- `global_min_confidence` is set admin-only via `set_global_min_confidence(floor: u32)`.
+- Valid range: `[0, 100]`. Setting to 0 disables the floor (never blocks on confidence alone).
+- The floor applies retroactively: raising it causes already-submitted scores with lower
+  confidence to fail future gate queries without resubmission.
+
+### Test Coverage
+
+Truth tables are verified row-by-row in
+`contracts/ledgerlens-score/src/test_confidence_floor_truth_tables.rs`.
+
+---
+
+## Model-Version Risk-Policy Compatibility (#723)
+
+The active risk policy defines an allowlist of approved model versions.
+Score submissions that carry an unapproved or retired version are rejected
+deterministically at submission time.
+
+### Version Lifecycle
+
+```
+                  register_model_version(v, delay)
+                           │
+                    delay elapsed?
+                    ┌─── No ───→  Proposed  (not yet accepted)
+                    │
+                    └─── Yes ──→  Active    (accepted by risk policy)
+                                      │
+                              deprecate_model_version(v)
+                                      │
+                                  Deprecated  (permanently retired)
+```
+
+### Compatibility Rules
+
+| Registry state | Submitted version | Outcome |
+|---|---|---|
+| Empty (no versions registered) | any | ACCEPTED (fallback: no restriction) |
+| Non-empty | Active version | ACCEPTED |
+| Non-empty | Proposed version (delay not elapsed) | REJECTED |
+| Non-empty | Deprecated version | REJECTED |
+| Non-empty | Unknown version (never registered) | REJECTED |
+
+### Read API
+
+- `is_model_version_active(version: u32) -> bool` — returns `true` if and only if the version
+  is in the Active state. Off-chain tooling should call this before submitting to avoid a
+  wasted transaction.
+- `get_model_versions() -> Vec<ModelVersionEntry>` — returns the full registry with each
+  entry's `version`, `status`, and `metadata` bytes.
+
+### ABI / Storage Notes
+
+- The registry is stored under a persistent storage key (`MODEL_VERSIONS`).
+- Deprecation is irreversible: a deprecated version cannot be re-activated.
+- The maximum registry size is bounded by `MAX_MODEL_VERSIONS` (defined in `constants.rs`)
+  to prevent unbounded storage growth.
+
+### Test Coverage
+
+Model-version policy compatibility is verified in
+`contracts/ledgerlens-score/src/test_model_version_policy_compat.rs`.
+Existing lifecycle tests live in
+`contracts/ledgerlens-score/src/test_model_version.rs`.
+
+---
+
+## Bounded Drift Checks for Consecutive Score Updates (#724)
+
+Consecutive score updates for the same `(wallet, asset_pair)` are checked
+against a configurable drift threshold (the "jump threshold").  A score change
+whose absolute delta exceeds the threshold is classified as a suspicious jump
+and triggers an on-chain event.
+
+### Jump Threshold
+
+| Parameter | Storage function | Description |
+|---|---|---|
+| `jump_threshold` | `set_jump_threshold(threshold: u32)` | Maximum permitted absolute delta between consecutive scores. Default: 50. |
+
+`get_jump_threshold() -> u32` returns the current threshold.
+
+### Drift Check Logic
+
+```
+delta = |new_score - previous_score|
+
+if delta > jump_threshold:
+    emit ScoreJumpAnomalyEvent { wallet, pair, prev, new, delta, timestamp }
+    increment jump_anomaly_count for (wallet, pair)
+
+# The submission is still stored (fail-soft by default).
+# Use is_flagged=true to mark emergency overrides.
+```
+
+**Notes:**
+- The first submission for a `(wallet, pair)` has no previous score, so it is
+  never classified as a drift anomaly.
+- The boundary is **exclusive**: `delta == jump_threshold` is accepted without
+  an anomaly; `delta == jump_threshold + 1` triggers the anomaly.
+- Score drops (decreasing changes) are subject to the same check as increases.
+
+### Jump Stats API
+
+- `get_jump_stats(wallet: Address, pair: Symbol) -> (u32, u64)` — returns
+  `(anomaly_count, last_anomaly_timestamp)` for the given wallet/pair.
+  Operators can poll this to detect wallets with frequent suspicious jumps.
+
+### Drift Threshold Guidelines
+
+| Threshold value | Behavior |
+|---|---|
+| 0 | Any change from the previous score triggers an anomaly (maximum sensitivity). |
+| 50 (default) | Changes of more than 50 points are flagged. Covers model recalibrations. |
+| 100 | Only the most extreme jumps (score goes from one extreme to another) are flagged. |
+
+### ABI / Storage Notes
+
+- `jump_threshold` is configurable post-deploy by admin multisig via
+  `set_jump_threshold`.
+- `ScoreJumpAnomalyEvent` is emitted on the `jmp_ano` topic with data
+  `(prev_score, new_score, abs_delta, threshold, timestamp)`.
+- Jump stats are stored per `(wallet, asset_pair)` under a persistent key.
+
+### Test Coverage
+
+Drift boundary conditions are verified in
+`contracts/ledgerlens-score/src/test_bounded_drift.rs`, covering within-threshold,
+at-boundary, one-above-boundary, drops, first-submission, configurable threshold,
+and counter increment cases.
+
+---
+
 ## References
 
 - **Interface specification:** [`docs/interface-spec.md`](interface-spec.md)
