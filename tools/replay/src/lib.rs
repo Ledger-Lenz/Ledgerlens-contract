@@ -1,3 +1,8 @@
+/// Replay harness library with schema versioning, determinism checking, and WASM analysis support
+pub mod schema;
+pub mod determinism;
+pub mod wasm_analysis;
+
 use anyhow::{anyhow, bail, Result};
 use ledgerlens_score::CONFIG_DRIFT_MANIFEST_FIELDS;
 use serde::{Deserialize, Serialize};

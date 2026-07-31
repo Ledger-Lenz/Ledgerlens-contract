@@ -924,3 +924,77 @@ fn test_capability_snapshot_removed_on_shard_removal() {
     let caps = client.get_shard_capabilities(&shard_id);
     assert_eq!(caps.len(), 0, "snapshot must be cleared on shard removal");
 }
+
+#[cfg(test)]
+mod optimization_tests {
+    use crate::optimization::{BatchConfig, PortfolioScorer, ScoreReadStats};
+
+    #[test]
+    fn test_score_read_stats_batch_calculation_exact() {
+        let batches = ScoreReadStats::calculate_batches(100, 10);
+        assert_eq!(batches, 10);
+    }
+
+    #[test]
+    fn test_score_read_stats_batch_calculation_with_remainder() {
+        let batches = ScoreReadStats::calculate_batches(100, 15);
+        assert_eq!(batches, 7);
+    }
+
+    #[test]
+    fn test_score_read_stats_gas_savings() {
+        let savings = ScoreReadStats::calculate_gas_savings(100, 10);
+        assert_eq!(savings, 90);
+    }
+
+    #[test]
+    fn test_batch_config_validation() {
+        let good_config = BatchConfig { batch_size: 10, max_parallel: 5, enable_caching: true };
+        assert!(good_config.validate().is_ok());
+
+        let bad_config = BatchConfig { batch_size: 0, max_parallel: 5, enable_caching: true };
+        assert!(bad_config.validate().is_err());
+    }
+
+    #[test]
+    fn test_batch_config_default() {
+        let config = BatchConfig::default();
+        assert_eq!(config.batch_size, 10);
+        assert!(config.enable_caching);
+    }
+
+    #[test]
+    fn test_batch_config_large_portfolio() {
+        let config = BatchConfig::optimized_for_large_portfolio();
+        assert_eq!(config.batch_size, 25);
+        assert_eq!(config.max_parallel, 10);
+    }
+
+    #[test]
+    fn test_portfolio_scorer_small_portfolio() {
+        let scorer = PortfolioScorer::new(50);
+        assert_eq!(scorer.batch_count(), 5); // 50 / 10 = 5
+        assert!(scorer.stats().gas_savings_percent >= 50);
+    }
+
+    #[test]
+    fn test_portfolio_scorer_large_portfolio() {
+        let config = BatchConfig::optimized_for_large_portfolio();
+        let scorer = PortfolioScorer::with_config(500, config);
+        assert_eq!(scorer.batch_size(), 25);
+        assert_eq!(scorer.batch_count(), 20);
+    }
+
+    #[test]
+    fn test_portfolio_scorer_single_pair() {
+        let scorer = PortfolioScorer::new(1);
+        assert_eq!(scorer.batch_count(), 1);
+    }
+
+    #[test]
+    fn test_portfolio_scorer_exact_batch_fit() {
+        let scorer = PortfolioScorer::new(100);
+        assert_eq!(scorer.batch_count(), 10);
+        assert_eq!(scorer.stats().gas_savings_percent, 90);
+    }
+}

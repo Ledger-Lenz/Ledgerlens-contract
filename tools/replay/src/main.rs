@@ -1,3 +1,5 @@
+mod schema;
+
 use anyhow::{Context, Result};
 use replay::{compare_config_manifests, parse_manifest_json, recommended_manifest_template};
 use serde::Deserialize;
@@ -12,6 +14,7 @@ use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{Address, Env, Symbol, Vec as SVec};
 
 use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreSubmission};
+use schema::{ReplayEntryV1, ReplayFileHeader, ReplayMetadata};
 
 #[derive(Debug, Deserialize)]
 struct SnapshotEntry {
@@ -58,12 +61,43 @@ fn process_snapshot(
     let reader = BufReader::new(f);
     let mut count = 0usize;
     let mut addr_map: HashMap<String, Address> = HashMap::new();
+    let mut schema_version: Option<u32> = None;
 
     for line in reader.lines() {
         let l = line?;
         if l.trim().is_empty() {
             continue;
         }
+
+        // Try to parse as header on first line
+        if count == 0 {
+            if let Ok(header) = serde_json::from_str::<ReplayFileHeader>(&l) {
+                // This is a schema header line
+                schema::validate_schema_version(header.schema_version)
+                    .map_err(|e| anyhow::anyhow!("Schema validation failed: {}", e))?;
+                schema_version = Some(header.schema_version);
+                println!(
+                    "Loaded replay with schema version {} (supported: {})",
+                    header.schema_version,
+                    schema::supported_versions()
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                if let Some(ref metadata) = header.metadata {
+                    if let Some(ref desc) = metadata.description {
+                        println!("Description: {}", desc);
+                    }
+                    if let Some(ref host_ver) = metadata.host_version {
+                        println!("Host version: {}", host_ver);
+                    }
+                }
+                continue;
+            }
+        }
+
+        // Parse entry with backward compatibility
         let entry: SnapshotEntry = serde_json::from_str(&l).context("parsing ndjson line")?;
         let wallet_addr =
             addr_map.entry(entry.wallet.clone()).or_insert_with(|| Address::generate(env)).clone();
@@ -95,6 +129,13 @@ fn process_snapshot(
         );
         count += 1;
     }
+
+    if let Some(ver) = schema_version {
+        println!("Processed {} entries with schema version {}", count, ver);
+    } else {
+        println!("Processed {} entries (no explicit schema version found - using implicit v1)", count);
+    }
+
     Ok(count)
 }
 

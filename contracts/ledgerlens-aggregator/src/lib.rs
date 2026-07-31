@@ -5,6 +5,9 @@ extern crate std;
 
 #[cfg(test)]
 mod test;
+
+pub mod optimization;
+
 const REQUIRED_SHARD_CAPABILITIES: [&str; 4] = ["score", "gate", "aggr", "arch"];
 use ledgerlens_score::{AggregateRiskScore, Error as ScoreError, RiskScore};
 use soroban_sdk::{
