@@ -1,6 +1,6 @@
 # `ILedgerLensScore` — Composability Interface Specification
 
-**Status:** Stable · **Interface version:** 2 · **Contract:** `LedgerLensScoreContract`
+**Status:** Stable · **Interface version:** 3 · **Contract:** `LedgerLensScoreContract`
 
 LedgerLens turns off-chain fraud signals (Benford's-Law analysis + an ML
 ensemble) into an on-chain, 0–100 risk score per `(wallet, asset_pair)`. The
@@ -126,11 +126,46 @@ capabilities (all `symbol_short!`):
 | `batch`         | `submit_scores_batch`                                                |
 | `gate`          | `query_risk_gate`                                                    |
 | `aggr`          | `get_aggregate_score` (cross-asset aggregate risk)                   |
+| `count`         | `get_score_count`                                                    |
 | `batch_attested`| `submit_scores_batch_attested` (Merkle-root attestation)             |
+| `cgate`         | `query_risk_gate_with_confidence` / global confidence floor         |
 | `emb`           | `set_score_embargo` / `lift_score_embargo`                          |
 | `cons`          | `commit_consensus` / `reveal_consensus` / `set_consensus_config`     |
+| `pr_rd`         | `is_pair_paused`                                                     |
+| `meta`          | `get_interface_metadata`                                             |
 
 Unrecognised capabilities return `false`.
+
+### 1.4 `get_interface_metadata` — versioned metadata discovery
+
+```rust
+fn get_interface_metadata(env: Env) -> InterfaceMetadata
+```
+
+Returns a compact, versioned description of the contract's published surface so
+consumers can discover capabilities and semantic constraints at runtime without
+hard-coding the ABI. The structure is stable across compatible upgrades within
+this interface major version, and integrators should treat it as read-only
+metadata rather than a second source of truth.
+
+```rust
+#[contracttype]
+pub struct InterfaceMetadata {
+    pub interface_version: u32,
+    pub contract_version: u32,
+    pub capabilities: Vec<Symbol>,
+    pub semantic_constraints: Vec<Symbol>,
+}
+```
+
+The metadata currently advertises the following capabilities and constraints:
+
+- Capabilities: `score`, `history`, `batch`, `gate`, `aggr`, `count`, `cgate`, `meta`
+- Semantic constraints: `fail_closed`, `side_effect_free`, `bounded_score_range`
+
+The `meta` capability is reserved for this metadata surface itself; callers can
+use it to detect whether the deployment exports `get_interface_metadata` before
+trying to read it.
 
 > Note: `batch_attested` is a 14-character symbol, longer than
 > `symbol_short!`'s 9-character ceiling, so it is constructed via
@@ -146,7 +181,7 @@ Unrecognised capabilities return `false`.
 | `get_score(env, wallet, asset_pair) -> Result<RiskScore, Error>` | latest score | `Err(ScoreNotFound)` if absent |
 | `get_score_history(env, wallet, asset_pair) -> Vec<RiskScore>` | up to 10 entries, oldest first | empty `Vec` if none |
 | `get_aggregate_score(env, wallet) -> Result<AggregateRiskScore, Error>` | cross-asset weighted view | `Err(ScoreNotFound)` if the wallet has no scores |
-| `get_version(env) -> u32` | contract build version | currently `2` (was `1` prior to the `BatchResult` ABI change) |
+| `get_version(env) -> u32` | contract build version | currently `4` (reflecting the current contract build) |
 
 `get_score` is the right call when you need the full struct (confidence, model
 version, flags) rather than a yes/no gate decision. Prefer `query_risk_gate`
@@ -204,7 +239,7 @@ when `model_version` advances.
 There are two independent version numbers:
 
 1. **Contract version** — `get_version()` (backed by `CONTRACT_VERSION`,
-   currently `2`). Bumped on any breaking ABI change.
+   currently `4`). Bumped on any breaking ABI change.
 2. **Interface version** — the number at the top of this document. It tracks
    the `ILedgerLensScore` surface specifically.
 
@@ -387,7 +422,7 @@ incorrect cross-contract calls at query time rather than a clear error up front.
 
 ### 7.1 Targeted interface version
 
-The aggregator targets **interface version 2** (the version at the top of this
+The aggregator targets **interface version 3** (the version at the top of this
 document). Concretely, it invokes the following canonical functions on every
 registered shard, each identified by its `supports_interface` capability:
 

@@ -18,6 +18,17 @@ pub struct ScoreDispute {
     pub challenged_score: u32,
 }
 
+/// Lightweight interface metadata exposed by the contract for runtime
+/// capability discovery and semantically-stable integration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InterfaceMetadata {
+    pub interface_version: u32,
+    pub contract_version: u32,
+    pub capabilities: Vec<Symbol>,
+    pub semantic_constraints: Vec<Symbol>,
+}
+
 /// On-chain record of the latest LedgerLens risk assessment for a
 /// wallet / asset-pair combination.
 #[contracttype]

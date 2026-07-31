@@ -211,6 +211,39 @@ fn test_supports_interface_pr_rd() {
     assert!(client.supports_interface(&symbol_short!("pr_rd")));
 }
 
+#[test]
+fn test_get_interface_metadata_reports_capabilities_and_semantics() {
+    let (env, client, _admin, _service) = setup();
+    let metadata = client.get_interface_metadata();
+
+    assert_eq!(metadata.interface_version, 3);
+    assert_eq!(metadata.contract_version, 4);
+
+    let mut saw_gate = false;
+    let mut saw_meta = false;
+    let mut saw_fail_closed = false;
+
+    for capability in metadata.capabilities.iter() {
+        if capability == symbol_short!("gate") {
+            saw_gate = true;
+        }
+        if capability == Symbol::new(&env, "meta") {
+            saw_meta = true;
+        }
+    }
+
+    for constraint in metadata.semantic_constraints.iter() {
+        if constraint == Symbol::new(&env, "fail_closed") {
+            saw_fail_closed = true;
+        }
+    }
+
+    assert!(saw_gate, "metadata should advertise the gate capability");
+    assert!(saw_meta, "metadata should advertise the metadata capability");
+    assert!(saw_fail_closed, "metadata should carry the documented fail-closed constraint");
+    assert!(client.supports_interface(&Symbol::new(&env, "meta")));
+}
+
 // ── RiskScore XDR layout stability ────────────────────────────────────────────
 
 #[test]

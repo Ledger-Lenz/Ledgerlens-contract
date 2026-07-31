@@ -161,7 +161,8 @@ impl MockAmm {
     /// wallet is not safe — note there is no `try_query_risk_gate` and no
     /// `?`, since the gate is infallible by design. Callers that need
     /// freshness guarantees must add their own max-age bound before invoking
-    /// this method.
+    /// this method. The mock follows the documented fail-closed semantics:
+    /// missing scores and risky scores both reject the call.
     pub fn swap(
         env: Env,
         user: Address,

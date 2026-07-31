@@ -9,6 +9,9 @@
 //! and **side-effect free**. The AMM can call it from inside `swap` without a
 //! `try_*` wrapper, without worrying about error propagation, and without any
 //! risk that LedgerLens could panic and burn the AMM's gas or brick its guard.
+//! A consumer can also discover the published capability surface via
+//! `get_interface_metadata` and use the `fail_closed` constraint to reason
+//! about how unknown wallets and low-confidence scores should be handled.
 //!
 //! Build it as part of the workspace:
 //!
