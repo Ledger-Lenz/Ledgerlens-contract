@@ -38,6 +38,11 @@ name = "history_eviction"
 harness = false
 path = "benches/history_eviction.rs"
 
+[[bench]]
+name = "entry_point_budgets"
+harness = false
+path = "benches/entry_point_budgets.rs"
+
 [features]
 testutils = ["soroban-sdk/testutils"]
 
