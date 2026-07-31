@@ -48,6 +48,11 @@ name = "batch_worst_case_profiles"
 harness = false
 path = "benches/batch_worst_case_profiles.rs"
 
+[[bench]]
+name = "entry_point_budgets"
+harness = false
+path = "benches/entry_point_budgets.rs"
+
 [features]
 testutils = ["soroban-sdk/testutils"]
 
