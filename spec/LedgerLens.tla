@@ -37,6 +37,18 @@ VARIABLES
     embargo_expiry,
     delegate,
     now,
+    \* ── Upgrade-proposal signer-set snapshot (issue #1) ─────────────────────
+    \* upg_approvals      – set of signers who have approved the pending
+    \*                      proposal under the *current* signer set snapshot.
+    \* upg_signer_snap    – the frozen signer set captured when the first
+    \*                      approval arrived.  If the live set ever diverges
+    \*                      from this snapshot the approval accumulator is
+    \*                      invalidated, preventing replay under a new set.
+    \* upg_live_signers   – the current live admin signer set (mutated by
+    \*                      AddAdminSigner / RemoveAdminSigner actions).
+    upg_approvals,
+    upg_signer_snap,
+    upg_live_signers,
     \* ── Token-bucket variables ──────────────────────────────────────────────
     \* tb_tokens[w]      – current token count for wallet w (across the single
     \*                     pair modelled here; extend to a function of pairs for
@@ -78,7 +90,8 @@ VARIABLES
 vars == <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
           tb_tokens, tb_last_refill, tb_capacity,
           cc_committed, cc_commit_time, cc_score, cc_revealed,
-          cc_finalized, cc_final_score>>
+          cc_finalized, cc_final_score,
+          upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* Convenience: smaller / larger of two naturals
 Min(a, b) == IF a <= b THEN a ELSE b
@@ -150,6 +163,10 @@ Init ==
     /\ cc_revealed     = [s \in Signers |-> FALSE]
     /\ cc_finalized    = FALSE
     /\ cc_final_score  = 0
+    \* Upgrade-proposal signer-set snapshot (issue #1): start empty.
+    /\ upg_approvals   = {}
+    /\ upg_signer_snap = {}
+    /\ upg_live_signers = Signers   \* model all spec Signers as the live admin set
 
 \* ── Action: TickTime ─────────────────────────────────────────────────────────
 TickTime ==
@@ -157,7 +174,8 @@ TickTime ==
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate,
                    tb_tokens, tb_last_refill, tb_capacity,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
-                   cc_finalized, cc_final_score>>
+                   cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ── Action: SubmitScore ──────────────────────────────────────────────────────
 \* A score submission is accepted only when the wallet's token bucket has at
@@ -185,7 +203,8 @@ SubmitScore(w, s) ==
     /\ tb_last_refill'  = [tb_last_refill  EXCEPT ![w] = new_last_refill]
     /\ UNCHANGED <<embargo_expiry, delegate, now, tb_capacity,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
-                   cc_finalized, cc_final_score>>
+                   cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ── Action: SetBurstCapacity ─────────────────────────────────────────────────
 \* Admin reduces or increases burst capacity.  The Rust implementation applies
@@ -202,7 +221,8 @@ SetBurstCapacity(capacity) ==
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
                    tb_tokens, tb_last_refill,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
-                   cc_finalized, cc_final_score>>
+                   cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ── Action: SetEmbargo ───────────────────────────────────────────────────────
 SetEmbargo(w, expiry) ==
@@ -210,7 +230,8 @@ SetEmbargo(w, expiry) ==
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, delegate, now,
                    tb_tokens, tb_last_refill, tb_capacity,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
-                   cc_finalized, cc_final_score>>
+                   cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ── Action: LiftEmbargo ──────────────────────────────────────────────────────
 LiftEmbargo(w) ==
@@ -218,7 +239,8 @@ LiftEmbargo(w) ==
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, delegate, now,
                    tb_tokens, tb_last_refill, tb_capacity,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
-                   cc_finalized, cc_final_score>>
+                   cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ── Action: SetDelegate / RemoveDelegate ─────────────────────────────────────
 SetDelegate(sub, cust) ==
@@ -229,14 +251,16 @@ SetDelegate(sub, cust) ==
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, now,
                    tb_tokens, tb_last_refill, tb_capacity,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
-                   cc_finalized, cc_final_score>>
+                   cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 RemoveDelegate(sub) ==
     /\ delegate' = [delegate EXCEPT ![sub] = "None"]
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, now,
                    tb_tokens, tb_last_refill, tb_capacity,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
-                   cc_finalized, cc_final_score>>
+                   cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ── Action: ResetBreachCount ─────────────────────────────────────────────────
 ResetBreachCount(w) ==
@@ -244,7 +268,8 @@ ResetBreachCount(w) ==
     /\ UNCHANGED <<score, hwm, last_submit_time, embargo_expiry, delegate, now,
                    tb_tokens, tb_last_refill, tb_capacity,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
-                   cc_finalized, cc_final_score>>
+                   cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ════════════════════════════════════════════════════════════════════════════
 \* CONSENSUS COMMIT-REVEAL ACTIONS  (issue #403)
@@ -290,7 +315,8 @@ CommitConsensus(s, v) ==
     /\ cc_score'       = [cc_score       EXCEPT ![s] = v]
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
                    tb_tokens, tb_last_refill, tb_capacity,
-                   cc_revealed, cc_finalized, cc_final_score>>
+                   cc_revealed, cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ── Action: RevealConsensus ──────────────────────────────────────────────────
 \* Signer `s` reveals their previously committed score.
@@ -316,7 +342,8 @@ RevealConsensus(s) ==
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
                    tb_tokens, tb_last_refill, tb_capacity,
                    cc_committed, cc_commit_time, cc_score,
-                   cc_finalized, cc_final_score>>
+                   cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ── Action: FinalizeConsensus ────────────────────────────────────────────────
 \* Atomically finalizes the round when K-of-N agreement within epsilon holds.
@@ -329,7 +356,8 @@ FinalizeConsensus ==
     /\ cc_final_score'  = cc_score[ConsensusScore]
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
                    tb_tokens, tb_last_refill, tb_capacity,
-                   cc_committed, cc_commit_time, cc_score, cc_revealed>>
+                   cc_committed, cc_commit_time, cc_score, cc_revealed,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ── Action: ResetConsensusRound ──────────────────────────────────────────────
 \* Starts a fresh consensus round.  In the Rust contract a new round is
@@ -347,7 +375,8 @@ ResetConsensusRound ==
     /\ cc_finalized'   = FALSE
     /\ cc_final_score' = 0
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
-                   tb_tokens, tb_last_refill, tb_capacity>>
+                   tb_tokens, tb_last_refill, tb_capacity,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ── Action: ExpireStaleCommit ────────────────────────────────────────────────
 \* Models the Soroban temporary-storage TTL eviction: a signer's commitment is
@@ -363,7 +392,72 @@ ExpireStaleCommit(s) ==
     /\ cc_score'       = [cc_score       EXCEPT ![s] = 0]
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
                    tb_tokens, tb_last_refill, tb_capacity,
-                   cc_revealed, cc_finalized, cc_final_score>>
+                   cc_revealed, cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
+
+\* ════════════════════════════════════════════════════════════════════════════
+\* UPGRADE PROPOSAL SIGNER-SET SNAPSHOT ACTIONS  (issue #1)
+\* ════════════════════════════════════════════════════════════════════════════
+\*
+\* The Rust contract accumulates M-of-N admin co-signatures for an upgrade
+\* proposal across multiple transactions.  The vulnerability: if a signer is
+\* added or removed while approvals are accumulating, the stale approvals
+\* remain valid and count toward the new threshold — an approval collected
+\* under one signer set can be replayed under a different one.
+\*
+\* The fix: snapshot the signer set when the first approval arrives and
+\* invalidate the entire accumulator whenever the live set diverges from
+\* the snapshot.  These three actions model that lifecycle.
+\*
+\* AddUpgradeApproval(s): a signer in the live set adds their approval.
+\*   – On the first approval, freeze upg_signer_snap = upg_live_signers.
+\*   – If the snapshot already exists and the live set has diverged, clear
+\*     the accumulator and start fresh (snapshot invalidation).
+\*
+\* MutateAdminSet(s, add): admin adds or removes signer `s`.
+\*   – After the mutation, if any approvals have been collected under the
+\*     old snapshot, they are invalidated (accumulator cleared, snap reset).
+\*
+\* ClearUpgradeApprovals: explicit accumulator reset (veto / threshold met).
+
+AddUpgradeApproval(s) ==
+    /\ s \in upg_live_signers        \* signer must be in the live set
+    /\ s \notin upg_approvals        \* idempotency guard
+    /\ LET snap == IF upg_approvals = {} THEN upg_live_signers ELSE upg_signer_snap
+       IN
+       /\ IF snap /= upg_live_signers
+          \* Snapshot diverged: clear stale approvals, start fresh with `s`.
+          THEN /\ upg_approvals'   = {s}
+               /\ upg_signer_snap' = upg_live_signers
+          ELSE /\ upg_approvals'   = upg_approvals \cup {s}
+               /\ upg_signer_snap' = snap
+    /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
+                   tb_tokens, tb_last_refill, tb_capacity,
+                   cc_committed, cc_commit_time, cc_score, cc_revealed,
+                   cc_finalized, cc_final_score, upg_live_signers>>
+
+\* Model admin adding or removing a signer while a proposal accumulates.
+\* Either direction invalidates any stale approvals.
+MutateAdminSet(s) ==
+    /\ upg_live_signers' =
+           IF s \in upg_live_signers
+           THEN upg_live_signers \ {s}    \* remove
+           ELSE upg_live_signers \cup {s} \* add
+    \* Invalidate accumulated approvals whenever the signer set changes.
+    /\ upg_approvals'   = {}
+    /\ upg_signer_snap' = {}
+    /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
+                   tb_tokens, tb_last_refill, tb_capacity,
+                   cc_committed, cc_commit_time, cc_score, cc_revealed,
+                   cc_finalized, cc_final_score>>
+
+ClearUpgradeApprovals ==
+    /\ upg_approvals'   = {}
+    /\ upg_signer_snap' = {}
+    /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
+                   tb_tokens, tb_last_refill, tb_capacity,
+                   cc_committed, cc_commit_time, cc_score, cc_revealed,
+                   cc_finalized, cc_final_score, upg_live_signers>>
 
 \* ── Next-state relation ──────────────────────────────────────────────────────
 Next ==
@@ -381,6 +475,10 @@ Next ==
     \/ FinalizeConsensus
     \/ ResetConsensusRound
     \/ \E s \in Signers : ExpireStaleCommit(s)
+    \* Upgrade signer-set snapshot actions (issue #1)
+    \/ \E s \in Signers : AddUpgradeApproval(s)
+    \/ \E s \in Signers : MutateAdminSet(s)
+    \/ ClearUpgradeApprovals
 
 \* ════════════════════════════════════════════════════════════════════════════
 \* INVARIANTS
@@ -532,6 +630,38 @@ FinalizationIsTerminalWithinRound ==
 \* Once cc_final_score is set it is immutable until ResetConsensusRound.
 FinalScoreImmutableWithinRound ==
     [][cc_finalized /\ cc_finalized' => cc_final_score' = cc_final_score]_vars
+
+\* ── Upgrade signer-set snapshot invariants (issue #1) ────────────────────────
+
+\* INV-UPG-1  Every collected approval must belong to the live signer set at
+\*            the time the snapshot was taken.  Because MutateAdminSet clears
+\*            the accumulator on any set change, upg_approvals ⊆ upg_signer_snap
+\*            holds in every reachable state.
+ApprovalsSubsetOfSnapshot ==
+    upg_approvals \subseteq upg_signer_snap
+
+\* INV-UPG-2  The snapshot is always a subset of (or equal to) the live set
+\*            OR the accumulator is empty.  If the sets diverge but approvals
+\*            are still present, that is a violation — the invalidation step
+\*            must have fired first.
+SnapshotConsistentWithLiveSet ==
+    upg_approvals /= {} =>
+        upg_signer_snap = upg_live_signers
+
+\* INV-UPG-3  No approval collected under a removed signer can ever survive a
+\*            signer-set mutation.  Follows from INV-UPG-1 + INV-UPG-2.
+RemovedSignerApprovalInvalidated ==
+    \A s \in Signers :
+        (s \in upg_approvals) => (s \in upg_live_signers)
+
+\* ── Temporal: signer-set mutation clears the accumulator ─────────────────────
+
+\* PROP-UPG-1  Whenever the live signer set changes, the approval accumulator
+\*             is empty in the very next state.  This is the key liveness
+\*             property: no stale approval ever persists across a set mutation.
+SignerMutationInvalidatesApprovals ==
+    [][upg_live_signers /= upg_live_signers' =>
+           upg_approvals' = {}]_vars
 
 \* ── State constraint (model-checking bound) ──────────────────────────────────
 StateConstraint == now <= 5
