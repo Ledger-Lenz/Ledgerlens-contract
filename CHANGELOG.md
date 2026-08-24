@@ -9,6 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- **Canonical score-submission normalization** (`#686`): Introduced `NormalizedSubmission` (internal, non-ABI type in `types.rs`) and two private helpers — `normalize_submission` and `validate_normalized_submission` — in `lib.rs`. Both `submit_score` and `submit_scores_batch` now convert raw caller fields into a `NormalizedSubmission` before any range checks, model-version governance, or storage writes. This collapses the previously divergent validation order between the single and batch paths into a single, deterministic sequence:
+  1. `score > 100` → `InvalidScore` (code 4)
+  2. `confidence > 100` → `InvalidConfidence` (code 5)
+  3. `timestamp == 0` → `InvalidTimestamp` (code 25)
+  4. model-version registry checks → `ModelVersionNotRegistered` / `ModelVersionNotReady` / `ModelVersionDeprecated`
+
+  **ABI/compatibility notes:** No public function signatures, return types, error discriminants, storage layout, or emitted events were changed. `NormalizedSubmission` is not `#[contracttype]` and is therefore not part of the XDR-encoded ABI; it is purely an in-process transfer object. Callers built against any earlier ABI version do not need to regenerate bindings. The `validate_risk_score` helper used by `write_score_with_rate_limit` is preserved as a belt-and-suspenders guard. Closes #686.
 - **Memory-exhaustion tests for maximum-sized nested inputs**: `contracts/ledgerlens-score/src/test_memory_exhaustion.rs` exercises `submit_scores_batch_attested` at its maximum nested shape (`MAX_BATCH_SIZE` entries × `MAX_MERKLE_PROOF_DEPTH`-deep proofs each), asserting no panic and measuring worst-case CPU/memory cost, plus regression coverage for the new `signers`/`admin_signers` bound below and a bounded-read test for `get_expiring_entries`. Closes #612.
 - **Interface versioning & migration policy**: [`docs/interface-versioning-policy.md`](docs/interface-versioning-policy.md) defines breaking vs. non-breaking changes, a 30-day notice period for breaking releases, and programmatic detection via `supports_interface`. Cross-referenced from `docs/interface-spec.md`, `CHANGELOG.md`, and `CONTRIBUTING.md`. Closes #418.
 - **`get_admin_set`**: Read-only query returning the current M-of-N admin co-signer set, mirroring `get_admin_signers`. Closes #239.

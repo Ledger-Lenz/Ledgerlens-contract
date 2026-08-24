@@ -150,6 +150,9 @@ mod test_breach_counter_reset;
 mod test_adversarial_validation;
 
 #[cfg(test)]
+mod test_submission_normalization;
+
+#[cfg(test)]
 mod test_submission_provenance;
 
 #[cfg(test)]
@@ -245,13 +248,14 @@ pub use types::{
     DeletionAuditWarning, DeletionPreflight, EffectiveRiskScore, EmbargoExpiry,
     FlashProtectionMode, HllSketch, InterfaceMetadata, InterpolationMethod, MaybeRiskScore,
     MaybeScoreAttestation, MaybeThresholdAttestation, ModelSubmission, ModelVersionStats,
-    ModelVersionStatus, OperatorScoreExport, ParamChangeProposal, ParamValue, ParameterProposal,
-    ParameterProposalRecord, ParameterProposalStatus, PendingConfigExportEntry, PendingScoreEntry,
-    Policy, PolicyApproval, PolicyBundle, PolicyBundleProposal, PublicScoreExport, RiskScore,
-    ScoreAttestation, ScoreAttestationInput, ScoreDispute, ScoreFloorPolicy, ScoreHistogram,
-    ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof, ScoreTrend, ScoreVelocityCap,
-    SignerAccuracyRecord, SignerState, SignerStateRecord, SubmissionProvenance,
-    ThresholdAttestation, TierBounds, TokenBucket, UpgradeProposal, WelfordCorrState,
+    ModelVersionStatus, NormalizedSubmission, OperatorScoreExport, ParamChangeProposal,
+    ParamValue, ParameterProposal, ParameterProposalRecord, ParameterProposalStatus,
+    PendingConfigExportEntry, PendingScoreEntry, Policy, PolicyApproval, PolicyBundle,
+    PolicyBundleProposal, PublicScoreExport, RiskScore, ScoreAttestation, ScoreAttestationInput,
+    ScoreDispute, ScoreFloorPolicy, ScoreHistogram, ScoreQuery, ScoreSubmission,
+    ScoreSubmissionWithProof, ScoreTrend, ScoreVelocityCap, SignerAccuracyRecord, SignerState,
+    SignerStateRecord, SubmissionProvenance, ThresholdAttestation, TierBounds, TokenBucket,
+    UpgradeProposal, WelfordCorrState,
 };
 /// The 32-byte all-zeros field element used as the value in non-membership proofs.
 pub use verkle::NON_MEMBER_SENTINEL;
@@ -580,17 +584,36 @@ impl LedgerLensScoreContract {
             }
         }
 
-        let risk_score = RiskScore {
+        // ── issue #686: normalize first, validate second ───────────────────
+        // All raw caller fields are collected into a `NormalizedSubmission`
+        // before any range or model-version checks run.  This is the single
+        // point at which both the single and finality-buffer paths diverge
+        // from raw parameters, and it must happen before any guard that reads
+        // `score`, `confidence`, or `timestamp`.
+        let ns = Self::normalize_submission(
+            wallet.clone(),
+            asset_pair.clone(),
             score,
             benford_flag,
             ml_flag,
             timestamp,
             confidence,
             model_version,
+            commitment.clone(),
+        );
+        Self::validate_normalized_submission(&env, &ns)?;
+
+        let risk_score = RiskScore {
+            score: ns.score,
+            benford_flag: ns.benford_flag,
+            ml_flag: ns.ml_flag,
+            timestamp: ns.timestamp,
+            confidence: ns.confidence,
+            model_version: ns.model_version,
             benford_score: 0,
             ml_score: 0,
             network_score: 0,
-            commitment: commitment.clone(),
+            commitment: ns.commitment.clone(),
         };
 
         // Flash-loan protection: check for same-ledger gate-read + submit (#300).
@@ -630,20 +653,20 @@ impl LedgerLensScoreContract {
 
             let commit_after = now2.saturating_add(buffer);
             let pending = PendingScoreEntry {
-                score,
-                benford_flag,
-                ml_flag,
+                score: ns.score,
+                benford_flag: ns.benford_flag,
+                ml_flag: ns.ml_flag,
                 submitted_at: now2,
-                confidence,
-                model_version,
-                timestamp,
+                confidence: ns.confidence,
+                model_version: ns.model_version,
+                timestamp: ns.timestamp,
                 commit_after,
                 submitted_by: if !storage::get_service_set(&env).is_empty() {
                     signers.get(0).unwrap_or_else(|| storage::get_service(&env))
                 } else {
                     storage::get_service(&env)
                 },
-                commitment: commitment.clone(),
+                commitment: ns.commitment.clone(),
             };
             storage::set_pending_score(&env, &wallet, &asset_pair, &pending);
             events::score_pending(&env, &wallet, &asset_pair, commit_after);
@@ -1237,13 +1260,9 @@ impl LedgerLensScoreContract {
         }
 
         let threshold = Self::get_effective_threshold(&env);
-        let cooldown = storage::get_cooldown_secs(&env);
         let now = env.ledger().timestamp();
         let mut accepted_count: u32 = 0;
         let mut results: Vec<BatchEntryResult> = Vec::new(&env);
-
-        let version_set = storage::get_model_version_set(&env);
-        let version_check_enabled = !version_set.is_empty();
 
         for i in 0..submissions.len() {
             let sub = submissions.get(i).unwrap();
@@ -1254,40 +1273,37 @@ impl LedgerLensScoreContract {
                 rejection_code = Error::InvalidAttestation as u32;
             } else if storage::is_pair_paused(&env, &sub.asset_pair) {
                 rejection_code = Error::ContractPaused as u32;
-            } else if sub.score > 100 {
-                rejection_code = Error::InvalidScore as u32;
-            } else if sub.confidence > 100 {
-                rejection_code = Error::InvalidConfidence as u32;
-            } else if sub.timestamp == 0 {
-                rejection_code = Error::InvalidTimestamp as u32;
-            } else if version_check_enabled && !version_set.contains(sub.model_version) {
-                rejection_code = Error::ModelVersionNotRegistered as u32;
-            } else if version_check_enabled {
-                match storage::get_model_version_status(&env, sub.model_version) {
-                    Some(ModelVersionStatus::Active) => {}
-                    Some(ModelVersionStatus::Proposed) => {
-                        rejection_code = Error::ModelVersionNotReady as u32;
-                    }
-                    Some(ModelVersionStatus::Deprecated) => {
-                        rejection_code = Error::ModelVersionDeprecated as u32;
-                    }
-                    None => {
-                        rejection_code = Error::ModelVersionNotRegistered as u32;
-                    }
-                }
             } else {
-                let last_submit = storage::get_last_submit_time(&env, &sub.wallet, &sub.asset_pair);
-                let base_cooldown = storage::get_pair_cooldown_secs(&env, &sub.asset_pair);
+                // ── issue #686: normalize then validate via shared path ────
+                // Normalize the raw batch entry into a `NormalizedSubmission`
+                // so the same deterministic validation order applies here as
+                // in `submit_score`.
+                let ns = Self::normalize_submission(
+                    sub.wallet.clone(),
+                    sub.asset_pair.clone(),
+                    sub.score,
+                    sub.benford_flag,
+                    sub.ml_flag,
+                    sub.timestamp,
+                    sub.confidence,
+                    sub.model_version,
+                    None, // batch entries carry no per-entry commitment
+                );
+                if let Err(e) = Self::validate_normalized_submission(&env, &ns) {
+                    rejection_code = e as u32;
+                } else {
+                let last_submit = storage::get_last_submit_time(&env, &ns.wallet, &ns.asset_pair);
+                let base_cooldown = storage::get_pair_cooldown_secs(&env, &ns.asset_pair);
                 let cooldown =
-                    Self::compute_effective_cooldown(&env, &sub.asset_pair, base_cooldown);
+                    Self::compute_effective_cooldown(&env, &ns.asset_pair, base_cooldown);
                 if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
                     rejection_code = Error::RateLimitExceeded as u32;
-                } else if Self::score_floor_blocks(&env, &sub.wallet, &sub.asset_pair, sub.score) {
+                } else if Self::score_floor_blocks(&env, &ns.wallet, &ns.asset_pair, ns.score) {
                     // code 43 = BelowScoreFloor (distinct from InvalidScore=4 for score > 100)
                     rejection_code = 43u32;
                 } else {
                     let previous_score =
-                        storage::peek_score(&env, &sub.wallet, &sub.asset_pair).map(|s| s.score);
+                        storage::peek_score(&env, &ns.wallet, &ns.asset_pair).map(|s| s.score);
 
                     let mut velocity_exceeded = false;
                     if let Some(prev) = previous_score {
@@ -1295,13 +1311,13 @@ impl LedgerLensScoreContract {
                         if cap.enabled {
                             if storage::is_velocity_cap_overridden(
                                 &env,
-                                &sub.wallet,
-                                &sub.asset_pair,
+                                &ns.wallet,
+                                &ns.asset_pair,
                             ) {
                                 storage::clear_velocity_cap_override(
                                     &env,
-                                    &sub.wallet,
-                                    &sub.asset_pair,
+                                    &ns.wallet,
+                                    &ns.asset_pair,
                                 );
                             } else if last_submit != 0 {
                                 let elapsed_secs = now.saturating_sub(last_submit);
@@ -1310,7 +1326,7 @@ impl LedgerLensScoreContract {
                                     (cap.points_per_hour as u64).saturating_mul(elapsed_secs)
                                         / 3600,
                                 );
-                                let diff = sub.score.abs_diff(prev);
+                                let diff = ns.score.abs_diff(prev);
                                 if diff as u64 > allowed_delta {
                                     rejection_code = Error::RateLimitExceeded as u32;
                                     velocity_exceeded = true;
@@ -1320,31 +1336,31 @@ impl LedgerLensScoreContract {
                     }
 
                     if !velocity_exceeded {
-                        storage::set_last_submit_time(&env, &sub.wallet, &sub.asset_pair, now);
+                        storage::set_last_submit_time(&env, &ns.wallet, &ns.asset_pair, now);
 
                         let risk_score = RiskScore {
-                            score: sub.score,
-                            benford_flag: sub.benford_flag,
-                            ml_flag: sub.ml_flag,
-                            timestamp: sub.timestamp,
-                            confidence: sub.confidence,
-                            model_version: sub.model_version,
+                            score: ns.score,
+                            benford_flag: ns.benford_flag,
+                            ml_flag: ns.ml_flag,
+                            timestamp: ns.timestamp,
+                            confidence: ns.confidence,
+                            model_version: ns.model_version,
                             benford_score: 0,
                             ml_score: 0,
                             network_score: 0,
-                            commitment: None,
+                            commitment: ns.commitment.clone(),
                         };
-                        storage::set_score(&env, &sub.wallet, &sub.asset_pair, &risk_score);
+                        storage::set_score(&env, &ns.wallet, &ns.asset_pair, &risk_score);
                         storage::push_score_history(
                             &env,
-                            &sub.wallet,
-                            &sub.asset_pair,
+                            &ns.wallet,
+                            &ns.asset_pair,
                             &risk_score,
                         );
-                        storage::register_pair_for_wallet(&env, &sub.wallet, &sub.asset_pair);
-                        storage::increment_score_count(&env, &sub.wallet, &sub.asset_pair);
+                        storage::register_pair_for_wallet(&env, &ns.wallet, &ns.asset_pair);
+                        storage::increment_score_count(&env, &ns.wallet, &ns.asset_pair);
                         // Increment per-pair submission counter (Issue 1).
-                        storage::increment_pair_score_count(&env, &sub.asset_pair);
+                        storage::increment_pair_score_count(&env, &ns.asset_pair);
                         // Increment unique wallet-pair counter on first-ever submission (Issue 3).
                         if previous_score.is_none() {
                             storage::increment_total_wallets_scored(&env);
@@ -1353,7 +1369,7 @@ impl LedgerLensScoreContract {
                         {
                             let floor_policy = storage::get_score_floor_policy(&env);
                             let provenance = SubmissionProvenance {
-                                model_version: sub.model_version,
+                                model_version: ns.model_version,
                                 service_threshold: storage::get_service_threshold(&env),
                                 signers_count: 1,
                                 score_floor_enabled: floor_policy.enabled,
@@ -1361,7 +1377,7 @@ impl LedgerLensScoreContract {
                                 score_floor_value: floor_policy.floor_value,
                                 cooldown_secs: storage::get_pair_cooldown_secs(
                                     &env,
-                                    &sub.asset_pair,
+                                    &ns.asset_pair,
                                 ),
                                 epoch_id: storage::get_current_epoch(&env),
                                 ledger_sequence: env.ledger().sequence(),
@@ -1370,72 +1386,73 @@ impl LedgerLensScoreContract {
                             };
                             storage::set_submission_provenance(
                                 &env,
-                                &sub.wallet,
-                                &sub.asset_pair,
+                                &ns.wallet,
+                                &ns.asset_pair,
                                 &provenance,
                             );
                         }
-                        storage::update_model_stats(&env, sub.model_version, sub.score);
+                        storage::update_model_stats(&env, ns.model_version, ns.score);
                         storage::update_historical_max_score(
                             &env,
-                            &sub.wallet,
-                            &sub.asset_pair,
-                            sub.score,
+                            &ns.wallet,
+                            &ns.asset_pair,
+                            ns.score,
                         );
-                        storage::update_histogram_on_write(&env, previous_score, sub.score);
-                        Self::refresh_aggregate_cache(&env, &sub.wallet);
+                        storage::update_histogram_on_write(&env, previous_score, ns.score);
+                        Self::refresh_aggregate_cache(&env, &ns.wallet);
                         Self::update_verkle_commitment(
                             &env,
-                            &sub.wallet,
-                            &sub.asset_pair,
+                            &ns.wallet,
+                            &ns.asset_pair,
                             &risk_score,
                         );
 
-                        if sub.score >= threshold {
+                        if ns.score >= threshold {
                             events::threshold_breached(
                                 &env,
-                                &sub.wallet,
-                                &sub.asset_pair,
-                                sub.score,
+                                &ns.wallet,
+                                &ns.asset_pair,
+                                ns.score,
                                 threshold,
                             );
                         }
                         Self::update_breach_counter(
                             &env,
-                            &sub.wallet,
-                            &sub.asset_pair,
-                            sub.score,
+                            &ns.wallet,
+                            &ns.asset_pair,
+                            ns.score,
                             threshold,
                         );
                         Self::evaluate_risk_band(
                             &env,
-                            &sub.wallet,
-                            &sub.asset_pair,
-                            sub.score,
+                            &ns.wallet,
+                            &ns.asset_pair,
+                            ns.score,
                             threshold,
                         );
 
                         Self::emit_score_delta(
                             &env,
-                            &sub.wallet,
-                            &sub.asset_pair,
+                            &ns.wallet,
+                            &ns.asset_pair,
                             previous_score,
-                            sub.score,
+                            ns.score,
                         );
                         Self::emit_score_jump_anomaly(
                             &env,
-                            &sub.wallet,
-                            &sub.asset_pair,
+                            &ns.wallet,
+                            &ns.asset_pair,
                             previous_score,
-                            sub.score,
-                            sub.model_version,
+                            ns.score,
+                            ns.model_version,
                         );
-                        events::score_submitted(&env, &sub.wallet, &sub.asset_pair, &risk_score);
+                        events::score_submitted(&env, &ns.wallet, &ns.asset_pair, &risk_score);
                         accepted = true;
                         accepted_count += 1;
                     }
                 }
-            }
+                } // close validate_normalized_submission Ok branch
+            } // close outer else (not pair-bounded / paused)
 
             results.push_back(BatchEntryResult { index: i, accepted, rejection_code });
         }
@@ -10490,6 +10507,96 @@ impl LedgerLensScoreContract {
             }
         } else {
             storage::get_service(env).require_auth();
+        }
+        Ok(())
+    }
+
+    // ── Canonical submission normalization (issue #686) ────────────────────
+    //
+    // Both `submit_score` and `submit_scores_batch` must produce a
+    // `NormalizedSubmission` before any validation runs.  The rule is:
+    //   normalize → validate → check rate-limit / floor → write
+    //
+    // This ensures that the error codes and the order in which invalid fields
+    // are detected are identical for single and batch paths, and that the
+    // `NormalizedSubmission` is the single in-memory source of truth for
+    // "what will be written" while all guards run.
+
+    /// Convert raw caller-supplied fields into a `NormalizedSubmission`.
+    ///
+    /// The function is intentionally minimal: it copies fields verbatim
+    /// rather than clamping or transforming them.  Normalization only
+    /// establishes the canonical internal form; it does **not** validate —
+    /// that is the job of `validate_normalized_submission`.
+    fn normalize_submission(
+        wallet: Address,
+        asset_pair: Symbol,
+        score: u32,
+        benford_flag: bool,
+        ml_flag: bool,
+        timestamp: u64,
+        confidence: u32,
+        model_version: u32,
+        commitment: Option<soroban_sdk::Bytes>,
+    ) -> NormalizedSubmission {
+        NormalizedSubmission {
+            wallet,
+            asset_pair,
+            score,
+            benford_flag,
+            ml_flag,
+            timestamp,
+            confidence,
+            model_version,
+            commitment,
+        }
+    }
+
+    /// Validate a `NormalizedSubmission` for range invariants and model-version
+    /// governance, in a deterministic order shared by all submission paths.
+    ///
+    /// Validation order (must not change without updating `CHANGELOG.md`
+    /// and `docs/errors.md`):
+    ///   1. `score > 100`          → `InvalidScore`
+    ///   2. `confidence > 100`     → `InvalidConfidence`
+    ///   3. `timestamp == 0`       → `InvalidTimestamp`
+    ///   4. model-version registry → `ModelVersionNotRegistered` / `ModelVersionNotReady`
+    ///                                / `ModelVersionDeprecated`
+    ///
+    /// This function replaces direct use of `validate_risk_score` on the
+    /// `submit_score` path and the inline checks in `submit_scores_batch`,
+    /// making both paths exercise exactly the same rules in exactly the same
+    /// order.
+    fn validate_normalized_submission(
+        env: &Env,
+        sub: &NormalizedSubmission,
+    ) -> Result<(), Error> {
+        if sub.score > 100 {
+            return Err(Error::InvalidScore);
+        }
+        if sub.confidence > 100 {
+            return Err(Error::InvalidConfidence);
+        }
+        if sub.timestamp == 0 {
+            return Err(Error::InvalidTimestamp);
+        }
+        let version_set = storage::get_model_version_set(env);
+        if !version_set.is_empty() {
+            if !version_set.contains(sub.model_version) {
+                return Err(Error::ModelVersionNotRegistered);
+            }
+            match storage::get_model_version_status(env, sub.model_version) {
+                Some(ModelVersionStatus::Active) => {}
+                Some(ModelVersionStatus::Proposed) => {
+                    return Err(Error::ModelVersionNotReady);
+                }
+                Some(ModelVersionStatus::Deprecated) => {
+                    return Err(Error::ModelVersionDeprecated);
+                }
+                None => {
+                    return Err(Error::ModelVersionNotRegistered);
+                }
+            }
         }
         Ok(())
     }
