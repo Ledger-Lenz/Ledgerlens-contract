@@ -366,39 +366,69 @@ if [ "$DRY_RUN" = false ]; then
   if [ "$CANARY" = true ] && [ "$NETWORK_SELECTOR" = "testnet" ]; then
     log "Running canary checks for post-incident reconciliation (#631)..."
 
+    CANARY_IDENTITY="$ADMIN_IDENTITY"
+    if [ "$CANARY_KEYS" = true ]; then
+      # Use alternate signing identity for canary checks if provided
+      CANARY_IDENTITY="canary-signer"
+    fi
+
+    CANARY_FAILED=false
+
     # Check supported interfaces
     for cap in checksum snapshot freeze export_score reconcile; do
-      RESULT=$(soroban contract invoke \
+      if RESULT=$("$CLI_BIN" contract invoke \
         --id "$CONTRACT_ID" \
-        --source "$ADMIN_IDENTITY" \
-        --network "$NETWORK" \
+        --source "$CANARY_IDENTITY" \
+        --rpc-url "$RPC_URL" \
+        --network-passphrase "$NETWORK_PASSPHRASE" \
         -- \
         supports_interface \
-        --capability "\"$cap\"" 2>/dev/null || echo "false")
-      if echo "$RESULT" | grep -q "true"; then
-        log "  ✅ Interface '$cap' supported"
+        --capability "\"$cap\"" 2>&1); then
+        if echo "$RESULT" | grep -q "true"; then
+          log "  ✅ Interface '$cap' supported"
+        else
+          log "  ⚠ Interface '$cap' not supported"
+          CANARY_FAILED=true
+        fi
       else
-        echo "  ⚠ WARNING: Interface '$cap' not supported" >&2
+        log "  ❌ Interface check '$cap' failed: $RESULT"
+        CANARY_FAILED=true
       fi
     done
 
     # Verify freeze/unfreeze cycle
     log "  Testing freeze/unfreeze cycle..."
-    soroban contract invoke \
+    if FREEZE_OUTPUT=$("$CLI_BIN" contract invoke \
       --id "$CONTRACT_ID" \
-      --source "$ADMIN_IDENTITY" \
-      --network "$NETWORK" \
+      --source "$CANARY_IDENTITY" \
+      --rpc-url "$RPC_URL" \
+      --network-passphrase "$NETWORK_PASSPHRASE" \
       -- \
       freeze_contract \
-      --admin_signants "[\"$ADMIN_ADDRESS\"]" 2>/dev/null && log "  ✅ freeze_contract OK" || echo "  ⚠ freeze_contract failed" >&2
+      --admin_signants "[\"$ADMIN_ADDRESS\"]" 2>&1); then
+      log "  ✅ freeze_contract OK"
+    else
+      log "  ❌ freeze_contract failed: $FREEZE_OUTPUT"
+      CANARY_FAILED=true
+    fi
 
-    soroban contract invoke \
+    if UNFREEZE_OUTPUT=$("$CLI_BIN" contract invoke \
       --id "$CONTRACT_ID" \
-      --source "$ADMIN_IDENTITY" \
-      --network "$NETWORK" \
+      --source "$CANARY_IDENTITY" \
+      --rpc-url "$RPC_URL" \
+      --network-passphrase "$NETWORK_PASSPHRASE" \
       -- \
       unfreeze_contract \
-      --admin_signants "[\"$ADMIN_ADDRESS\"]" 2>/dev/null && log "  ✅ unfreeze_contract OK" || echo "  ⚠ unfreeze_contract failed" >&2
+      --admin_signants "[\"$ADMIN_ADDRESS\"]" 2>&1); then
+      log "  ✅ unfreeze_contract OK"
+    else
+      log "  ❌ unfreeze_contract failed: $UNFREEZE_OUTPUT"
+      CANARY_FAILED=true
+    fi
+
+    if [ "$CANARY_FAILED" = true ]; then
+      die "Canary checks failed; deployment not verified."
+    fi
 
     log "Canary checks complete."
   fi
