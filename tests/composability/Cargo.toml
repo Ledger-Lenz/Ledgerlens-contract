@@ -6,6 +6,8 @@ publish = false
 description = "Cross-contract composability integration tests (issue #121): deploys mock-amm and mock-lending alongside ledgerlens-score in the same Soroban test environment"
 
 [dev-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 soroban-sdk = { version = "21.0.0", features = ["testutils"] }
 ledgerlens-score = { path = "../../contracts/ledgerlens-score" }
 ledgerlens-aggregator = { path = "../../contracts/ledgerlens-aggregator" }
