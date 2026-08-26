@@ -49,7 +49,11 @@ cargo build --target wasm32-unknown-unknown --release
   behaviors that are non-negotiable — fail-closed gates, no-panic reads, bounded storage, and
   append-only event/error stability — with pointers to exactly what enforces each one. If your
   change would weaken any of them, that needs a design discussion before a PR, not after.
-- Keep `contracts/ledgerlens-score/src/types.rs` changes minimal and deliberate — `RiskScore` and `DataKey` are shared, cross-repo data contracts (see [README.md § Organization Architecture](README.md#organization-architecture)). Any field/shape change is breaking for the `api`, `core`, and `dashboard` repos and must be coordinated.
+- Keep `contracts/ledgerlens-score/src/types.rs` changes minimal and deliberate — `RiskScore` and `DataKey` are shared, cross-repo data contracts (see [README.md § Organization Architecture](README.md#organization-architecture)). Any field/shape change is breaking for the `api`, `core`, and `dashboard` repos and must be coordinated. When adding new storage keys, follow the storage-key partitioning guidelines documented in [**ADR 0001: Storage-Key Enum Partitioning**](docs/adr/0001-storage-key-enum-split.md):
+  1. Add domain-specific keys to their dedicated enum if one exists (e.g. `GateDataKey`).
+  2. For general or extension storage keys, add to `DataKeyD` while its variant count remains below 50 (currently 39 variants).
+  3. When `DataKeyD` reaches 50 variants, route new keys to `DataKeyE` (currently 1 variant) or create a dedicated subsystem enum.
+  4. Never remove, rename, or move existing variants across enums (violates on-chain storage key derivation and orphans deployed state).
 - Add or update tests in `src/test.rs` for any behavioral change.
 - For replay or forensic workflow changes, add or update tests in `tools/replay/src/main.rs` and keep the evidence bundle deterministic and stable across reruns.
 - Keep error codes in `errors.rs` stable; append new variants rather than reordering or removing existing ones, since their numeric values are part of the deployed contract's ABI. This is enforced in CI by the `error-discriminants` job (`tools/check_error_discriminants.sh`), which fails the build if a PR renames, removes, or renumbers any discriminant that already existed on the base branch. New discriminants and new `pub const` aliases are always fine — prefer an alias over renumbering when you need a new name for an existing error.
