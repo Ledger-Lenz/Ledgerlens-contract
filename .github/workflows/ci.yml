@@ -372,3 +372,33 @@ jobs:
           echo ""
           echo "SUCCESS: Both builds produced identical WASM output."
           echo "  SHA-256: $SHA1"
+
+  spec-model-check:
+    name: TLA+ spec TLC model checking
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Cache TLA+ tools
+        uses: actions/cache@v4
+        with:
+          path: /tmp/tla2tools.jar
+          key: tla2tools-v1.8.0
+
+      - name: Download tla2tools.jar
+        run: |
+          if [ ! -f /tmp/tla2tools.jar ]; then
+            curl -sL -o /tmp/tla2tools.jar https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+          fi
+
+      - name: Run TLC Model Checker on LedgerLens spec
+        run: |
+          cd spec
+          java -XX:+UseParallelGC -jar /tmp/tla2tools.jar -simulate num=20000 -depth 30 -config LedgerLens.cfg LedgerLens.tla
+
