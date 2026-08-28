@@ -135,3 +135,5 @@ Potential future work:
 - Historical trend analysis
 - Automated optimization suggestions
 - Differential binary analysis
+
+Note: Basic binary size regression detection and budget enforcement is now implemented and active in CI.

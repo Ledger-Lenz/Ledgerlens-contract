@@ -129,6 +129,9 @@ jobs:
           name: ledgerlens-score-wasm-size-report
           path: target/wasm-size-report.md
           retention-days: 7
+      - name: Enforce WASM size budget
+        run: ./scripts/check-wasm-size.sh
+
 
   deploy-script-tests:
     name: Deploy script failure-mode tests
