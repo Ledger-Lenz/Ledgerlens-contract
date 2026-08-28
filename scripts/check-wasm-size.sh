@@ -41,11 +41,15 @@ if [[ "$ACTUAL" -gt "$MAX_ALLOWED" ]]; then
   
   if ! command -v twiggy &> /dev/null; then
     echo "Installing twiggy for size analysis..."
-    cargo install twiggy
+    cargo install twiggy || echo "⚠️ WARNING: twiggy installation failed, skipping detailed breakdown."
   fi
 
-  echo "Detailed breakdown of current size:"
-  ./scripts/wasm-size-report.sh --wasm "$WASM_PATH" --top 15
+  if command -v twiggy &> /dev/null; then
+    echo "Detailed breakdown of current size:"
+    ./scripts/wasm-size-report.sh --wasm "$WASM_PATH" --top 15 || echo "⚠️ WARNING: Detailed breakdown script failed."
+  else
+    echo "⚠️ WARNING: twiggy unavailable, skipping detailed breakdown."
+  fi
   echo ""
   echo "To bypass this gate, you must explicitly update the budget in docs/wasm-size-budget.md and get it reviewed."
   exit 1
