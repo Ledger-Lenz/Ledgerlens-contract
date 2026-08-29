@@ -19,7 +19,7 @@ env:
 
 jobs:
   mutants:
-    name: cargo-mutants (zk_range_proof.rs, verkle.rs)
+    name: cargo-mutants (zk_range_proof.rs, verkle.rs, governance_actions.rs)
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -40,12 +40,14 @@ jobs:
             cargo mutants \
               --file src/zk_range_proof.rs \
               --file src/verkle.rs \
+              --file src/governance_actions.rs \
               --timeout 300 \
               -- -- "$FILTER"
           else
             cargo mutants \
               --file src/zk_range_proof.rs \
               --file src/verkle.rs \
+              --file src/governance_actions.rs \
               --timeout 300
           fi
         working-directory: contracts/ledgerlens-score
