@@ -268,3 +268,21 @@ fn test_expired_full_pending_set_is_pruned_before_accepting_new_proposal() {
         assert_eq!(record.status, ParameterProposalStatus::Expired);
     }
 }
+
+#[test]
+fn test_execute_nonexistent_proposal_returns_not_found() {
+    // Attempt to execute a proposal_id that was never created.
+    // The storage lookup returns None, so execute_parameter_change must
+    // return Error::ParameterProposalNotFound (= Error::ScoreNotFound).
+    // This is the only execute_parameter_change failure path not already
+    // covered by the tests above.
+    let (env, client, admin, _service) = setup();
+
+    // Advance past any time-lock so the call is not blocked by NotReady —
+    // the not-found guard is reached before the time checks.
+    advance_to(&env, START_TS + DEFAULT_UPGRADE_DELAY_SECS);
+
+    let bogus_id: u64 = 9_999;
+    let result = client.try_execute_parameter_change(&admin_signers(&env, &admin), &bogus_id);
+    assert_eq!(result, Err(Ok(Error::ParameterProposalNotFound)));
+}
