@@ -26,6 +26,7 @@ DRY_RUN=false
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "Usage: $0 [--dry-run]"; exit 1 ;;
   esac
 done
