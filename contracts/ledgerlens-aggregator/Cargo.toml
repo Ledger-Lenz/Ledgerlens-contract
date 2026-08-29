@@ -28,3 +28,15 @@ testutils = ["soroban-sdk/testutils"]
 name = "aggregator_gate_example"
 path = "../../examples/aggregator_gate_example.rs"
 crate-type = ["lib"]
+
+# Reference integration (degraded-mode counterpart to aggregator_gate_example)
+# showing how a consumer of ledgerlens-aggregator detects and gracefully
+# handles a partial-shard pause: one shard paused mid-aggregation makes
+# query_risk_gate fail closed to `false` without updating get_last_shard_failure,
+# so the consumer must probe each registered shard's is_paused() directly.
+# Built as a library via:
+# cargo build --example aggregator_shard_pause_example -p ledgerlens-aggregator
+[[example]]
+name = "aggregator_shard_pause_example"
+path = "../../examples/aggregator_shard_pause_example.rs"
+crate-type = ["lib"]
