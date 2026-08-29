@@ -93,6 +93,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Test the checker itself
+        run: tests/check_error_discriminants.test.sh
       - name: Check Error enum discriminants are append-only
         run: tools/check_error_discriminants.sh "${{ github.event.pull_request.base.sha }}" HEAD
 
