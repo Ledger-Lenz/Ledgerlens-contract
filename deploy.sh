@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# --- usage ---
 # Build, optimize, deploy and initialize the LedgerLens score contract.
 #
 # Usage:
@@ -17,12 +18,33 @@
 #
 # See docs/network-matrix.md for the supported deployment profiles and
 # failure modes.
+# --- end usage ---
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=deploy/validate_manifest.sh
 source "$SCRIPT_DIR/deploy/validate_manifest.sh"
+
+print_usage() {
+  # Extract the usage block delimited by the marker comments in the header.
+  # The markers are validated first so a broken header fails loudly (non-zero
+  # exit, clear error) instead of leaking shell source into --help output or
+  # silently truncating the usage text.
+  grep -q '^# --- usage ---$' "$0" || {
+    echo "ERROR: $0 is missing the '# --- usage ---' marker." >&2
+    return 1
+  }
+  grep -q '^# --- end usage ---$' "$0" || {
+    echo "ERROR: $0 is missing the '# --- end usage ---' marker." >&2
+    return 1
+  }
+  awk '
+    /^# --- usage ---$/     { in_usage = 1; next }
+    /^# --- end usage ---$/ { in_usage = 0; next }
+    in_usage                { sub(/^# ?/, ""); print }
+  ' "$0"
+}
 
 DRY_RUN=false
 CHECK_TOOLCHAIN_ONLY=false
@@ -52,7 +74,7 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --help)
-      sed -n '3,22p' "$0"
+      print_usage
       exit 0
       ;;
     --canary)
