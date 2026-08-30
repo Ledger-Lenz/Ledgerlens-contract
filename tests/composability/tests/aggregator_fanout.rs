@@ -325,12 +325,13 @@ fn test_get_decay_rate_returns_primary_shard_configuration() {
     assert!(num < den);
 }
 
-// ── Test: get_consensus_threshold_k returns constant ────────────────────
+// ── Test: get_consensus_threshold_k delegates to the primary shard ──────
 
 #[test]
-fn test_get_consensus_threshold_k_returns_expected_constant() {
+fn test_get_consensus_threshold_k_returns_primary_shard_configuration() {
     let fix = setup();
-    assert_eq!(fix.aggregator.get_consensus_threshold_k(), 5);
+    fix.shard1.set_consensus_config(&4, &10);
+    assert_eq!(fix.aggregator.get_consensus_threshold_k(), 4);
 }
 
 // ── Test: get_watchlist_status returns placeholder ──────────────────────
