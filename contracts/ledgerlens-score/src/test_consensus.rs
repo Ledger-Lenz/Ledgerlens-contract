@@ -624,3 +624,18 @@ fn test_consensus_commitment_mismatch() {
     );
     assert_eq!(result, Err(Ok(Error::CommitmentMismatch)));
 }
+
+// ── get_reveal_window default value ────────────────────────────────────────────
+
+// get_reveal_window before any set_reveal_window call must return the
+// storage-layer default (3_600 seconds), not 0 or an error. Checked
+// test_consensus.rs and test_public_error_snapshots.rs first: every existing
+// reference to the reveal window (e.g. test_consensus_reveal_window_expired,
+// snapshot_reveal_window_elapsed_preserves_live_score_state) calls
+// set_reveal_window(1) before reading it, so the unset default was never
+// asserted directly.
+#[test]
+fn test_get_reveal_window_default_before_any_set() {
+    let (_env, client) = setup();
+    assert_eq!(client.get_reveal_window(), 3_600u64);
+}
