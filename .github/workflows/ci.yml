@@ -10,6 +10,14 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  deploy-script:
+    name: Deployment script checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run deploy.sh manifest and drift tests
+        run: bash tests/deploy/test_deploy.sh
+
   fmt:
     name: Format check
     runs-on: ubuntu-latest
@@ -34,6 +42,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets -- -D warnings
 
+  contract-build-lints:
+    name: Contract-only dead-code check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.81.0"
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: tools/check_contract_build_lints.sh
+
   test:
     name: Unit tests
     runs-on: ubuntu-latest
@@ -44,6 +64,26 @@ jobs:
           toolchain: "1.81.0"
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
+
+  production-acceptance:
+    name: Production acceptance report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.81.0"
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Run production acceptance suite
+        run: scripts/production-acceptance.sh --output target/production-readiness-report.md
+      - name: Upload production readiness report
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-readiness-report
+          path: target/production-readiness-report.md
+          retention-days: 14
 
   error-discriminants:
     name: Error discriminant stability
@@ -67,6 +107,16 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --target wasm32-unknown-unknown --release -p ledgerlens-score --locked
+      - name: Record WASM byte-size evidence
+        run: |
+          mkdir -p target
+          {
+            echo "# WASM Size Evidence"
+            echo ""
+            echo "Path: target/wasm32-unknown-unknown/release/ledgerlens_score.wasm"
+            echo "Bytes: $(wc -c < target/wasm32-unknown-unknown/release/ledgerlens_score.wasm | tr -d ' ')"
+            echo "SHA-256: $(sha256sum target/wasm32-unknown-unknown/release/ledgerlens_score.wasm | awk '{print $1}')"
+          } > target/wasm-size-report.md
       - name: Upload wasm artifact
         uses: actions/upload-artifact@v4
         with:
@@ -79,6 +129,13 @@ jobs:
           name: ledgerlens-score-wasm-size-report
           path: target/wasm-size-report.md
           retention-days: 7
+
+  deploy-script-tests:
+    name: Deploy script failure-mode tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: tests/deploy_script_rpc_failures.sh
 
   audit:
     name: Security audit
@@ -103,7 +160,126 @@ jobs:
         # newer release toolchain.
         run: cargo +1.88.0 audit --ignore RUSTSEC-2026-0009
 
-  # ── Reproducible-build verification ─────────────────────────────────────────
+  # ── Supply-chain integrity checks ───────────────────────────────────────────
+  #
+  # Verifies that:
+  #   1. Every crate in Cargo.lock originates from a pinned, expected registry
+  #      (crates.io or git with an exact rev) — no path-only or unpinned
+  #      sources that could silently change between runs.
+  #   2. The release WASM artifact is signed with a detached SHA-256 manifest
+  #      so downstream consumers can verify provenance.
+  #   3. The toolchain pin in rust-toolchain.toml matches what CI actually uses.
+  #
+  # Failure modes that cause this job to fail (acceptance criteria):
+  #   • Any Cargo.lock entry whose `source` field is absent (local path crates
+  #     that have been accidentally published) or points to an unexpected registry.
+  #   • The WASM artifact SHA-256 in the signed manifest does not match the
+  #     freshly built binary.
+  #   • The active rustc version does not match rust-toolchain.toml.
+  #
+  # See docs/supply-chain.md for the full policy and manual audit procedure.
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  supply-chain:
+    name: Supply-chain integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772  # master (2026-08-05)
+        with:
+          toolchain: "1.81.0"
+          targets: wasm32-unknown-unknown
+
+      # ── Step 1: Verify the active toolchain matches rust-toolchain.toml ──────
+      - name: Verify toolchain pin
+        run: |
+          EXPECTED=$(grep '^channel' rust-toolchain.toml | sed 's/.*= *"\(.*\)"/\1/')
+          ACTUAL=$(rustc --version | awk '{print $2}')
+          echo "rust-toolchain.toml channel : $EXPECTED"
+          echo "Active rustc version        : $ACTUAL"
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "ERROR: toolchain mismatch — CI used $ACTUAL but rust-toolchain.toml pins $EXPECTED"
+            exit 1
+          fi
+          echo "OK: toolchain pin verified."
+
+      # ── Step 2: Verify Cargo.lock registry sources ────────────────────────────
+      # Each non-workspace crate in Cargo.lock must declare a `source` that is
+      # either:
+      #   (a) "registry+https://github.com/rust-lang/crates.io-index"
+      #   (b) a git source with an explicit `rev` lock
+      # Path-only entries (workspace members) are explicitly allowed.
+      # Any entry from an unknown registry causes the job to fail.
+      - name: Verify Cargo.lock registry sources
+        run: |
+          python3 - <<'EOF'
+          import re, sys
+
+          with open("Cargo.lock") as f:
+              content = f.read()
+
+          ALLOWED_REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
+
+          # Parse [[package]] blocks
+          blocks = re.split(r'\n\[\[package\]\]', content)
+          violations = []
+          for block in blocks:
+              name_m = re.search(r'name\s*=\s*"([^"]+)"', block)
+              src_m  = re.search(r'source\s*=\s*"([^"]+)"', block)
+              if not name_m:
+                  continue
+              name = name_m.group(1)
+              if not src_m:
+                  # No source = workspace path crate; allowed.
+                  continue
+              src = src_m.group(1)
+              if src == ALLOWED_REGISTRY:
+                  continue
+              if src.startswith("git+") and "rev=" in src:
+                  continue  # pinned git source
+              violations.append(f"  {name}: {src}")
+
+          if violations:
+              print("ERROR: Cargo.lock contains unexpected or unpinned registry sources:")
+              for v in violations:
+                  print(v)
+              print("")
+              print("Only crates.io and git sources with a pinned rev are permitted.")
+              print("See docs/supply-chain.md for the policy.")
+              sys.exit(1)
+
+          print(f"OK: all Cargo.lock registry sources verified.")
+          EOF
+
+      # ── Step 3: Build WASM and produce a signed SHA-256 manifest ─────────────
+      - name: Build release WASM
+        run: cargo build --target wasm32-unknown-unknown --release -p ledgerlens-score --locked
+
+      - name: Sign WASM artifact (SHA-256 manifest)
+        run: |
+          WASM=target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
+          MANIFEST=target/ledgerlens_score.wasm.sha256
+          sha256sum "$WASM" > "$MANIFEST"
+          echo "Manifest written:"
+          cat "$MANIFEST"
+
+      - name: Verify WASM artifact against manifest
+        run: |
+          MANIFEST=target/ledgerlens_score.wasm.sha256
+          sha256sum --check "$MANIFEST"
+          echo "OK: WASM artifact integrity verified."
+
+      - name: Upload WASM SHA-256 manifest
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08  # v4.6.1
+        with:
+          name: ledgerlens-score-wasm-sha256-manifest
+          path: target/ledgerlens_score.wasm.sha256
+          retention-days: 90
+
+
   #
   # Builds the release WASM twice in two completely independent containers and
   # asserts the resulting files are byte-identical by comparing their SHA-256

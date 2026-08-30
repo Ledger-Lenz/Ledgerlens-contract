@@ -56,7 +56,7 @@ mod tests {
             batch.push_back(ScoreSubmission {
                 wallet: wallet.clone(),
                 asset_pair: pair,
-                score: (i * 20) as u32, // 0, 20, 40, 60, 80
+                score: (i * 20) as u32,
                 benford_flag: false,
                 ml_flag: false,
                 timestamp: 1_000_000u64 + i as u64,
@@ -69,7 +69,6 @@ mod tests {
         assert_eq!(result.accepted_count, 5);
         assert_eq!(result.rejected_count, 0);
 
-        // Verify all entries were accepted and scores are in valid range
         for entry_result in result.results.iter() {
             assert!(entry_result.accepted);
             assert_eq!(entry_result.rejection_code, 0);
@@ -88,7 +87,6 @@ mod tests {
 
         env.ledger().with_mut(|l| l.timestamp = ts);
 
-        // First submission should succeed
         let mut batch1: SVec<ScoreSubmission> = SVec::new(&env);
         batch1.push_back(ScoreSubmission {
             wallet: wallet.clone(),
@@ -105,7 +103,6 @@ mod tests {
 
         env.ledger().with_mut(|l| l.timestamp = ts + 100);
 
-        // Second submission with same (wallet, pair) within cooldown should be rejected
         let mut batch2: SVec<ScoreSubmission> = SVec::new(&env);
         batch2.push_back(ScoreSubmission {
             wallet: wallet.clone(),
@@ -113,7 +110,7 @@ mod tests {
             score: 60u32,
             benford_flag: false,
             ml_flag: false,
-            timestamp: ts + 100, // still within cooldown
+            timestamp: ts + 100,
             confidence: 80u32,
             model_version: 1u32,
         });
@@ -123,7 +120,6 @@ mod tests {
 
     #[test]
     fn test_replay_deterministic() {
-        // Same input should produce same contract state
         let env1 = Env::default();
         let (client1, _, _) = init_contract(&env1);
 
@@ -148,5 +144,188 @@ mod tests {
         assert_eq!(score1.score, 42);
         assert!(score1.benford_flag);
         assert!(!score1.ml_flag);
+    }
+
+    // ── Adversarial test scenarios ──────────────────────
+
+    #[test]
+    fn test_adversarial_score_101_rejected() {
+        let env = Env::default();
+        let (client, _admin, _service) = init_contract(&env);
+
+        let wallet = Address::generate(&env);
+        let pair = Symbol::new(&env, "XLM_USDC");
+
+        let mut batch: SVec<ScoreSubmission> = SVec::new(&env);
+        batch.push_back(ScoreSubmission {
+            wallet: wallet.clone(),
+            asset_pair: pair.clone(),
+            score: 101,
+            benford_flag: false,
+            ml_flag: false,
+            timestamp: env.ledger().timestamp(),
+            confidence: 80,
+            model_version: 1,
+        });
+
+        let result = client.submit_scores_batch(&batch);
+        assert_eq!(result.accepted_count, 0);
+        assert_eq!(result.rejected_count, 1);
+        assert_eq!(
+            result.results.get(0).unwrap().rejection_code,
+            ledgerlens_score::Error::InvalidScore as u32
+        );
+    }
+
+    #[test]
+    fn test_adversarial_timestamp_zero_rejected() {
+        let env = Env::default();
+        let (client, _admin, _service) = init_contract(&env);
+
+        let wallet = Address::generate(&env);
+        let pair = Symbol::new(&env, "XLM_USDC");
+
+        let mut batch: SVec<ScoreSubmission> = SVec::new(&env);
+        batch.push_back(ScoreSubmission {
+            wallet: wallet.clone(),
+            asset_pair: pair.clone(),
+            score: 50,
+            benford_flag: false,
+            ml_flag: false,
+            timestamp: 0,
+            confidence: 80,
+            model_version: 1,
+        });
+
+        let result = client.submit_scores_batch(&batch);
+        assert_eq!(result.accepted_count, 0);
+        assert_eq!(result.rejected_count, 1);
+        assert_eq!(
+            result.results.get(0).unwrap().rejection_code,
+            ledgerlens_score::Error::InvalidTimestamp as u32
+        );
+    }
+
+    #[test]
+    fn test_adversarial_repeated_submission_rate_limited() {
+        use soroban_sdk::testutils::Ledger as _;
+        let env = Env::default();
+        let (client, _admin, _service) = init_contract(&env);
+
+        let wallet = Address::generate(&env);
+        let pair = Symbol::new(&env, "XLM_USDC");
+        let ts = 1_000_000u64;
+
+        env.ledger().with_mut(|l| l.timestamp = ts);
+
+        let mut batch1: SVec<ScoreSubmission> = SVec::new(&env);
+        batch1.push_back(ScoreSubmission {
+            wallet: wallet.clone(),
+            asset_pair: pair.clone(),
+            score: 50,
+            benford_flag: false,
+            ml_flag: false,
+            timestamp: ts,
+            confidence: 80,
+            model_version: 1,
+        });
+        let result1 = client.submit_scores_batch(&batch1);
+        assert_eq!(result1.accepted_count, 1);
+
+        env.ledger().with_mut(|l| l.timestamp = ts + 100);
+
+        let mut batch2: SVec<ScoreSubmission> = SVec::new(&env);
+        batch2.push_back(ScoreSubmission {
+            wallet: wallet.clone(),
+            asset_pair: pair.clone(),
+            score: 55,
+            benford_flag: false,
+            ml_flag: false,
+            timestamp: ts + 100,
+            confidence: 80,
+            model_version: 1,
+        });
+        let result2 = client.submit_scores_batch(&batch2);
+        assert_eq!(result2.rejected_count, 1);
+        assert_eq!(
+            result2.results.get(0).unwrap().rejection_code,
+            ledgerlens_score::Error::RateLimitExceeded as u32
+        );
+    }
+
+    #[test]
+    fn test_adversarial_paused_pair_rejected() {
+        let env = Env::default();
+        let (client, _admin, _service) = init_contract(&env);
+
+        let pair = Symbol::new(&env, "XLM_USDC");
+        client.set_pair_paused(&pair, &true);
+
+        let wallet = Address::generate(&env);
+
+        let mut batch: SVec<ScoreSubmission> = SVec::new(&env);
+        batch.push_back(ScoreSubmission {
+            wallet: wallet.clone(),
+            asset_pair: pair.clone(),
+            score: 50,
+            benford_flag: false,
+            ml_flag: false,
+            timestamp: env.ledger().timestamp(),
+            confidence: 80,
+            model_version: 1,
+        });
+
+        let result = client.submit_scores_batch(&batch);
+        assert_eq!(result.accepted_count, 0);
+        assert_eq!(result.rejected_count, 1);
+        assert_eq!(
+            result.results.get(0).unwrap().rejection_code,
+            ledgerlens_score::Error::ContractPaused as u32
+        );
+
+        client.set_pair_paused(&pair, &false);
+    }
+
+    #[test]
+    fn test_adversarial_replay_same_wallet_pair_cooldown() {
+        use soroban_sdk::testutils::Ledger as _;
+        let env = Env::default();
+        let (client, _admin, _service) = init_contract(&env);
+
+        let wallet = Address::generate(&env);
+        let pair = Symbol::new(&env, "XLM_USDC");
+        let ts = 1_000_000u64;
+
+        env.ledger().with_mut(|l| l.timestamp = ts);
+
+        let mut batch1: SVec<ScoreSubmission> = SVec::new(&env);
+        batch1.push_back(ScoreSubmission {
+            wallet: wallet.clone(),
+            asset_pair: pair.clone(),
+            score: 50,
+            benford_flag: false,
+            ml_flag: false,
+            timestamp: ts,
+            confidence: 80,
+            model_version: 1,
+        });
+        let result1 = client.submit_scores_batch(&batch1);
+        assert_eq!(result1.accepted_count, 1);
+
+        env.ledger().with_mut(|l| l.timestamp = ts + 100);
+
+        let mut batch2: SVec<ScoreSubmission> = SVec::new(&env);
+        batch2.push_back(ScoreSubmission {
+            wallet: wallet.clone(),
+            asset_pair: pair.clone(),
+            score: 55,
+            benford_flag: false,
+            ml_flag: false,
+            timestamp: ts + 100,
+            confidence: 80,
+            model_version: 1,
+        });
+        let result2 = client.submit_scores_batch(&batch2);
+        assert_eq!(result2.rejected_count, 1);
     }
 }

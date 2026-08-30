@@ -11,3 +11,5 @@ ledgerlens-score = { path = "../../contracts/ledgerlens-score" }
 ledgerlens-aggregator = { path = "../../contracts/ledgerlens-aggregator" }
 mock-amm = { path = "../../contracts/mock-amm" }
 mock-lending = { path = "../../contracts/mock-lending" }
+sha2 = "0.10.9"
+soroban-spec = "21.7.7"

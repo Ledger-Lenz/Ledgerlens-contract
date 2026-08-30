@@ -148,3 +148,20 @@ Once a new interface version is deployed to `mainnet`:
   [`CHANGELOG.md`](../CHANGELOG.md)
 - Contributing guidelines (what counts as `types.rs`-breaking):
   [`CONTRIBUTING.md`](../CONTRIBUTING.md)
+
+## 8. Deprecation Policy
+
+How old functions, return shapes, error codes, and capability symbols are
+supported, warned about, and eventually removed is specified separately in
+[`docs/deprecation-policy.md`](deprecation-policy.md). The key points:
+
+- Deprecated public symbols remain callable for at least **2 full major
+  interface versions** before removal.
+- Removal follows the same **30-day notice period** as any other breaking
+  change (§4 above).
+- Every deprecated symbol must have at least one test in
+  `src/test_deprecation_compat.rs` pinning its current behaviour.
+- `supports_interface("old_cap")` returns `false` on a deployment that has
+  removed the cap, and `true` on deployments still in the deprecation window.
+- The sunset checklist in `docs/deprecation-policy.md §6` must be completed
+  before any removal lands on mainnet.

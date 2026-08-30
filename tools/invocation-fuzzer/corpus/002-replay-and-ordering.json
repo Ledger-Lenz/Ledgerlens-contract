@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "name": "duplicate-and-reordered-risk-gates-fail-closed",
+  "seed": 639002,
+  "operations": [
+    {
+      "op": "amm_swap",
+      "amount": "1",
+      "asset_pair": "XLM_USDC"
+    },
+    {
+      "op": "submit_score",
+      "score": 90,
+      "confidence": 100,
+      "advance_seconds": 1
+    },
+    {
+      "op": "lending_borrow",
+      "amount": "1",
+      "asset_pair": "XLM_USDC"
+    },
+    {
+      "op": "amm_swap",
+      "amount": "1",
+      "asset_pair": "XLM_USDC"
+    },
+    {
+      "op": "amm_swap",
+      "amount": "1",
+      "asset_pair": "XLM_USDC"
+    }
+  ]
+}

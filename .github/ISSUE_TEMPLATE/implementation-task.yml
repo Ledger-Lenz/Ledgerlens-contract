@@ -1,0 +1,115 @@
+name: "\U0001F527 Implementation task"
+description: Add or change contract behavior (a new function, a modified rule, a bug fix that changes what the contract does).
+title: "[Impl] "
+labels:
+  - "type: implementation"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filling this in, read [`docs/invariants.md`](../../docs/invariants.md) — nothing here should
+        weaken fail-closed gate semantics, authorization checks, or bounded-resource behavior. If it does,
+        say so explicitly in **Compatibility impact** below rather than leaving it implicit.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What behavior is being added or changed, in one or two sentences.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: primary-area
+    attributes:
+      label: Primary area
+      options:
+        - Core contract logic (lib.rs)
+        - Storage & rent (storage.rs, TTL)
+        - Security & cryptography (attestation, ZK, Verkle)
+        - Governance & admin (multisig, parameter governance, upgrades)
+        - Composability & gate semantics (query_risk_gate*)
+        - Aggregator / cross-contract (ledgerlens-aggregator, mocks)
+        - SDK / tooling (tools/, scripts/)
+        - Other (specify in Summary)
+    validations:
+      required: true
+
+  - type: textarea
+    id: relevant-files
+    attributes:
+      label: Relevant files
+      description: Files you expect to touch. Update this list as scope becomes clearer — it doesn't need to be exhaustive up front.
+      placeholder: |
+        contracts/ledgerlens-score/src/lib.rs
+        contracts/ledgerlens-score/src/storage.rs
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Current behavior (inspect before changing)
+      description: >
+        What does the contract actually do today, in the specific area this task touches? Cite the function(s)
+        and file/line. This is required even for "obviously" broken behavior — the fix has to be judged against
+        what's really there, not what's assumed to be there.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: expected-work
+    attributes:
+      label: Expected work
+      options:
+        - label: Inspected the current implementation and documented the concrete behavior above before changing it.
+          required: true
+        - label: Implemented the smallest coherent design that satisfies the requirement — no unrelated refactors bundled in.
+          required: true
+        - label: Fail-closed risk-gate semantics are preserved (or the change is N/A to any gate function — say why above).
+          required: true
+        - label: Authorization checks (`require_auth`, signer thresholds) are preserved or, if changed, the new authorization model is stated explicitly.
+          required: true
+        - label: Bounded-resource behavior is preserved — any new collection has an enforced `MAX_*` cap, or an existing cap's semantics are unchanged.
+          required: true
+        - label: Added focused tests for the success path, boundary cases (e.g. at/beyond a `MAX_*` cap, at 0/100 for score-like values), and adversarial failure modes (unauthorized caller, malformed input).
+          required: true
+        - label: Updated user-facing or operator-facing documentation (README.md, docs/) if behavior, configuration, events, errors, or workflows changed.
+          required: true
+
+  - type: textarea
+    id: compatibility-impact
+    attributes:
+      label: Compatibility impact
+      description: >
+        State explicitly, even if the answer is "none": does this change public ABI (function signatures, struct
+        shape), event topics/payloads, error discriminants, or on-chain storage layout? If yes, per
+        docs/interface-versioning-policy.md, this needs a CHANGELOG "Unreleased" entry with a migration guide and
+        the 30-day notice period — link it. If no, say "No ABI/event/error/storage impact" plainly so reviewers
+        don't have to infer it.
+      placeholder: "No ABI/event/error/storage impact."
+    validations:
+      required: true
+
+  - type: textarea
+    id: resource-usage
+    attributes:
+      label: Resource usage
+      description: >
+        For the worst relevant case (e.g. a collection at its `MAX_*` cap, a batch at `MAX_BATCH_SIZE`), is cost
+        bounded by construction (cite the cap) or benchmarked (link a Criterion bench under
+        contracts/ledgerlens-score/benches/, per docs/wasm-size-budget.md)? If this task adds no new loop or
+        collection, say so.
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      value: |
+        - Cosmetic refactors that do not support the stated behavior.
+        - Replacing the LedgerLens risk model or off-chain scoring pipeline unless explicitly required by this issue.
+        - Broad rewrites without compatibility and migration notes.
+    validations:
+      required: false

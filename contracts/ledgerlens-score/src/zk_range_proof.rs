@@ -1,4 +1,5 @@
 //! # Zero-Knowledge Range Proof (Bulletproofs over Ed25519)
+#![cfg_attr(target_family = "wasm", allow(dead_code))]
 //!
 //! Implements a self-contained ZK range proof scheme to prove that a score $v$
 //! committed in a Pedersen commitment $C = g^v h^r$ is below a threshold $T$,

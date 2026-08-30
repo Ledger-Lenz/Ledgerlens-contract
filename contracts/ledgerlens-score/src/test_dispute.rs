@@ -180,6 +180,62 @@ fn test_open_dispute_fee_token_not_set() {
 }
 
 #[test]
+fn test_commit_dispute_bond_rejects_oversized_preimage_without_mutation() {
+    let f = setup(1_000_000, 1_000_000);
+    let oversized_pair = Symbol::new(&f.env, "PAIR123456");
+    let oversized_preimage = Bytes::from_array(
+        &f.env,
+        &[9u8; crate::constants::MAX_DISPUTE_BOND_PREIMAGE_BYTES as usize + 1],
+    );
+
+    let commit_res = f.client.try_commit_dispute_bond(
+        &f.challenger,
+        &f.challenger,
+        &oversized_pair,
+        &oversized_preimage,
+    );
+    assert_eq!(commit_res, Err(Ok(Error::InvalidAttestation)));
+
+    let reveal_salt = Bytes::from_array(&f.env, &[1u8; 16]);
+    let reveal_res = f.client.try_open_score_dispute(
+        &f.challenger,
+        &f.challenger,
+        &oversized_pair,
+        &10_000,
+        &reveal_salt,
+    );
+    assert_eq!(reveal_res, Err(Ok(Error::InvalidAttestation)));
+}
+
+#[test]
+fn test_open_dispute_rejects_oversized_reveal_input_without_clearing_commitment() {
+    let f = setup(1_000_000, 1_000_000);
+    seed_score(&f, 80);
+
+    let valid_salt = Bytes::from_array(&f.env, &[1u8; 16]);
+    let mut commit_bytes = Bytes::new(&f.env);
+    commit_bytes.extend_from_slice(&10_000i128.to_le_bytes());
+    commit_bytes.extend_from_slice(&[1u8; 16]);
+    f.client.commit_dispute_bond(&f.challenger, &f.challenger, &f.pair, &commit_bytes);
+
+    let oversized_salt = Bytes::from_array(
+        &f.env,
+        &[2u8; crate::constants::MAX_DISPUTE_BOND_SALT_BYTES as usize + 1],
+    );
+    let oversized_res = f.client.try_open_score_dispute(
+        &f.challenger,
+        &f.challenger,
+        &f.pair,
+        &10_000,
+        &oversized_salt,
+    );
+    assert_eq!(oversized_res, Err(Ok(Error::InvalidAttestation)));
+
+    f.client.open_score_dispute(&f.challenger, &f.challenger, &f.pair, &10_000, &valid_salt);
+    assert_eq!(f.client.get_open_disputes().len(), 1);
+}
+
+#[test]
 fn test_open_dispute_per_actor_cap_exceeded_rejected() {
     let f = setup(10_000_000, 10_000_000);
 

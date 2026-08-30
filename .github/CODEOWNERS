@@ -1,0 +1,15 @@
+# .github/CODEOWNERS
+# Mandatory review routing for LedgerLens security-sensitive paths
+
+# Smart Contracts & Domain Logic
+/contracts/ledgerlens-score/src/    @LedgerLens/arch-reviewers
+/contracts/ledgerlens-aggregator/src/ @LedgerLens/arch-reviewers
+
+# Documentation & Specifications
+/docs/                               @LedgerLens/arch-reviewers
+/spec/                               @LedgerLens/arch-reviewers
+/SECURITY.md                         @LedgerLens/arch-reviewers
+
+# Build Configuration & Tooling
+/Cargo.toml                          @LedgerLens/arch-reviewers
+/tools/                              @LedgerLens/arch-reviewers

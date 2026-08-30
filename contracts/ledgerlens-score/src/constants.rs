@@ -1,3 +1,5 @@
+#![cfg_attr(target_family = "wasm", allow(dead_code))]
+
 pub const SCORE_TTL_THRESHOLD: u32 = 518_400;
 pub const SCORE_TTL_EXTEND_TO: u32 = 777_600;
 
@@ -16,6 +18,10 @@ pub const MAX_SCORE: u32 = 100;
 pub const MAX_HISTORY_DEPTH: u32 = 50;
 pub const DEFAULT_HISTORY_MAX_DEPTH: u32 = 10;
 pub const MAX_BATCH_SIZE: u32 = 20;
+pub const MAX_ASSET_PAIR_BYTES: u32 = 9;
+pub const MAX_SCORE_COMMITMENT_BYTES: u32 = 32;
+pub const MAX_DISPUTE_BOND_PREIMAGE_BYTES: u32 = 80;
+pub const MAX_DISPUTE_BOND_SALT_BYTES: u32 = 64;
 
 /// Maximum number of entries accepted in a single batch score read call.
 pub const BATCH_READ_MAX: u32 = 50;
@@ -40,7 +46,10 @@ pub const DEFAULT_JUMP_THRESHOLD: u32 = 30;
 /// * `4` — Added contract_id and contract_version binding to attestations (#200),
 ///   Merkle audit chain for admin actions (#201), configurable decay profiles (#202),
 ///   and multi-dimensional risk scores with sub-components (#203).
-pub const CONTRACT_VERSION: u32 = 4;
+/// * `5` — Added post-incident replay and reconciliation workflow (#631): emergency
+///   freeze/unfreeze, deterministic state checksums, paginated score export, on-chain
+///   snapshot history, reconciliation verification, and off-chain recovery tooling.
+pub const CONTRACT_VERSION: u32 = 5;
 
 /// Hard upper bound on Merkle proof length.
 pub const MAX_MERKLE_PROOF_DEPTH: u32 = 30;
@@ -53,6 +62,8 @@ pub const MAX_UPGRADE_DELAY_SECS: u64 = 1_209_600;
 pub const DEFAULT_UPGRADE_DELAY_SECS: u64 = 172_800;
 pub const MAX_SERVICE_SIGNERS: u32 = 10;
 pub const MAX_ADMIN_SIGNERS: u32 = 5;
+/// Grace period (seconds) before a newly added signer transitions from Pending to Active (issue #691).
+pub const DEFAULT_SIGNER_GRACE_PERIOD_SECS: u64 = 3_600; // 1 hour
 pub const DEFAULT_STALENESS_WINDOW_SECS: u64 = 604_800;
 
 /// Default maximum age (seconds) of an oracle's last price update before the
@@ -166,3 +177,23 @@ pub const DEFAULT_PARAM_CHANGE_DELAY_SECS: u64 = 86_400;
 
 /// Maximum number of entries retained in the rate-limit override audit log.
 pub const MAX_RATE_LIMIT_OVERRIDE_LOG: u32 = 100;
+
+/// Operator-facing manifest fields that the drift checker treats as the
+/// stable configuration surface for deployed instances.
+pub const CONFIG_DRIFT_MANIFEST_FIELDS: &[&str] = &[
+    "contract_version",
+    "paused",
+    "risk_threshold",
+    "jump_threshold",
+    "staleness_window",
+    "upgrade_delay",
+    "cooldown",
+    "service_threshold",
+    "admin_threshold",
+    "consensus_threshold_k",
+    "consensus_epsilon",
+    "reveal_window",
+    "finality_buffer",
+    "heartbeat_alert_threshold",
+    "oracle_staleness_threshold",
+];

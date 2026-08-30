@@ -290,6 +290,7 @@ This disables all score submissions and queries (returning `Error::ContractPause
 4. **Announce widely:** Give integrators 48+ hours notice so they can prepare.
 5. **Monitor closely:** Watch on-chain events and integrator feedback immediately after execution.
 6. **Have a rollback plan:** Know exactly how to re-propose the old WASM if needed.
+7. **Validate the deploy manifest:** For a fresh deployment (not an in-place upgrade), `deploy.sh` validates `deploy/manifest.json` for the target network — admin identity, service address, upgrade delay, cooldown, risk threshold, and schema version — before building or submitting any transaction. See `deploy/validate_manifest.sh` for the checks and bounds.
 
 ---
 

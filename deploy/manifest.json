@@ -1,0 +1,20 @@
+{
+  "testnet": {
+    "upgrade_delay_secs": 172800,
+    "cooldown_secs": 3600,
+    "risk_threshold": 75,
+    "schema_version": 4
+  },
+  "futurenet": {
+    "upgrade_delay_secs": 172800,
+    "cooldown_secs": 3600,
+    "risk_threshold": 75,
+    "schema_version": 4
+  },
+  "mainnet": {
+    "upgrade_delay_secs": 172800,
+    "cooldown_secs": 3600,
+    "risk_threshold": 75,
+    "schema_version": 4
+  }
+}

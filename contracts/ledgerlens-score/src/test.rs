@@ -1,33 +1,31 @@
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Ledger as _},
-    Address, Env, Symbol, Vec,
+    testutils::{Address as _, Events as _, Ledger as _},
+    vec, Address, Bytes, BytesN, Env, IntoVal, Symbol, Vec,
 };
 
+use crate::storage;
 use crate::{
-    BatchResult, Error, LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreQuery,
-    ScoreSubmission,
+    BatchResult, DeletionAuditWarning, Error, LedgerLensScoreContract,
+    LedgerLensScoreContractClient, ScoreQuery, ScoreSubmission,
+};
+use ledgerlens_test_support::{
+    generate_score_roles, set_ledger_timestamp, test_env_with_unlimited_budget,
 };
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
 pub fn setup<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address, Address) {
-    let env = Env::default();
-    env.mock_all_auths();
-    env.budget().reset_unlimited();
-
+    let env = test_env_with_unlimited_budget();
     let contract_id = env.register_contract(None, LedgerLensScoreContract);
     let client = LedgerLensScoreContractClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let service = Address::generate(&env);
-
+    let (admin, service) = generate_score_roles(&env);
     (env, client, admin, service)
 }
 
 pub fn initialized<'a>() -> (Env, LedgerLensScoreContractClient<'a>, Address, Address) {
     let (env, client, admin, service) = setup();
-    env.ledger().with_mut(|l| l.timestamp = 100_000);
+    set_ledger_timestamp(&env, 100_000);
     client.initialize(&admin, &service);
     (env, client, admin, service)
 }
@@ -48,6 +46,27 @@ fn test_initialize_twice_fails() {
     client.initialize(&admin, &service);
     let result = client.try_initialize(&admin, &service);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
+}
+
+#[test]
+fn test_initialize_requires_nominated_admin_and_rolls_back() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let service = Address::generate(&env);
+
+    // No mocked authorization: the host must reject this before either
+    // privileged address becomes persistent state.
+    assert!(client.try_initialize(&admin, &service).is_err());
+    assert_eq!(client.try_get_admin(), Err(Ok(Error::NotInitialized)));
+    assert_eq!(client.try_get_service(), Err(Ok(Error::NotInitialized)));
+
+    // A legitimately authorized retry can still initialize the same instance.
+    env.mock_all_auths();
+    client.initialize(&admin, &service);
+    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_service(), service);
 }
 
 // ── Score submission & retrieval ──────────────────────────────────────────────
@@ -80,6 +99,103 @@ fn test_submit_and_get_score() {
     assert_eq!(score.timestamp, 1_700_000_000);
     assert_eq!(score.confidence, 92);
     assert_eq!(score.model_version, 1);
+}
+
+#[test]
+fn test_submit_score_rejects_oversized_asset_pair_without_mutation() {
+    let (env, client, admin, service) = initialized();
+    let wallet = Address::generate(&env);
+    let oversized_pair = Symbol::new(&env, "PAIR123456");
+
+    let result = client.try_submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &oversized_pair,
+        &42,
+        &false,
+        &false,
+        &1,
+        &90,
+        &1,
+        &None,
+    );
+
+    assert_eq!(result, Err(Ok(Error::InvalidAttestation)));
+    assert_eq!(client.try_get_score(&wallet, &oversized_pair), Err(Ok(Error::InvalidAttestation)));
+    assert_eq!(client.get_wallet_pair_list(&wallet).len(), 0);
+}
+
+#[test]
+fn test_submit_score_rejects_oversized_commitment_bytes_without_mutation() {
+    let (env, client, admin, service) = initialized();
+    let wallet = Address::generate(&env);
+    let pair = Symbol::new(&env, "PAIR12345");
+    let malformed_commitment = soroban_sdk::Bytes::from_array(&env, &[7u8; 31]);
+
+    let result = client.try_submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &pair,
+        &42,
+        &false,
+        &false,
+        &1,
+        &90,
+        &1,
+        &Some(crate::ScoreAttestationInput {
+            attestation: crate::MaybeScoreAttestation::None,
+            threshold_attestation: crate::MaybeThresholdAttestation::None,
+            commitment: Some(malformed_commitment),
+        }),
+    );
+
+    assert_eq!(result, Err(Ok(Error::InvalidAttestation)));
+    assert_eq!(client.try_get_score(&wallet, &pair), Err(Ok(Error::ScoreNotFound)));
+    assert_eq!(client.get_wallet_pair_list(&wallet).len(), 0);
+}
+
+#[test]
+fn test_submit_scores_batch_rejects_oversized_pair_per_entry() {
+    let (env, client, admin, service) = initialized();
+    let valid_wallet = Address::generate(&env);
+    let invalid_wallet = Address::generate(&env);
+    let valid_pair = Symbol::new(&env, "PAIR12345");
+    let oversized_pair = Symbol::new(&env, "PAIR123456");
+    let mut batch = Vec::new(&env);
+
+    batch.push_back(ScoreSubmission {
+        wallet: valid_wallet.clone(),
+        asset_pair: valid_pair.clone(),
+        score: 11,
+        benford_flag: false,
+        ml_flag: false,
+        timestamp: 1,
+        confidence: 80,
+        model_version: 1,
+    });
+    batch.push_back(ScoreSubmission {
+        wallet: invalid_wallet.clone(),
+        asset_pair: oversized_pair.clone(),
+        score: 22,
+        benford_flag: false,
+        ml_flag: false,
+        timestamp: 2,
+        confidence: 80,
+        model_version: 1,
+    });
+
+    let result = client.submit_scores_batch(&batch);
+
+    assert_eq!(result.accepted_count, 1);
+    assert_eq!(result.rejected_count, 1);
+    assert!(result.results.get(0).unwrap().accepted);
+    assert_eq!(result.results.get(1).unwrap().rejection_code, Error::InvalidAttestation as u32);
+    assert_eq!(client.get_score(&valid_wallet, &valid_pair).score, 11);
+    assert_eq!(
+        client.try_get_score(&invalid_wallet, &oversized_pair),
+        Err(Ok(Error::InvalidAttestation))
+    );
+    assert_eq!(client.get_wallet_pair_list(&invalid_wallet).len(), 0);
 }
 
 #[test]
@@ -1439,13 +1555,13 @@ fn test_batch_result_vec_length_matches_input() {
 #[test]
 fn test_get_version_returns_three() {
     let (_env, client, _admin, _service) = initialized();
-    assert_eq!(client.get_version(), 4);
+    assert_eq!(client.get_version(), 5);
 }
 
 #[test]
-fn test_get_contract_version_returns_four() {
+fn test_get_contract_version_returns_five() {
     let (_env, client, _admin, _service) = initialized();
-    assert_eq!(client.get_contract_version(), 4);
+    assert_eq!(client.get_contract_version(), 5);
 }
 
 // ── Not-initialized guards ────────────────────────────────────────────────────
@@ -2384,7 +2500,7 @@ fn test_set_staleness_window_updates_stale_check() {
 // ── GDPR / data-erasure ───────────────────────────────────────────────────────
 
 #[test]
-fn test_clear_score_history_removes_all_entries() {
+fn test_clear_score_history_removes_history_only_and_is_idempotent() {
     let (env, client, _admin, _service) = initialized();
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
@@ -2395,7 +2511,19 @@ fn test_clear_score_history_removes_all_entries() {
 
     assert_eq!(client.get_score_history(&wallet, &pair).len(), 2);
     client.clear_score_history(&Vec::new(&env), &wallet, &pair);
+
     assert_eq!(client.get_score_history(&wallet, &pair).len(), 0);
+    assert_eq!(client.get_score(&wallet, &pair).score, 20);
+    assert_eq!(client.get_wallet_pair_list(&wallet).len(), 1);
+    assert_eq!(env.as_contract(&client.address, || storage::get_score_entry_index(&env).len()), 1);
+    assert_eq!(client.get_score_count(&wallet, &pair), 2);
+    assert_eq!(client.get_pair_score_count(&pair), 2);
+
+    client.clear_score_history(&Vec::new(&env), &wallet, &pair);
+    assert_eq!(client.get_score_history(&wallet, &pair).len(), 0);
+    assert_eq!(client.get_score(&wallet, &pair).score, 20);
+    assert_eq!(client.get_wallet_pair_list(&wallet).len(), 1);
+    assert_eq!(env.as_contract(&client.address, || storage::get_score_entry_index(&env).len()), 1);
 }
 
 #[test]
@@ -2410,16 +2538,36 @@ fn test_clear_score_history_on_empty_is_noop() {
 }
 
 #[test]
-fn test_clear_score_removes_latest_score() {
+fn test_clear_score_removes_latest_and_live_indexes_and_is_idempotent() {
     let (env, client, _admin, _service) = initialized();
     let wallet = Address::generate(&env);
     let pair = symbol_short!("XLM_USDC");
 
     client.submit_score(&Vec::new(&env), &wallet, &pair, &42, &false, &false, &1, &80, &1, &None);
+    assert_eq!(client.get_score_history(&wallet, &pair).len(), 1);
+    assert_eq!(client.get_wallet_pair_list(&wallet).len(), 1);
+    assert_eq!(env.as_contract(&client.address, || storage::get_score_entry_index(&env).len()), 1);
+    assert_eq!(client.get_score_count(&wallet, &pair), 1);
+    assert_eq!(client.get_pair_score_count(&pair), 1);
+    assert_eq!(client.get_total_wallets_scored(), 1);
+
     client.clear_score(&Vec::new(&env), &wallet, &pair);
 
     let result = client.try_get_score(&wallet, &pair);
     assert_eq!(result, Err(Ok(Error::ScoreNotFound)));
+    assert_eq!(client.get_score_history(&wallet, &pair).len(), 1);
+    assert_eq!(client.get_score_history(&wallet, &pair).get(0).unwrap().score, 42);
+    assert_eq!(client.get_wallet_pair_list(&wallet).len(), 0);
+    assert_eq!(env.as_contract(&client.address, || storage::get_score_entry_index(&env).len()), 0);
+    assert_eq!(client.get_score_count(&wallet, &pair), 1);
+    assert_eq!(client.get_pair_score_count(&pair), 1);
+    assert_eq!(client.get_total_wallets_scored(), 1);
+
+    client.clear_score(&Vec::new(&env), &wallet, &pair);
+    assert_eq!(client.try_get_score(&wallet, &pair), Err(Ok(Error::ScoreNotFound)));
+    assert_eq!(client.get_score_history(&wallet, &pair).len(), 1);
+    assert_eq!(client.get_wallet_pair_list(&wallet).len(), 0);
+    assert_eq!(env.as_contract(&client.address, || storage::get_score_entry_index(&env).len()), 0);
 }
 
 #[test]
@@ -2432,6 +2580,8 @@ fn test_clear_score_on_nonexistent_is_noop() {
     client.clear_score(&Vec::new(&env), &wallet, &pair);
     let result = client.try_get_score(&wallet, &pair);
     assert_eq!(result, Err(Ok(Error::ScoreNotFound)));
+    assert_eq!(client.get_wallet_pair_list(&wallet).len(), 0);
+    assert_eq!(env.as_contract(&client.address, || storage::get_score_entry_index(&env).len()), 0);
 }
 
 #[test]
@@ -2477,6 +2627,268 @@ fn test_clear_score_does_not_affect_history() {
     // History ring must still contain the entry.
     assert_eq!(client.get_score_history(&wallet, &pair).len(), 1);
     assert_eq!(client.get_score_history(&wallet, &pair).get(0).unwrap().score, 33);
+}
+
+#[test]
+fn test_get_deletion_preflight_reports_scope_without_mutating_targets() {
+    let (env, client, _admin, _service) = initialized();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &10, &false, &false, &1, &50, &1, &None);
+    env.ledger().with_mut(|l| l.timestamp += 3_601);
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &20, &false, &false, &2, &60, &1, &None);
+
+    let preview = client.get_deletion_preflight(&wallet, &pair);
+    assert_eq!(preview.wallet, wallet);
+    assert_eq!(preview.asset_pair, pair);
+    assert!(preview.latest_score_present);
+    assert_eq!(preview.history_count, 2);
+    assert_eq!(preview.audit_warning, DeletionAuditWarning::Irreversible);
+
+    // Read-only preview must not remove or rewrite the targeted entries.
+    assert_eq!(client.get_score(&wallet, &pair).score, 20);
+    assert_eq!(client.get_score_history(&wallet, &pair).len(), 2);
+}
+
+#[test]
+fn test_get_deletion_preflight_on_missing_pair_reports_empty_scope() {
+    let (env, client, _admin, _service) = initialized();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    let preview = client.get_deletion_preflight(&wallet, &pair);
+    assert_eq!(preview.wallet, wallet);
+    assert_eq!(preview.asset_pair, pair);
+    assert!(!preview.latest_score_present);
+    assert_eq!(preview.history_count, 0);
+    assert_eq!(preview.audit_warning, DeletionAuditWarning::Irreversible);
+}
+
+#[test]
+fn test_clear_score_emits_audited_event_with_default_hashes() {
+    let (env, client, admin, _service) = initialized();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+    let contract_id = client.address.clone();
+
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &42, &false, &false, &1, &80, &1, &None);
+
+    client.clear_score(&Vec::new(&env), &wallet, &pair);
+
+    let topic = (symbol_short!("clr_scr"), crate::events::EVENT_VERSION, wallet.clone());
+    let expected_reason_hash: BytesN<32> =
+        env.crypto().sha256(&Bytes::from_slice(&env, b"unspecified")).into();
+    let expected_category_hash: BytesN<32> =
+        env.crypto().sha256(&Bytes::from_slice(&env, b"score-clear")).into();
+
+    let found = env.events().all().iter().any(|(addr, topics, data)| {
+        if addr != contract_id || topics != topic.clone().into_val(&env) {
+            return false;
+        }
+        let (
+            event_pair,
+            by,
+            latest_score_present,
+            history_count,
+            reason_hash,
+            category_hash,
+            multisig_enabled,
+            signer_count,
+            threshold,
+        ): (Symbol, Address, bool, u32, BytesN<32>, BytesN<32>, bool, u32, u32) =
+            data.into_val(&env);
+        event_pair == pair
+            && by == admin
+            && latest_score_present
+            && history_count == 1
+            && reason_hash == expected_reason_hash
+            && category_hash == expected_category_hash
+            && !multisig_enabled
+            && signer_count == 1
+            && threshold == 1
+    });
+    assert!(found, "expected clr_scr event with hashed default audit context");
+}
+
+#[test]
+fn test_clear_score_history_with_audit_emits_custom_hashes_and_multisig_context() {
+    let (env, client, _admin, _service) = initialized();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+    let contract_id = client.address.clone();
+
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &10, &false, &false, &1, &50, &1, &None);
+    env.ledger().with_mut(|l| l.timestamp += 3_601);
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &20, &false, &false, &2, &60, &1, &None);
+
+    let s1 = Address::generate(&env);
+    let s2 = Address::generate(&env);
+    client.add_admin_signer(&Vec::new(&env), &s1);
+    client.add_admin_signer(&Vec::new(&env), &s2);
+    client.set_admin_threshold(&Vec::new(&env), &2);
+    let mut both = Vec::new(&env);
+    both.push_back(s1.clone());
+    both.push_back(s2.clone());
+
+    let reason = Bytes::from_slice(&env, b"gdpr-ticket-792");
+    let category = Bytes::from_slice(&env, b"privacy-erasure");
+    let expected_reason_hash: BytesN<32> = env.crypto().sha256(&reason).into();
+    let expected_category_hash: BytesN<32> = env.crypto().sha256(&category).into();
+
+    client.clear_score_history_with_audit(&both, &wallet, &pair, &reason, &category);
+
+    let topic = (symbol_short!("clr_hist"), crate::events::EVENT_VERSION, wallet.clone());
+    let found = env.events().all().iter().any(|(addr, topics, data)| {
+        if addr != contract_id || topics != topic.clone().into_val(&env) {
+            return false;
+        }
+        let (
+            event_pair,
+            _by,
+            latest_score_present,
+            history_count,
+            reason_hash,
+            category_hash,
+            multisig_enabled,
+            signer_count,
+            threshold,
+        ): (Symbol, Address, bool, u32, BytesN<32>, BytesN<32>, bool, u32, u32) =
+            data.into_val(&env);
+        event_pair == pair
+            && latest_score_present
+            && history_count == 2
+            && reason_hash == expected_reason_hash
+            && category_hash == expected_category_hash
+            && multisig_enabled
+            && signer_count == 2
+            && threshold == 2
+    });
+    assert!(found, "expected clr_hist event with custom audit hashes and multisig context");
+}
+
+#[test]
+fn test_clear_score_with_audit_rejects_insufficient_admin_signers() {
+    let (env, client, _admin, _service) = initialized();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &42, &false, &false, &1, &80, &1, &None);
+
+    let s1 = Address::generate(&env);
+    let s2 = Address::generate(&env);
+    client.add_admin_signer(&Vec::new(&env), &s1);
+    client.add_admin_signer(&Vec::new(&env), &s2);
+    client.set_admin_threshold(&Vec::new(&env), &2);
+
+    let mut only_one = Vec::new(&env);
+    only_one.push_back(s1);
+
+    let reason = Bytes::from_slice(&env, b"case-791");
+    let category = Bytes::from_slice(&env, b"privacy-erasure");
+    let result = client.try_clear_score_with_audit(&only_one, &wallet, &pair, &reason, &category);
+    assert_eq!(result, Err(Ok(Error::InsufficientAdminSigners)));
+    assert_eq!(client.get_score(&wallet, &pair).score, 42);
+}
+
+#[test]
+fn test_policy_boundary_cooldown_and_epoch_both_apply() {
+    let (env, client, _admin, _service) = initialized();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &40, &false, &false, &1, &80, &1, &None);
+    client.close_epoch(&Vec::new(&env));
+
+    let while_closed = client.try_submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &pair,
+        &41,
+        &false,
+        &false,
+        &2,
+        &80,
+        &1,
+        &None,
+    );
+    assert_eq!(while_closed, Err(Ok(Error::EpochClosed)));
+
+    client.open_epoch(&Vec::new(&env), &1);
+    let before_cooldown = client.try_submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &pair,
+        &41,
+        &false,
+        &false,
+        &2,
+        &80,
+        &1,
+        &None,
+    );
+    assert_eq!(before_cooldown, Err(Ok(Error::RateLimitExceeded)));
+}
+
+#[test]
+fn test_policy_boundary_pause_and_override_do_not_bypass_pause() {
+    let (env, client, _admin, _service) = initialized();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &55, &false, &false, &1, &80, &1, &None);
+    client.pause(&Vec::new(&env));
+    client.override_rate_limit(
+        &Vec::new(&env),
+        &wallet,
+        &pair,
+        &Bytes::from_slice(&env, b"ops-recovery"),
+    );
+
+    let paused = client.try_submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &pair,
+        &56,
+        &false,
+        &false,
+        &2,
+        &80,
+        &1,
+        &None,
+    );
+    assert_eq!(paused, Err(Ok(Error::ContractPaused)));
+
+    client.unpause(&Vec::new(&env));
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &56, &false, &false, &2, &80, &1, &None);
+    assert_eq!(client.get_score(&wallet, &pair).score, 56);
+}
+
+#[test]
+fn test_policy_boundary_confidence_floor_does_not_weaken_score_floor() {
+    let (env, client, _admin, _service) = initialized();
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+
+    client.set_score_floor_policy(&Vec::new(&env), &true, &80, &30);
+    client.set_global_min_confidence(&90);
+    client.submit_score(&Vec::new(&env), &wallet, &pair, &95, &false, &false, &1, &95, &1, &None);
+
+    env.ledger().with_mut(|l| l.timestamp += 3_601);
+    let result = client.try_submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &pair,
+        &20,
+        &false,
+        &false,
+        &2,
+        &100,
+        &1,
+        &None,
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidScore)));
+    assert!(!client.query_risk_gate_with_confidence(&wallet, &pair, &75, &90));
 }
 
 // ── Wallet Score Delegation ───────────────────────────────────────────────────
@@ -3333,4 +3745,64 @@ fn test_private_aggregate_score_not_initialized_fails() {
     let (env, client, _admin, _service) = setup();
     let wallet = Address::generate(&env);
     assert_eq!(client.get_private_aggregate_score(&wallet, &0), 0);
+}
+#[test]
+fn test_arch_owner_management() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let service_address = Address::generate(&env);
+    let arch_owner_1 = Address::generate(&env);
+    let arch_owner_2 = Address::generate(&env);
+
+    client.initialize(&admin, &service_address);
+
+    // Initial getter returns None
+    assert_eq!(client.get_arch_owner(), None);
+
+    // Admin sets initial arch owner
+    client.set_arch_owner(&arch_owner_1);
+    assert_eq!(client.get_arch_owner(), Some(arch_owner_1.clone()));
+
+    // Arch owner transfers to new arch owner
+    client.set_arch_owner(&arch_owner_2);
+    assert_eq!(client.get_arch_owner(), Some(arch_owner_2));
+}
+
+#[test]
+fn test_mandatory_reviewers_validation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let service_address = Address::generate(&env);
+    client.initialize(&admin, &service_address);
+
+    let r1 = Address::generate(&env);
+    let r2 = Address::generate(&env);
+
+    // Set valid reviewers
+    let reviewers = vec![&env, r1.clone(), r2.clone()];
+    client.set_mandatory_reviewers(&reviewers);
+    assert_eq!(client.get_mandatory_reviewers().len(), 2);
+
+    // Duplicate reviewer triggers ReviewerAlreadyExists (mapped to SignerAlreadyInSet)
+    let duplicate_reviewers = vec![&env, r1.clone(), r1.clone()];
+    let res = client.try_set_mandatory_reviewers(&duplicate_reviewers);
+    assert_eq!(res, Err(Ok(Error::ReviewerAlreadyExists)));
+
+    // Exceeding MAX_MANDATORY_REVIEWERS (10) triggers MaxReviewersExceeded (mapped to ServiceSetFull)
+    let mut too_many = vec![&env];
+    for _ in 0..11 {
+        too_many.push_back(Address::generate(&env));
+    }
+    let res = client.try_set_mandatory_reviewers(&too_many);
+    assert_eq!(res, Err(Ok(Error::MaxReviewersExceeded)));
 }

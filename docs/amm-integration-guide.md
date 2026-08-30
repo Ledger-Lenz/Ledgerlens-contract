@@ -139,6 +139,34 @@ if !passes_gate {
 
 This additional floor prevents wallets with low-confidence scores (meaning the ML model had insufficient data) from bypassing the gate. A score of `(score=30, confidence=5)` is epistemically equivalent to "unknown" and should not be trusted.
 
+## Freshness matters: avoid stale safe scores
+
+`query_risk_gate` only answers whether the current on-chain score clears the threshold. It does not know whether that score is stale.
+
+If your AMM can lose money during detection lag, add an explicit max-age check before you treat a safe score as actionable:
+
+```rust
+let max_age_secs = 300u64;
+let score = match client.get_score(&user, &asset_pair) {
+    Ok(score) => score,
+    Err(_) => return Err(AMMError::UserHighRisk),
+};
+if env.ledger().timestamp().saturating_sub(score.timestamp) > max_age_secs {
+    return Err(AMMError::UserHighRisk);
+}
+
+if !client.query_risk_gate_with_confidence(&user, &asset_pair, &gate_threshold, &min_confidence) {
+    return Err(AMMError::UserHighRisk);
+}
+```
+
+The operational pattern is:
+
+- bound age with a small `max_age_secs`,
+- require confidence when the action has meaningful value,
+- fail closed when the oracle is silent or stale, and
+- short-circuit on your own pause flag before the gate call if your protocol has one.
+
 ---
 
 ## Error Handling

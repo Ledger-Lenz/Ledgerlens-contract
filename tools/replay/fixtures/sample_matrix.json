@@ -1,0 +1,29 @@
+[
+  {
+    "issue_id": "LL-101",
+    "title": "Prevent Laundering via Score Floor Bypass",
+    "invariants": [
+      {
+        "invariant_id": "INV-01",
+        "description": "Historical peak scores must reject updates below floor when policy enabled",
+        "test_ids": [
+          "test_score_floor_enforcement",
+          "test_score_floor_override"
+        ]
+      }
+    ]
+  },
+  {
+    "issue_id": "LL-102",
+    "title": "Ensure Rate Limiter Cooldown Enforcement",
+    "invariants": [
+      {
+        "invariant_id": "INV-02",
+        "description": "Submissions within cooldown window must trigger RateLimitExceeded",
+        "test_ids": [
+          "test_rate_limit_cooldown"
+        ]
+      }
+    ]
+  }
+]

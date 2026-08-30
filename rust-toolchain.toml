@@ -5,6 +5,7 @@
 #   target to enable the `reference-types` and `multi-value` wasm proposals,
 #   which the Soroban host environment does not support.  1.81.0 is therefore
 #   the latest stable release that produces valid, deployable Soroban WASM.
+#   See docs/host-version-support-policy.md for the support matrix and CI links.
 #
 # Reproducibility contract:
 #   Any contributor or third party who installs this exact toolchain and builds

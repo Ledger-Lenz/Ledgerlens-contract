@@ -8,6 +8,8 @@ use soroban_sdk::{
     Address, Env, Vec,
 };
 
+use ledgerlens_test_support::{generate_score_roles, set_ledger_timestamp};
+
 use crate::{LedgerLensScoreContract, LedgerLensScoreContractClient};
 
 const BASE_TS: u64 = 1_700_000_000;
@@ -16,13 +18,12 @@ const TTL: u64 = 3_600; // 1 hour
 fn setup<'a>() -> (Env, LedgerLensScoreContractClient<'a>) {
     let env = Env::default();
     env.mock_all_auths();
-    env.ledger().with_mut(|l| l.timestamp = BASE_TS);
+    set_ledger_timestamp(&env, BASE_TS);
 
     let contract_id = env.register_contract(None, LedgerLensScoreContract);
     let client = LedgerLensScoreContractClient::new(&env, &contract_id);
 
-    let admin = Address::generate(&env);
-    let service = Address::generate(&env);
+    let (admin, service) = generate_score_roles(&env);
     client.initialize(&admin, &service);
     client.set_signer_rotation_ttl(&Vec::new(&env), &TTL);
 

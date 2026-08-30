@@ -4,6 +4,11 @@ When scores are replicated across multiple shards, the aggregator must resolve
 conflicts between potentially different values from each shard. The
 `ConflictPolicy` enum controls which strategy is used.
 
+Configuration conflicts are handled separately from score conflicts. Use
+[`aggregator-split-brain.md`](aggregator-split-brain.md) and
+`detect_split_brain(wallet, asset_pair)` to detect shard configuration drift
+before relying on a fan-out read.
+
 ## Policy Variants
 
 ### `HighestScore` (default)

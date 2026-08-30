@@ -113,6 +113,13 @@ impl Error {
     pub const GateCallerNotInList: Error = Error::ScoreNotFound;
     pub const ParamChangeAlreadyPending: Error = Error::UpgradeAlreadyPending;
 
+    // ── Memory-exhaustion guards (#612) ─────────────────────────────────────
+    /// Returned by `submit_scores_batch_attested` when `signers.len()`
+    /// exceeds the current service set size, i.e. more entries than could
+    /// ever be legitimately required. Reused discriminant: the enum is
+    /// already at the 50-variant XDR limit.
+    pub const TooManySigners: Error = Error::ServiceSetFull;
+
     // ── Aggregator composability ────────────────────────────────────────────
     /// Returned by `ledgerlens-aggregator`'s `add_shard` when a candidate shard
     /// does not advertise the `ILedgerLensScore` capabilities the aggregator
@@ -120,4 +127,20 @@ impl Error {
     /// drifted from the version the aggregator targets, so registering it would
     /// lead to failed or subtly incorrect cross-contract calls.
     pub const IncompatibleInterface: Error = Error::InvalidAttestation;
+
+    // ── Architecture Governance & Reviewer Routing ─────────────────────────
+    /// Returned when an architecture owner or reviewer address is invalid.
+    pub const InvalidArchOwner: Error = Error::Unauthorized;
+    /// Returned when trying to set more mandatory reviewers than MAX_MANDATORY_REVIEWERS (10).
+    pub const MaxReviewersExceeded: Error = Error::ServiceSetFull;
+    /// Returned when trying to add a duplicate mandatory reviewer address.
+    pub const ReviewerAlreadyExists: Error = Error::SignerAlreadyInSet;
+    /// Returned when a reviewer to be removed is not in the set.
+    pub const ReviewerNotFound: Error = Error::SignerNotInSet;
+
+    // ── Administrative capability partitioning (issue #695) ────────────────
+    /// Returned by `set_policy_approval` when called with
+    /// `Policy::DataDeletion`, which is configured via
+    /// `set_deletion_approval_policy` instead.
+    pub const InvalidPolicy: Error = Error::InvalidThreshold;
 }

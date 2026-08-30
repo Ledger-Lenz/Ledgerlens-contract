@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "contract_capabilities": ["score", "gate", "cgate"],
+  "default_config": {
+    "gate_threshold": 75,
+    "min_confidence": 50,
+    "fail_policy": "fail_closed",
+    "max_staleness_secs": 604800,
+    "required_oracle_version": 0
+  },
+  "resource_bounds": {
+    "wallets": 1,
+    "asset_pairs": 1,
+    "oracle_contracts": 1,
+    "ledger_reads_per_decision_max": 7,
+    "ledger_writes_per_read_only_decision": 0,
+    "events_per_decision": 0,
+    "encoded_input_bytes_max": 256
+  },
+  "cases": [
+    {
+      "name": "success_low_risk_high_confidence",
+      "score": 10,
+      "confidence": 90,
+      "age_secs": 0,
+      "expected": "allow"
+    },
+    {
+      "name": "reject_high_risk",
+      "score": 90,
+      "confidence": 90,
+      "age_secs": 0,
+      "expected": "reject_high_risk"
+    },
+    {
+      "name": "reject_equal_threshold",
+      "score": 75,
+      "confidence": 90,
+      "age_secs": 0,
+      "expected": "reject_high_risk"
+    },
+    {
+      "name": "reject_low_confidence",
+      "score": 10,
+      "confidence": 20,
+      "age_secs": 0,
+      "expected": "reject_low_confidence"
+    },
+    {
+      "name": "reject_unknown_wallet",
+      "score": null,
+      "confidence": null,
+      "age_secs": null,
+      "expected": "reject_high_risk"
+    },
+    {
+      "name": "reject_stale_score",
+      "score": 10,
+      "confidence": 90,
+      "age_secs": 604801,
+      "expected": "reject_stale"
+    },
+    {
+      "name": "reject_unavailable_oracle_fail_closed",
+      "oracle": "unavailable",
+      "fail_policy": "fail_closed",
+      "expected": "oracle_unavailable"
+    },
+    {
+      "name": "allow_unavailable_oracle_fail_open",
+      "oracle": "unavailable",
+      "fail_policy": "fail_open",
+      "expected": "allow"
+    },
+    {
+      "name": "reject_unsupported_version",
+      "required_oracle_version": "current_plus_one",
+      "expected": "unsupported_version"
+    },
+    {
+      "name": "compat_old_client_new_contract",
+      "required_oracle_version": 0,
+      "expected": "allow"
+    }
+  ],
+  "sdk_assertions": {
+    "rust": "Use generated try_* clients for transport-sensitive paths and assert the nested Result.",
+    "typescript": "Decode RiskScore fields in contract order and distinguish HostError/transport failure from a false gate.",
+    "python": "Decode RiskScore fields in contract order and surface unavailable oracle separately from high risk."
+  }
+}
