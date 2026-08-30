@@ -92,3 +92,19 @@ fn test_epoch_transitions() {
     client.open_epoch(&Vec::new(&env), &2);
     assert_eq!(client.get_current_epoch(), 2);
 }
+
+// close_epoch before the contract has been initialized (no admin set yet)
+// must fail with NotInitialized rather than panicking. Checked test_epoch.rs,
+// test_admin_multisig.rs, and test_embargo.rs first: every existing
+// close_epoch/open_epoch call goes through setup(), which always calls
+// initialize(), so the pre-initialization path was never exercised.
+#[test]
+fn test_close_epoch_before_initialize_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &id);
+
+    let result = client.try_close_epoch(&Vec::new(&env));
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+}
