@@ -257,6 +257,26 @@ fn test_upgrade_delay_above_max_rejected() {
     );
 }
 
+/// `set_upgrade_delay` checks `has_admin` before validating `delay_secs`, so
+/// on an uninitialized contract even an in-bounds value must be rejected
+/// with `NotInitialized`, not `InvalidUpgradeDelay` (and not silently
+/// accepted). Every other delay test in this file uses `setup()`, which
+/// always initializes first, so this ordering was previously untested.
+#[test]
+fn test_set_upgrade_delay_before_initialize_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = START_TS);
+
+    let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+
+    // A well-formed, in-bounds delay still fails because there is no admin yet.
+    let mid = (MIN_UPGRADE_DELAY_SECS + MAX_UPGRADE_DELAY_SECS) / 2;
+    let result = client.try_set_upgrade_delay(&Vec::new(&env), &mid);
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+}
+
 #[test]
 fn test_configured_delay_applied_to_proposal() {
     let (env, client, _admin) = setup();
