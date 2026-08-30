@@ -300,3 +300,16 @@ fn test_rotate_aggregate_service_pubkey_rejects_invalid_length() {
     let result = client.try_rotate_aggregate_service_pubkey(&Vec::new(&env), &bad, &0u64);
     assert_eq!(result, Err(Ok(Error::InvalidPubkeyLength)));
 }
+
+// ── get_pending_aggregate_pubkey before any rotation ─────────────────────────
+
+// The existing coverage in this file only reads `get_pending_aggregate_pubkey`
+// after a rotation has already been started or resolved. It's never checked
+// on a freshly initialized contract that has never called
+// `set_aggregate_service_pubkey` or `rotate_aggregate_service_pubkey` at all,
+// which is the state a brand-new deployment starts in.
+#[test]
+fn test_get_pending_aggregate_pubkey_none_before_any_rotation() {
+    let (_env, client, _admin, _service) = setup();
+    assert!(client.get_pending_aggregate_pubkey().is_none());
+}
