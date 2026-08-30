@@ -4,7 +4,11 @@
 #![cfg_attr(any(test, not(target_family = "wasm")), allow(dead_code))]
 #![allow(unused_variables)]
 
-mod constants;
+/// Machine-readable configuration constants. Public so off-contract tooling
+/// (e.g. `tools/schema-gen`) can source semantic constraints such as the
+/// `[MIN_SCORE, MAX_SCORE]` score domain from the same constants the contract
+/// enforces, instead of hand-mirroring them.
+pub mod constants;
 #[cfg(test)]
 extern crate std;
 mod errors;
