@@ -2,6 +2,32 @@
 
 Thanks for your interest in improving the LedgerLens on-chain risk score registry.
 
+## Quick Start
+
+1. Clone the repo and install the toolchain:
+   ```bash
+   git clone https://github.com/Ledger-Lenz/Ledgerlens-contract.git
+   cd Ledgerlens-contract
+   rustup target add wasm32-unknown-unknown
+   ```
+
+2. Build the contract:
+   ```bash
+   cargo build --all
+   # WASM release build:
+   cargo build --target wasm32-unknown-unknown --release
+   ```
+
+3. Run the full test suite:
+   ```bash
+   cargo test
+   ```
+
+4. Make a small change (e.g., fix a typo or add a doc example):
+   - Edit files inside `contracts/ledgerlens-score/`
+   - Run `cargo test` to verify your change
+   - The four pre-PR checks (fmt, clippy, test, wasm build) are documented in the **[## Before Opening a Pull Request](#before-opening-a-pull-request)** section below.
+
 ## Opening an Issue
 
 Pick the template that matches what you're actually doing — each one asks for the specific
