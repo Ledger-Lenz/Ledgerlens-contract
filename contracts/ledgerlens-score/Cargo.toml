@@ -37,6 +37,21 @@ name = "history_eviction"
 harness = false
 path = "benches/history_eviction.rs"
 
+[[bench]]
+name = "get_interpolated_score"
+harness = false
+path = "benches/get_interpolated_score.rs"
+
+[[bench]]
+name = "get_score_histogram"
+harness = false
+path = "benches/get_score_histogram.rs"
+
+[[bench]]
+name = "query_risk_gate_relative"
+harness = false
+path = "benches/query_risk_gate_relative.rs"
+
 [features]
 testutils = ["soroban-sdk/testutils"]
 
