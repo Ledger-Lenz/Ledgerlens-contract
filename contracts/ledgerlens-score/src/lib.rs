@@ -5275,6 +5275,23 @@ impl LedgerLensScoreContract {
     ///
     /// # Errors
     /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_heartbeat_alert_threshold(), 3_600);
+    /// client.set_heartbeat_alert_threshold(&Vec::new(&env), &7_200);
+    /// assert_eq!(client.get_heartbeat_alert_threshold(), 7_200);
+    /// ```
     pub fn set_heartbeat_alert_threshold(
         env: Env,
         admin_signers: Vec<Address>,
