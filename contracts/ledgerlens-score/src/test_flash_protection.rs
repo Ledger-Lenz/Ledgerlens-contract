@@ -115,3 +115,15 @@ fn test_no_gate_read_no_flash_detection() {
     // No query_risk_gate call — should not be flagged.
     assert_eq!(submit(&client, &env, &wallet), Ok(()));
 }
+
+// get_flash_protection_mode's default value (before any admin ever calls
+// set_flash_protection_mode) was never asserted directly — every existing
+// test in this file calls set_flash_protection_mode(Reject) before reading
+// the mode back. storage::get_flash_protection_mode falls back to
+// FlashProtectionMode::Warn (the "Log" mode described in the doc comment)
+// when nothing has been persisted yet; this pins that default down.
+#[test]
+fn test_get_flash_protection_mode_default_before_any_set() {
+    let (_env, client) = setup();
+    assert_eq!(client.get_flash_protection_mode(), FlashProtectionMode::Warn);
+}
