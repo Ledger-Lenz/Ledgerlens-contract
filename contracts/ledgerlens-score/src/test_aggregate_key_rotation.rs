@@ -301,6 +301,31 @@ fn test_rotate_aggregate_service_pubkey_rejects_invalid_length() {
     assert_eq!(result, Err(Ok(Error::InvalidPubkeyLength)));
 }
 
+// ── Uninitialized-contract boundary ──────────────────────────────────────────
+
+// Every other test in this file rotates against a contract that already went
+// through `setup()` (which calls `initialize`). Nothing exercises the
+// pre-initialization boundary directly, so this fills that gap: calling
+// `rotate_aggregate_service_pubkey` before the contract has an admin must
+// fail closed with `NotInitialized`, and must not create pending-key state
+// that a later `initialize` + rotation could observe.
+#[test]
+fn test_rotate_aggregate_service_pubkey_before_initialize_fails_not_initialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &id);
+
+    let new_key = signing_key(1);
+    let result = client.try_rotate_aggregate_service_pubkey(
+        &Vec::new(&env),
+        &pubkey_bytes(&env, &new_key),
+        &3600u64,
+    );
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+    assert!(client.get_pending_aggregate_pubkey().is_none());
+}
+
 // ── get_pending_aggregate_pubkey before any rotation ─────────────────────────
 
 // The existing coverage in this file only reads `get_pending_aggregate_pubkey`
