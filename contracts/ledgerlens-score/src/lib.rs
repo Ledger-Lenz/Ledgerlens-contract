@@ -5308,6 +5308,22 @@ impl LedgerLensScoreContract {
 
     /// Returns the current heartbeat alert threshold in seconds. Defaults to
     /// `DEFAULT_HEARTBEAT_ALERT_THRESHOLD_SECS` (1 hour).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // Untouched contract reports the compiled-in default.
+    /// assert_eq!(client.get_heartbeat_alert_threshold(), 3_600);
+    /// ```
     pub fn get_heartbeat_alert_threshold(env: Env) -> u64 {
         storage::get_heartbeat_alert_threshold(&env)
     }
