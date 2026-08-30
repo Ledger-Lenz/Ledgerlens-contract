@@ -104,7 +104,7 @@ pub enum GateOutcome {
     /// One or more shards is paused. The aggregated gate necessarily returns
     /// `false`, but that `false` is not a trustworthy verdict. Fails closed;
     /// `paused` names the offending shard(s) for operator visibility.
-    Degraded { paused: Vec<Address> },
+    Degraded(Vec<Address>),
     /// No shards registered, or a shard's cross-contract call failed outright
     /// (recorded via `get_last_shard_failure` — unreachable/trapped).
     Unavailable,
@@ -150,7 +150,7 @@ impl PauseAwareGatedAmm {
             // `false` is NOT a trustworthy verdict. Fail closed, but surface
             // the cause so the caller can alert rather than treat it as a
             // rejection.
-            return GateOutcome::Degraded { paused };
+            return GateOutcome::Degraded(paused);
         }
 
         // 3. No shard paused: normal path. Snapshot the failure marker so we
@@ -192,7 +192,7 @@ impl PauseAwareGatedAmm {
                 Ok((amount_in * 997) / 1000)
             }
             GateOutcome::RejectedHighRisk => Err(AmmError::UserHighRisk),
-            GateOutcome::Degraded { .. } => Err(AmmError::PartialShardPause),
+            GateOutcome::Degraded(_) => Err(AmmError::PartialShardPause),
             GateOutcome::Unavailable => Err(AmmError::AggregatorUnavailable),
         }
     }
@@ -352,7 +352,7 @@ mod tests {
         expected_paused.push_back(f.shard_a.address.clone());
         assert_eq!(
             f.amm.evaluate_gate(&f.user, &f.pair, &f.aggregator_id, &GATE_THRESHOLD),
-            GateOutcome::Degraded { paused: expected_paused }
+            GateOutcome::Degraded(expected_paused)
         );
         assert_eq!(
             f.amm.try_swap(&f.user, &f.pair, &1_000_000, &f.aggregator_id, &GATE_THRESHOLD),
