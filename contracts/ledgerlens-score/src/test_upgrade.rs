@@ -201,6 +201,30 @@ fn test_get_pending_upgrade_no_proposal() {
     assert_eq!(result, Err(Ok(Error::NoPendingUpgrade)));
 }
 
+/// A rejected double-propose (`UpgradeAlreadyPending`) must not disturb the
+/// original proposal. This is a genuine gap: `test_double_propose_rejected`
+/// only asserts on the rejected call's own return value and never re-reads
+/// the proposal afterwards via `get_pending_upgrade`.
+#[test]
+fn test_get_pending_upgrade_unchanged_after_rejected_double_propose() {
+    let (env, client, admin) = setup();
+    let hash = dummy_hash(&env);
+    let other_hash = BytesN::from_array(&env, &[9u8; 32]);
+
+    client.propose_upgrade(&Vec::new(&env), &hash);
+
+    let rejected = client.try_propose_upgrade(&Vec::new(&env), &other_hash);
+    assert_eq!(rejected, Err(Ok(Error::UpgradeAlreadyPending)));
+
+    // The original proposal must be exactly what was first stored, not the
+    // rejected attempt's hash and not cleared.
+    let proposal = client.get_pending_upgrade();
+    assert_eq!(proposal.new_wasm_hash, hash);
+    assert_eq!(proposal.proposed_at, START_TS);
+    assert_eq!(proposal.executable_after, START_TS + DEFAULT_UPGRADE_DELAY_SECS);
+    assert_eq!(proposal.proposed_by, admin);
+}
+
 // ── delay configuration ──────────────────────────────────────────────────────────
 
 #[test]
