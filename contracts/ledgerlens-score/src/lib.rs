@@ -3494,6 +3494,25 @@ impl LedgerLensScoreContract {
     /// # Errors
     /// - [`Error::ServicePubkeyNotSet`] if `set_service_pubkey` has never
     ///   been called.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Bytes};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // No pubkey configured yet -> Error::ServicePubkeyNotSet.
+    /// assert!(client.try_get_service_pubkey().is_err());
+    /// let pubkey = Bytes::from_array(&env, &[3u8; 33]);
+    /// client.set_service_pubkey(&Vec::new(&env), &pubkey);
+    /// assert_eq!(client.get_service_pubkey().unwrap(), pubkey);
+    /// ```
     pub fn get_service_pubkey(env: Env) -> Result<Bytes, Error> {
         storage::get_service_pubkey(&env).ok_or(Error::ServicePubkeyNotSet)
     }
