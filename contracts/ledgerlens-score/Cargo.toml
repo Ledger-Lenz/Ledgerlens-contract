@@ -48,6 +48,11 @@ name = "batch_worst_case_profiles"
 harness = false
 path = "benches/batch_worst_case_profiles.rs"
 
+[[bench]]
+name = "verify_membership"
+harness = false
+path = "benches/verify_membership.rs"
+
 [features]
 testutils = ["soroban-sdk/testutils"]
 
