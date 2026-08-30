@@ -161,6 +161,25 @@ fn test_veto_without_pending_rejected() {
     assert_eq!(result, Err(Ok(Error::NoPendingUpgrade)));
 }
 
+/// `veto_upgrade` checks `has_admin` before anything else, so calling it on
+/// a freshly-registered, never-initialized contract must surface
+/// `NotInitialized` rather than `NoPendingUpgrade`. No existing test in this
+/// file (or `test_upgrade_multisig.rs`) exercises `veto_upgrade` against an
+/// uninitialized contract — every test uses `setup()`, which always calls
+/// `initialize` first.
+#[test]
+fn test_veto_upgrade_before_initialize_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = START_TS);
+
+    let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+
+    let result = client.try_veto_upgrade(&Vec::new(&env));
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+}
+
 #[test]
 fn test_can_repropose_after_veto() {
     let (env, client, _admin) = setup();
