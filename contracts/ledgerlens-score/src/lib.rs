@@ -3526,6 +3526,26 @@ impl LedgerLensScoreContract {
     /// replaced immediately with no overlap.
     ///
     /// Admin only.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Bytes};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let old_key = Bytes::from_array(&env, &[3u8; 33]);
+    /// client.set_service_pubkey(&Vec::new(&env), &old_key);
+    /// let new_key = Bytes::from_array(&env, &[4u8; 33]);
+    /// // Instant rotation: overlap_secs = 0 promotes the new key immediately.
+    /// client.rotate_service_pubkey(&Vec::new(&env), &new_key, &0);
+    /// assert_eq!(client.get_service_pubkey().unwrap(), new_key);
+    /// ```
     pub fn rotate_service_pubkey(
         env: Env,
         admin_signers: Vec<Address>,
