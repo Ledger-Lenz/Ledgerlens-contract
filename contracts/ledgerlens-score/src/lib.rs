@@ -5233,6 +5233,30 @@ impl LedgerLensScoreContract {
     /// Returns `true` when `LastServiceActivityAt == 0` (the service has
     /// never submitted), so a freshly initialized contract is never reported
     /// as "down" before it has had a chance to receive its first submission.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::{Address as _, Ledger as _}, Env, Address, Vec};
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // A brand-new deployment has never submitted, so it's reported alive.
+    /// assert!(client.is_service_alive());
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &pair, &42, &false, &false, &1, &90, &1, &None);
+    /// assert!(client.is_service_alive());
+    /// // Advance past the default 1-hour heartbeat alert threshold.
+    /// env.ledger().with_mut(|l| l.timestamp += 3_601);
+    /// assert!(!client.is_service_alive());
+    /// ```
     pub fn is_service_alive(env: Env) -> bool {
         let last_active_at = storage::get_last_service_activity(&env);
         if last_active_at == 0 {
