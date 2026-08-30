@@ -191,6 +191,25 @@ fn test_default_upgrade_delay_is_min() {
     assert_eq!(DEFAULT_UPGRADE_DELAY_SECS, MIN_UPGRADE_DELAY_SECS);
 }
 
+/// `get_upgrade_delay` is a permissionless getter with an `unwrap_or` fallback
+/// in storage — it must return `DEFAULT_UPGRADE_DELAY_SECS` even when called on
+/// a contract that has never been initialized (no `UpgradeDelay` key in
+/// instance storage yet). This tests the pre-init default path, which the other
+/// tests in this file skip because they all go through `setup()` which calls
+/// `initialize`.
+#[test]
+fn test_get_upgrade_delay_before_initialize_returns_default() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // Register the contract but do NOT call initialize — storage is empty.
+    let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+
+    // Must return the compile-time default, not panic or error.
+    assert_eq!(client.get_upgrade_delay(), DEFAULT_UPGRADE_DELAY_SECS);
+}
+
 #[test]
 fn test_set_upgrade_delay_within_bounds() {
     let (env, client, _admin) = setup();

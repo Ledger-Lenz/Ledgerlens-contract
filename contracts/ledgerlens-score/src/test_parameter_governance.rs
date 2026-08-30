@@ -237,6 +237,56 @@ fn test_executed_proposal_removed_from_pending_index() {
     assert!(client.get_pending_param_prop_ids().is_empty());
 }
 
+/// `propose_parameter_change` must return `Error::InvalidParameterKey`
+/// (aliased as `Error::InvalidThreshold` in errors.rs) when the caller
+/// supplies a `param_key` that does not map to any known parameter.
+/// The existing tests only exercise valid keys (`cooldown`); this test
+/// covers the unknown-key rejection path in
+/// `parameter_governance::validate_parameter_value`.
+#[test]
+fn test_propose_parameter_change_unknown_key_returns_invalid_parameter_key() {
+    use soroban_sdk::symbol_short;
+
+    let (env, client, admin, _service) = setup();
+    let value = encode_u64(&env, 3600);
+
+    // "unknown" is not one of the five recognised keys.
+    let result = client.try_propose_parameter_change(
+        &admin_signers(&env, &admin),
+        &symbol_short!("unknown"),
+        &value,
+    );
+
+    // InvalidParameterKey is an alias for Error::InvalidThreshold (discriminant 16).
+    assert_eq!(result, Err(Ok(Error::InvalidThreshold)));
+}
+
+/// `veto_parameter_change` must return `Error::ParameterProposalVetoed` when
+/// the same proposal is vetoed a second time (double-veto). The first call
+/// marks the record `Vetoed`; the second call must detect that status and
+/// return the error rather than panicking or silently succeeding.
+/// The existing tests only veto once and then try to *execute*; this test
+/// covers the double-veto path inside `veto_parameter_change` itself.
+#[test]
+fn test_veto_parameter_change_double_veto_returns_vetoed_error() {
+    let (env, client, admin, service) = setup();
+    let value = encode_u64(&env, MIN_COOLDOWN_SECS);
+
+    let proposal_id = client.propose_parameter_change(
+        &admin_signers(&env, &admin),
+        &param_key_cooldown(),
+        &value,
+    );
+
+    // First veto — must succeed.
+    client.veto_parameter_change(&service_signers(&env, &service), &proposal_id);
+
+    // Second veto on the same proposal — must return ParameterProposalVetoed.
+    let result =
+        client.try_veto_parameter_change(&service_signers(&env, &service), &proposal_id);
+    assert_eq!(result, Err(Ok(Error::ParameterProposalVetoed)));
+}
+
 #[test]
 fn test_expired_full_pending_set_is_pruned_before_accepting_new_proposal() {
     let (env, client, admin, _service) = setup();
