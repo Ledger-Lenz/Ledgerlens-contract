@@ -127,3 +127,18 @@ fn test_get_flash_protection_mode_default_before_any_set() {
     let (_env, client) = setup();
     assert_eq!(client.get_flash_protection_mode(), FlashProtectionMode::Warn);
 }
+
+// set_flash_protection_mode on a contract that has never been initialized
+// (no admin registered yet) must be rejected with NotInitialized rather than
+// attempting the admin-auth check. Not covered elsewhere in this file since
+// setup() always initializes first.
+#[test]
+fn test_set_flash_protection_mode_before_initialize_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &id);
+
+    let result = client.try_set_flash_protection_mode(&Vec::new(&env), &FlashProtectionMode::Reject);
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+}
