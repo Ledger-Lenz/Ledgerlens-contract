@@ -108,3 +108,21 @@ fn test_close_epoch_before_initialize_fails() {
     let result = client.try_close_epoch(&Vec::new(&env));
     assert_eq!(result, Err(Ok(Error::NotInitialized)));
 }
+
+// get_current_epoch must keep returning the last opened epoch id after
+// close_epoch — close_epoch only flips EpochOpen to false, it does not
+// reset the stored epoch id back to 0. This transition (non-zero epoch,
+// immediately after close, before the next open_epoch) isn't asserted by
+// test_epoch_transitions above, which only checks get_current_epoch() == 0
+// while the epoch id was already 0.
+#[test]
+fn test_get_current_epoch_persists_after_close_of_nonzero_epoch() {
+    let (env, client) = setup();
+
+    client.open_epoch(&Vec::new(&env), &7);
+    assert_eq!(client.get_current_epoch(), 7);
+
+    client.close_epoch(&Vec::new(&env));
+    assert!(!client.is_epoch_open());
+    assert_eq!(client.get_current_epoch(), 7);
+}
