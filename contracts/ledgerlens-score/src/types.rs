@@ -660,6 +660,8 @@ pub enum DataKeyD {
     PendingParamChange(Symbol),
     ModelVersionExecutableAfter(u32),
     ModelVersionDescription(u32),
+    /// Pending policy-bundle proposal awaiting time-lock expiry.
+    PendingPolicyBundle,
 }
 
 #[contracttype]
@@ -811,4 +813,24 @@ pub struct WelfordCorrState {
 pub struct TokenBucket {
     pub tokens: u32,
     pub last_refill: u64,
+}
+
+/// A single parameter entry within a policy bundle.
+/// Each entry specifies a parameter key and its proposed new value.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PolicyBundleEntry {
+    pub param_key: Symbol,
+    pub new_value: ParamValue,
+}
+
+/// A bundle of parameter changes proposed as a single governance action.
+/// All entries in the bundle are applied atomically once the time-lock elapses.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PolicyBundleProposal {
+    pub entries: Vec<PolicyBundleEntry>,
+    pub proposer: Address,
+    pub proposed_at: u64,
+    pub apply_after: u64,
 }

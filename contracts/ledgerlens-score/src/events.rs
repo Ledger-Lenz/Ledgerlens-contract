@@ -712,3 +712,11 @@ pub fn suspicious_same_ledger_submission(
 pub fn wallet_cluster_assigned(env: &Env, wallet: &Address, cluster: u32) {
     env.events().publish((symbol_short!("wc_asgn"), wallet.clone()), cluster);
 }
+
+pub fn policy_bundle_proposed(env: &Env, apply_after: u64) {
+    env.events().publish((symbol_short!("pb_prop"), EVENT_VERSION), apply_after);
+}
+
+pub fn policy_bundle_applied(env: &Env) {
+    env.events().publish((symbol_short!("pb_appl"), EVENT_VERSION), ());
+}

@@ -9,9 +9,10 @@ use crate::types::{
     AdaptiveRateLimit, AggregateRiskScore, DataKey, DataKeyB, DataKeyC, DataKeyD, DecayCurve,
     EmbargoExpiry, FlashProtectionMode, GateDataKey, HllSketch, InterpolationMethod, JumpStats,
     ModelVersionStats, ModelVersionStatus, PairVolatilityState, ParamChangeProposal,
-    ParameterProposalRecord, ParameterProposalStatus, PendingScoreEntry, RateLimitOverrideEntry,
-    RiskScore, ScoreDispute, ScoreFloorPolicy, ScoreHistogram, ScoreTrend, ScoreVelocityCap,
-    SignerAccuracyRecord, SubscorePayload, TokenBucket, UpgradeProposal, WelfordCorrState,
+    ParameterProposalRecord, ParameterProposalStatus, PendingScoreEntry, PolicyBundleProposal,
+    RateLimitOverrideEntry, RiskScore, ScoreDispute, ScoreFloorPolicy, ScoreHistogram, ScoreTrend,
+    ScoreVelocityCap, SignerAccuracyRecord, SubscorePayload, TokenBucket, UpgradeProposal,
+    WelfordCorrState,
 };
 use soroban_sdk::{Address, Bytes, BytesN, Env, Symbol, Vec};
 
@@ -2886,6 +2887,24 @@ pub fn set_gate_query_fee(env: &Env, amount: i128) {
 
 pub fn get_accumulated_fees(env: &Env) -> i128 {
     env.storage().instance().get(&GateDataKey::AccumulatedFees).unwrap_or(0)
+}
+
+// ── Policy bundle ─────────────────────────────────────────────────────────────
+
+pub fn has_pending_policy_bundle(env: &Env) -> bool {
+    env.storage().instance().has(&DataKeyD::PendingPolicyBundle)
+}
+
+pub fn set_pending_policy_bundle(env: &Env, proposal: &PolicyBundleProposal) {
+    env.storage().instance().set(&DataKeyD::PendingPolicyBundle, proposal);
+}
+
+pub fn get_pending_policy_bundle(env: &Env) -> Option<PolicyBundleProposal> {
+    env.storage().instance().get(&DataKeyD::PendingPolicyBundle)
+}
+
+pub fn clear_pending_policy_bundle(env: &Env) {
+    env.storage().instance().remove(&DataKeyD::PendingPolicyBundle);
 }
 
 #[cfg(test)]

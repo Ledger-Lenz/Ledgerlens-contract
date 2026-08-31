@@ -153,10 +153,11 @@ pub use types::{
     FlashProtectionMode, HllSketch, InterpolationMethod, MaybeRiskScore, MaybeScoreAttestation,
     MaybeThresholdAttestation, ModelSubmission, ModelVersionStats, ModelVersionStatus,
     ParamChangeProposal, ParamValue, ParameterProposal, ParameterProposalRecord,
-    ParameterProposalStatus, PendingScoreEntry, RiskScore, ScoreAttestation, ScoreAttestationInput,
-    ScoreDispute, ScoreFloorPolicy, ScoreHistogram, ScoreQuery, ScoreSubmission,
-    ScoreSubmissionWithProof, ScoreTrend, ScoreVelocityCap, SignerAccuracyRecord,
-    ThresholdAttestation, TierBounds, TokenBucket, UpgradeProposal, WelfordCorrState,
+    ParameterProposalStatus, PendingScoreEntry, PolicyBundleEntry, PolicyBundleProposal, RiskScore,
+    ScoreAttestation, ScoreAttestationInput, ScoreDispute, ScoreFloorPolicy, ScoreHistogram,
+    ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof, ScoreTrend, ScoreVelocityCap,
+    SignerAccuracyRecord, ThresholdAttestation, TierBounds, TokenBucket, UpgradeProposal,
+    WelfordCorrState,
 };
 /// The 32-byte all-zeros field element used as the value in non-membership proofs.
 pub use verkle::NON_MEMBER_SENTINEL;
@@ -10463,6 +10464,79 @@ impl LedgerLensScoreContract {
     /// `None` if none has been registered.
     pub fn get_registered_oracle(env: Env, asset_pair: Symbol) -> Option<Address> {
         storage::get_registered_oracle(&env, &asset_pair)
+    }
+
+    // ── Policy bundle governance ──────────────────────────────────────────────
+
+    /// Proposes a bundle of parameter changes as a single governance action.
+    ///
+    /// All entries in the bundle are subject to the same time-lock delay used
+    /// for single-parameter changes (see `set_upgrade_delay`). Once the delay
+    /// has elapsed, the admin can call `apply_policy_bundle` to apply all
+    /// entries atomically. Only one bundle may be pending at a time; calling
+    /// this while a bundle is already pending returns
+    /// [`Error::UpgradeAlreadyPending`].
+    ///
+    /// Admin only. Emits `pb_prop` with the `apply_after` timestamp.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::UpgradeAlreadyPending`] if a bundle proposal is already pending.
+    /// - [`Error::EmptyBatch`] if `entries` is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use ledgerlens_score::{PolicyBundleEntry, ParamValue};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, symbol_short};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let mut entries = Vec::new(&env);
+    /// entries.push_back(PolicyBundleEntry {
+    ///     param_key: symbol_short!("risk_thr"),
+    ///     new_value: ParamValue::U32(80),
+    /// });
+    /// entries.push_back(PolicyBundleEntry {
+    ///     param_key: symbol_short!("hist_dep"),
+    ///     new_value: ParamValue::U32(20),
+    /// });
+    /// // Proposing a bundle stores a pending proposal and returns Ok(()).
+    /// client.propose_policy_bundle(&Vec::new(&env), &entries);
+    /// ```
+    pub fn propose_policy_bundle(
+        env: Env,
+        admin_signers: Vec<Address>,
+        entries: Vec<PolicyBundleEntry>,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if entries.is_empty() {
+            return Err(Error::EmptyBatch);
+        }
+        if storage::has_pending_policy_bundle(&env) {
+            return Err(Error::UpgradeAlreadyPending);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        let admin = storage::get_admin(&env);
+        let now = env.ledger().timestamp();
+        let delay = storage::get_upgrade_delay(&env);
+        let apply_after = now.saturating_add(delay);
+        let proposal = PolicyBundleProposal {
+            entries,
+            proposer: admin,
+            proposed_at: now,
+            apply_after,
+        };
+        storage::set_pending_policy_bundle(&env, &proposal);
+        events::policy_bundle_proposed(&env, apply_after);
+        Ok(())
     }
 
     // ── Oracle staleness threshold (issue #429) ────────────────────────────────
