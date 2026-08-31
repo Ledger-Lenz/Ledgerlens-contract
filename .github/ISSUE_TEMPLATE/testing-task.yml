@@ -1,0 +1,109 @@
+name: "\U0001F9EA Testing task"
+description: Close a coverage gap or add adversarial/boundary tests for existing behavior, without changing contract behavior.
+title: "[Test] "
+labels:
+  - "type: testing"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For tasks where the contract itself is also expected to change, use the
+        [Implementation task](implementation-task.yml) template instead — it already requires tests as part of
+        the work. This template is for coverage gaps: the behavior is correct, but nothing (or nothing
+        sufficient) proves it.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What behavior is currently under-tested or untested, in one or two sentences.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: primary-area
+    attributes:
+      label: Primary area
+      options:
+        - Core contract logic (lib.rs)
+        - Storage & rent (storage.rs, TTL)
+        - Security & cryptography (attestation, ZK, Verkle)
+        - Governance & admin (multisig, parameter governance, upgrades)
+        - Composability & gate semantics (query_risk_gate*)
+        - Aggregator / cross-contract (ledgerlens-aggregator, mocks)
+        - Fuzz / adversarial coverage
+        - Other (specify in Summary)
+    validations:
+      required: true
+
+  - type: textarea
+    id: relevant-files
+    attributes:
+      label: Relevant files
+      placeholder: |
+        contracts/ledgerlens-score/src/test_<feature>.rs (new)
+        contracts/ledgerlens-score/src/lib.rs (function under test, read-only)
+    validations:
+      required: true
+
+  - type: textarea
+    id: coverage-gap
+    attributes:
+      label: Coverage gap
+      description: >
+        Name the exact function(s)/branch(es) with no test, or a test whose assertion is too weak to catch a
+        regression (e.g. checks state changed but not that it changed to the *right* value; checks the happy
+        path but not the boundary). Cite existing test file(s) that come close but don't cover this.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: expected-work
+    attributes:
+      label: Expected work
+      options:
+        - label: Inspected the current implementation and confirmed the gap above against real code, not assumption.
+          required: true
+        - label: New test(s) added, following the existing `test_<feature>.rs` file + `setup()` helper convention used throughout `contracts/ledgerlens-score/src/`.
+          required: true
+        - label: Success path covered.
+          required: true
+        - label: Boundary cases covered — at/beyond the relevant `MAX_*` cap, at 0/100 for score-like values, at exactly a threshold (not just above/below it).
+          required: true
+        - label: Adversarial/failure modes covered — unauthorized caller, malformed input, empty collections, double-submission/replay where relevant.
+          required: true
+        - label: No production code changed. If writing the test surfaced a real bug, this issue documents it and a separate implementation-task issue tracks the fix — the two are not bundled into one PR.
+          required: true
+
+  - type: textarea
+    id: deterministic-proof
+    attributes:
+      label: Deterministic proof of the gap
+      description: >
+        Per this repo's acceptance bar, a new test must be shown to actually test something: either (a) it fails
+        against the current pre-PR code (temporarily revert your test-adjacent fix, if any, and confirm red, or
+        explain why the gap is a pure coverage hole with no code change involved), or (b) for a pure coverage
+        addition with no bug found, explain what it would have caught had the implementation been wrong (e.g.
+        "asserts the exact rejection error code, not just that submission failed").
+    validations:
+      required: true
+
+  - type: textarea
+    id: compatibility-impact
+    attributes:
+      label: Compatibility impact
+      description: State explicitly — test-only changes are almost always "None", but say so rather than leaving it implied.
+      value: "None — test-only change, no production code touched."
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      value: |
+        - Cosmetic refactors that do not support the stated behavior.
+        - Fixing bugs discovered while adding tests — file a separate implementation-task issue instead.
+        - Broad rewrites without compatibility and migration notes.
+    validations:
+      required: false

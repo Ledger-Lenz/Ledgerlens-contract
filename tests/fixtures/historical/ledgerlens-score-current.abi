@@ -1,0 +1,6 @@
+function get_version()->u32
+function initialize(admin:address,service:address)->result<tuple<>,error>
+function query_risk_gate(wallet:address,asset_pair:symbol,gate_threshold:u32)->bool
+function query_risk_gate_with_confidence(wallet:address,asset_pair:symbol,gate_threshold:u32,min_confidence:u32)->bool
+function supports_interface(capability:symbol)->bool
+struct RiskScore(benford_flag:bool,benford_score:u32,commitment:option<bytes>,confidence:u32,ml_flag:bool,ml_score:u32,model_version:u32,network_score:u32,score:u32,timestamp:u64)

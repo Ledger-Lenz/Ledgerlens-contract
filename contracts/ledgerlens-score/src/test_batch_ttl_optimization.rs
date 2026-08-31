@@ -124,6 +124,28 @@ fn test_batch_resubmit_lazy_ttl_preserves_scores() {
 }
 
 #[test]
+fn test_batch_size_boundary_preserves_scores_across_cooldown_and_resubmit() {
+    let (env, client, asset_pair) = setup();
+    let batch = build_batch(&env, &asset_pair, MAX_BATCH_SIZE, 10);
+
+    let first = client.submit_scores_batch(&batch);
+    assert_eq!(first.accepted_count, MAX_BATCH_SIZE);
+    assert_eq!(first.rejected_count, 0);
+
+    env.ledger().with_mut(|l| l.timestamp += 3_601);
+
+    let second = client.submit_scores_batch(&batch);
+    assert_eq!(second.accepted_count, MAX_BATCH_SIZE);
+    assert_eq!(second.rejected_count, 0);
+
+    for i in 0..batch.len() {
+        let sub = batch.get(i).unwrap();
+        let score = client.get_score(&sub.wallet, &asset_pair);
+        assert_eq!(score.score, 10 + i);
+    }
+}
+
+#[test]
 fn test_lazy_ttl_skips_extend_when_entry_is_fresh() {
     let (env, client, asset_pair) = setup();
     let wallet = Address::generate(&env);

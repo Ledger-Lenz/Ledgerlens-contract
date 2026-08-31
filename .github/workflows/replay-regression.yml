@@ -15,7 +15,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@v1
         with:
-          toolchain: stable
+          toolchain: "1.81.0"
       - name: Show Rustc
         run: rustc --version
       - name: Build replay crate

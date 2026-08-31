@@ -1,0 +1,13 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Repository invariants (read first)
+    url: https://github.com/Ledger-Lenz/Ledgerlens-contract/blob/main/docs/invariants.md
+    about: >-
+      Fail-closed gates, no-panic reads, bounded storage, and append-only event/error
+      stability — the non-negotiable behaviors any task template above assumes.
+  - name: Contributing guide
+    url: https://github.com/Ledger-Lenz/Ledgerlens-contract/blob/main/CONTRIBUTING.md
+    about: Setup, required local checks, and PR guidelines.
+  - name: Interface versioning & migration policy
+    url: https://github.com/Ledger-Lenz/Ledgerlens-contract/blob/main/docs/interface-versioning-policy.md
+    about: What counts as a breaking change, and the notice period required to ship one.

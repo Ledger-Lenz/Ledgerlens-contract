@@ -119,3 +119,93 @@ The following tables specify every key stored by LedgerLens, mapped to its stora
 | :--- | :--- | :---: | :---: | :--- | :--- |
 | `RiskBandState(Address, Symbol)` | Temporary | 518,400 | 777,600 | Records if a wallet is in the high-risk band for an asset pair. | [`BAND_STATE_TTL_THRESHOLD`](file:///c:/Users/HP/Desktop/opensource/Ledgerlens-contract/contracts/ledgerlens-score/src/constants.rs#L171), [`BAND_STATE_TTL_EXTEND_TO`](file:///c:/Users/HP/Desktop/opensource/Ledgerlens-contract/contracts/ledgerlens-score/src/constants.rs#L175) |
 | `ScoreEmbargo(Address)` | Temporary | 1,555,200 | 3,110,400 | Regulatory embargo details (`EmbargoExpiry`). Expire threshold is ~90 days; target extend-to is ~180 days. | [`EMBARGO_TTL_THRESHOLD`](file:///c:/Users/HP/Desktop/opensource/Ledgerlens-contract/contracts/ledgerlens-score/src/constants.rs#L186), [`EMBARGO_TTL_EXTEND_TO`](file:///c:/Users/HP/Desktop/opensource/Ledgerlens-contract/contracts/ledgerlens-score/src/constants.rs#L189) |
+
+---
+
+## Aggregator Storage Keys (ledgerlens-aggregator)
+
+### Instance Storage Keys
+
+| Key Name | Storage Tier | TTL | Description |
+| :--- | :--- | :---: | :--- |
+| `Admin` | Instance | N/A | The aggregator administrator address. |
+| `Shards` | Instance | N/A | Ordered list of registered shard contract addresses (`Vec<Address>`). |
+| `ShardHealth(Address)` | Instance | N/A | Health flag per shard (`bool`, defaults to `true`). |
+| `LastShardFailure` | Instance | N/A | `(Address, u32)` identifying the last shard that caused a call failure. |
+| `ShardCapabilities(Address)` | Instance | N/A | **[Added #711]** Capability snapshot (`Vec<Symbol>`) recorded at `add_shard` time. Removed on `remove_shard`. Used by `get_shard_capabilities` and `shard_capabilities_downgraded`. |
+
+---
+
+## Executable Storage Invariants (Issue #710)
+
+The following invariants are enforced at test/debug build time via
+`invariants::invariant_check(env)` in `contracts/ledgerlens-score/src/invariants.rs`.
+Each is callable as a standalone helper for migration tooling.
+
+| # | Storage Family | Invariant | Helper |
+|---|----------------|-----------|--------|
+| 1 | Config | `global_min_confidence` ∈ `[0, 100]` | `invariant_check` |
+| 2 | Config | `service_threshold` ≤ service signer set size | `invariant_check` |
+| 3 | Config | `admin_threshold` ≤ admin set size | `invariant_check` |
+| 4 | Config | Decay rate denominator ≠ 0 | `decay_rate_is_valid` |
+| 5 | Config | Gate query fee ≥ 0 | `invariant_check` |
+| 6 | Config | Accumulated fees ≥ 0 | `invariant_check` |
+| 7 | Score index | Every `ScoreEntryIndex` entry has a live `Score` key | `score_index_is_consistent` |
+| 8 | Score index | `ScoreEntryIndex` contains no duplicates | `invariant_check` |
+| 10 | History | `ScoreHistory` ring length ≤ `HistoryMaxDepth` | `history_rings_are_bounded` |
+| 11 | Embargo | `ActiveEmbargoCount` == live entries in `EmbargoedWalletIndex` | `embargo_count_is_consistent` |
+| 12 | Embargo | `EmbargoedWalletIndex` contains no duplicates | `invariant_check` |
+| 13 | Pairs | Every pair in `AssetPairs(wallet)` with live data is registered | `invariant_check` |
+| 14 | Admin | `PendingAdmin` ≠ current `Admin` | `invariant_check` |
+| 16 | Pause | `PausedPairIndex` contains no duplicates | `invariant_check` |
+| 17 | Decay | Decay λ = `num/den` ∈ `[0, 1]` | `decay_rate_is_valid` |
+| 18 | History | `HistoryMaxDepth` ∈ `[1, MAX_HISTORY_DEPTH]` | `invariant_check` |
+
+---
+
+## Migration Rollback Fixtures (Issue #709)
+
+Partial-migration scenarios are exercised in
+`contracts/ledgerlens-score/src/test_migration_rollback.rs`.
+
+**Pattern:** Seed raw `Score` keys → apply partial index rewrite → re-run
+migration (idempotent replay) → assert `score_index_is_consistent()` and
+`invariant_check()` pass.
+
+**Key invariants tested:**
+- Re-indexing the same wallet twice leaves exactly one entry (no duplicates).
+- An orphaned index entry (score deleted mid-migration) is cleaned up on replay.
+- The index caps at `MAX_TRACKED_SCORE_ENTRIES`; entries beyond the cap still have live scores but are not enumerated.
+- Multi-pair partial migrations converge to full consistency after a single full replay.
+
+**ABI/event/storage compatibility:**
+- No new public ABI methods are added.
+- No events are emitted by migration helpers.
+- The migration pattern operates entirely through existing `storage::*` helpers.
+- Backward compatible: contracts without the new invariant helpers compile and behave identically.
+
+---
+
+## Shard Capability Attestation (Issue #711)
+
+**New storage key:** `ShardCapabilities(Address)` (see aggregator table above).
+
+**New public methods on `LedgerLensAggregator`:**
+- `get_shard_capabilities(shard: Address) → Vec<Symbol>` — returns the capability snapshot stored at registration time.
+- `shard_capabilities_downgraded(shard: Address) → bool` — returns `true` if the shard no longer advertises all capabilities it reported at registration.
+
+**Registration flow change:**
+`add_shard` now:
+1. Calls `shard_supports_required_interface` (unchanged — fails `IncompatibleInterface` if any required cap is missing).
+2. Calls `probe_capabilities` to collect the full supported capability set.
+3. Writes the snapshot to `ShardCapabilities(shard)`.
+
+`remove_shard` now also removes the `ShardCapabilities(shard)` key.
+
+**Required capabilities (unchanged): `["score", "gate", "aggr", "arch"]`**
+
+**ABI/event/storage compatibility:**
+- Two new read-only methods added — backward compatible (no existing clients break).
+- One new storage key (`ShardCapabilities`) written on `add_shard`, removed on `remove_shard`.
+- No new events emitted.
+- Shards registered before this change have no snapshot; `get_shard_capabilities` returns empty for those.

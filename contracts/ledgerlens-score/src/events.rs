@@ -1,6 +1,17 @@
+#![cfg_attr(target_family = "wasm", allow(dead_code))]
+
 use soroban_sdk::{contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol};
 
-use crate::types::RiskScore;
+use crate::types::{AlertAckRecord, AlertType, Policy, RiskScore};
+
+pub fn alert_acknowledged(env: &Env, alert_type: &AlertType, record: &AlertAckRecord) {
+    env.events()
+        .publish((symbol_short!("alrt_ack"), EVENT_VERSION, alert_type.clone()), record.clone());
+}
+
+pub fn parameter_change_cleanup(env: &Env, count: u32, oldest_kept: u64) {
+    env.events().publish((symbol_short!("pc_clean"),), (count, oldest_kept));
+}
 
 /// Event Schema Versioning
 ///
@@ -20,7 +31,20 @@ pub fn pair_weight_updated(env: &Env, asset_pair: &Symbol, weight: u32) {
 }
 
 pub fn pair_weight_reset(env: &Env, asset_pair: &Symbol) {
-    env.events().publish((symbol_short!("pw_rst"), asset_pair.clone()), ());
+    env.events().publish((symbol_short!("pw_rst"), EVENT_VERSION, asset_pair.clone()), ());
+}
+
+/// Emitted when the admin assigns an asset pair to a policy class via
+/// `set_pair_asset_class`.
+pub fn pair_asset_class_updated(env: &Env, asset_pair: &Symbol, class: &Symbol) {
+    env.events()
+        .publish((symbol_short!("pac_upd"), EVENT_VERSION, asset_pair.clone()), class.clone());
+}
+
+/// Emitted when the admin sets a risk-threshold override for an asset class
+/// via `set_asset_class_policy`.
+pub fn asset_class_policy_updated(env: &Env, class: &Symbol, threshold: u32) {
+    env.events().publish((symbol_short!("acp_upd"), EVENT_VERSION, class.clone()), threshold);
 }
 
 pub fn score_submitted(env: &Env, wallet: &Address, asset_pair: &Symbol, score: &RiskScore) {
@@ -134,14 +158,80 @@ pub fn parameter_change_vetoed(env: &Env, proposal_id: u64, by: &Address) {
     env.events().publish((symbol_short!("prm_veto"),), (proposal_id, by.clone()));
 }
 
-pub fn score_history_cleared(env: &Env, wallet: &Address, asset_pair: &Symbol) {
-    env.events()
-        .publish((symbol_short!("clr_hist"), EVENT_VERSION, wallet.clone()), asset_pair.clone());
+#[allow(clippy::too_many_arguments)]
+pub fn score_history_cleared(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    by: &Address,
+    latest_score_present: bool,
+    history_count: u32,
+    reason_hash: &BytesN<32>,
+    category_hash: &BytesN<32>,
+    multisig_enabled: bool,
+    signer_count: u32,
+    threshold: u32,
+) {
+    env.events().publish(
+        (symbol_short!("clr_hist"), EVENT_VERSION, wallet.clone()),
+        (
+            asset_pair.clone(),
+            by.clone(),
+            latest_score_present,
+            history_count,
+            reason_hash.clone(),
+            category_hash.clone(),
+            multisig_enabled,
+            signer_count,
+            threshold,
+        ),
+    );
 }
 
-pub fn score_cleared(env: &Env, wallet: &Address, asset_pair: &Symbol) {
+#[allow(clippy::too_many_arguments)]
+pub fn score_cleared(
+    env: &Env,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    by: &Address,
+    latest_score_present: bool,
+    history_count: u32,
+    reason_hash: &BytesN<32>,
+    category_hash: &BytesN<32>,
+    multisig_enabled: bool,
+    signer_count: u32,
+    threshold: u32,
+) {
+    env.events().publish(
+        (symbol_short!("clr_scr"), EVENT_VERSION, wallet.clone()),
+        (
+            asset_pair.clone(),
+            by.clone(),
+            latest_score_present,
+            history_count,
+            reason_hash.clone(),
+            category_hash.clone(),
+            multisig_enabled,
+            signer_count,
+            threshold,
+        ),
+    );
+}
+
+pub fn deletion_policy_updated(env: &Env, enabled: bool, approver: &Option<Address>) {
+    env.events().publish((symbol_short!("del_pol"), EVENT_VERSION), (enabled, approver.clone()));
+}
+
+/// Emitted by `set_policy_approval` (issue #695). `policy` identifies which
+/// of the four non-`DataDeletion` named capabilities was reconfigured.
+pub fn policy_approval_updated(
+    env: &Env,
+    policy: Policy,
+    enabled: bool,
+    approver: &Option<Address>,
+) {
     env.events()
-        .publish((symbol_short!("clr_scr"), EVENT_VERSION, wallet.clone()), asset_pair.clone());
+        .publish((symbol_short!("pol_appr"), EVENT_VERSION, policy), (enabled, approver.clone()));
 }
 
 pub fn cooldown_updated(env: &Env, cooldown_secs: u64) {
@@ -183,6 +273,13 @@ pub fn service_pubkey_rotation_started(env: &Env, new_key: &Bytes, overlap_expir
     env.events().publish((symbol_short!("pk_rot"),), (new_key.clone(), overlap_expiry));
 }
 
+/// Emitted when `rotate_aggregate_service_pubkey` is called (issue #697).
+/// Same shape as `service_pubkey_rotation_started`, for the aggregate
+/// (threshold-signature) key instead of the single-signer key.
+pub fn aggregate_service_pubkey_rotation_started(env: &Env, new_key: &Bytes, overlap_expiry: u64) {
+    env.events().publish((symbol_short!("agg_pkrt"),), (new_key.clone(), overlap_expiry));
+}
+
 // ── Merkle-root batch attestation ───────────────────────────────────────────
 
 /// Emitted by `submit_scores_batch_attested` once the batch has been
@@ -193,6 +290,101 @@ pub fn service_pubkey_rotation_started(env: &Env, new_key: &Bytes, overlap_expir
 /// re-reading the per-entry proofs.
 pub fn batch_attested(env: &Env, accepted: u32, rejected: u32, merkle_root: &BytesN<32>) {
     env.events().publish((symbol_short!("bat_ok"), merkle_root.clone()), (accepted, rejected));
+}
+
+// ── Batch rejection event mapping ──────────────────────────────────────────────────
+//
+// Machine-readable rejection summaries without sensitive input data.
+// Each event maps to a documented rejection category for operator alerting.
+
+/// Rejection category for structured error-event mapping.
+/// These categories enable deterministic alerts without leaking sensitive wallet data.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BatchRejectionCategory {
+    /// Contract paused (operational/governance)
+    ContractPaused = 1,
+    /// Invalid score value (data quality)
+    InvalidScore = 2,
+    /// Invalid confidence (data quality)
+    InvalidConfidence = 3,
+    /// Invalid timestamp (data quality)
+    InvalidTimestamp = 4,
+    /// Model version not registered (configuration)
+    ModelVersionNotRegistered = 5,
+    /// Model version deprecated (configuration)
+    ModelVersionDeprecated = 6,
+    /// Rate limit exceeded (policy)
+    RateLimitExceeded = 7,
+    /// Invalid attestation (validation failure)
+    InvalidAttestation = 8,
+    /// Gateway/gate enforcement failure
+    GateFailure = 9,
+}
+
+/// Emitted when a batch entry is rejected due to contract pause.
+/// Topics: ("bat_rej_pause",)  Data: (count)
+pub fn batch_rejected_contract_paused(env: &Env, count: u32) {
+    env.events().publish((Symbol::new(env, "bat_rej_pa"),), count);
+}
+
+/// Emitted when batch entries are rejected due to data quality issues.
+/// Topics: ("bat_rej_data",)  Data: (reason_code, count)
+/// reason_code: 1 = invalid_score, 2 = invalid_confidence, 3 = invalid_timestamp
+pub fn batch_rejected_data_quality(env: &Env, reason_code: u32, count: u32) {
+    env.events().publish((Symbol::new(env, "bat_rej_dq"),), (reason_code, count));
+}
+
+/// Emitted when batch entries are rejected due to model version issues.
+/// Topics: ("bat_rej_model",)  Data: (reason_code, count)
+/// reason_code: 1 = not_registered, 2 = deprecated
+pub fn batch_rejected_model_version(env: &Env, reason_code: u32, count: u32) {
+    env.events().publish((Symbol::new(env, "bat_rej_mv"),), (reason_code, count));
+}
+
+/// Emitted when batch entries exceed rate limits.
+/// Topics: ("bat_rej_ratelimit",)  Data: (count)
+pub fn batch_rejected_rate_limit(env: &Env, count: u32) {
+    env.events().publish((Symbol::new(env, "bat_rej_rl"),), count);
+}
+
+/// Emitted when batch entries fail attestation validation.
+/// Topics: ("bat_rej_attest",)  Data: (count)
+pub fn batch_rejected_attestation(env: &Env, count: u32) {
+    env.events().publish((Symbol::new(env, "bat_rej_at"),), count);
+}
+
+/// Emitted when batch entries fail gate enforcement.
+/// Topics: ("bat_rej_gate",)  Data: (count)
+pub fn batch_rejected_gate_failure(env: &Env, count: u32) {
+    env.events().publish((Symbol::new(env, "bat_rej_gt"),), count);
+}
+
+/// Summary event emitted after batch processing completes.
+/// Aggregates all rejection categories for easy monitoring.
+/// Topics: ("bat_summary",)  Data: (accepted, rejected_pause, rejected_data, rejected_model, rejected_ratelimit, rejected_attestation, rejected_gate)
+#[allow(clippy::too_many_arguments)]
+pub fn batch_processing_summary(
+    env: &Env,
+    accepted: u32,
+    rejected_pause: u32,
+    rejected_data: u32,
+    rejected_model: u32,
+    rejected_ratelimit: u32,
+    rejected_attestation: u32,
+    rejected_gate: u32,
+) {
+    env.events().publish(
+        (symbol_short!("bat_summ"),),
+        (
+            accepted,
+            rejected_pause,
+            rejected_data,
+            rejected_model,
+            rejected_ratelimit,
+            rejected_attestation,
+            rejected_gate,
+        ),
+    );
 }
 
 // ── Multi-model consensus scoring ─────────────────────────────────────────────
@@ -555,6 +747,21 @@ pub fn governance_action_appended(env: &Env, new_head: &soroban_sdk::BytesN<32>)
     env.events().publish((symbol_short!("gov_app"),), new_head.clone());
 }
 
+/// Emitted whenever a privileged admin action is appended to the Merkle audit
+/// chain.  `action_id` is the stable [`crate::governance_actions`] discriminant
+/// (e.g. `GOV_ACTION_PAUSE = 0x04`) so off-chain indexers can filter by action
+/// type without decoding raw chain bytes.  `new_head` is the updated chain root
+/// after the action was folded in.
+///
+/// Topic: `("gov_action", EVENT_VERSION)`
+/// Data:  `(action_id: u32, action_name: Symbol, new_head: BytesN<32>)`
+pub fn gov_action(env: &Env, action_id: u8, action_name: &str, new_head: &soroban_sdk::BytesN<32>) {
+    env.events().publish(
+        (Symbol::new(env, "gov_action"), EVENT_VERSION),
+        (action_id as u32, soroban_sdk::Symbol::new(env, action_name), new_head.clone()),
+    );
+}
+
 // ── #302: Gate enforcement mode ───────────────────────────────────────────────
 
 pub fn gate_enforcement_mode_set(env: &Env, strict: bool) {
@@ -670,6 +877,26 @@ pub fn param_change_proposed(env: &Env, key: &Symbol, apply_after: u64) {
     env.events().publish((symbol_short!("pc_prop"),), (key.clone(), apply_after));
 }
 
+/// Emitted when a risk-threshold + cooldown policy bundle is proposed via
+/// `propose_policy_bundle`.
+/// Topic: ("pbdl_prop",)  Data: (risk_threshold, cooldown_secs, apply_after)
+pub fn policy_bundle_proposed(
+    env: &Env,
+    risk_threshold: u32,
+    cooldown_secs: u64,
+    apply_after: u64,
+) {
+    env.events()
+        .publish((symbol_short!("pbdl_prop"),), (risk_threshold, cooldown_secs, apply_after));
+}
+
+/// Emitted when a pending policy bundle is applied via `apply_policy_bundle`,
+/// after both fields have been written atomically.
+/// Topic: ("pbdl_appl",)  Data: (risk_threshold, cooldown_secs)
+pub fn policy_bundle_applied(env: &Env, risk_threshold: u32, cooldown_secs: u64) {
+    env.events().publish((symbol_short!("pbdl_appl"),), (risk_threshold, cooldown_secs));
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn score_jump_anomaly(
     env: &Env,
@@ -713,10 +940,67 @@ pub fn wallet_cluster_assigned(env: &Env, wallet: &Address, cluster: u32) {
     env.events().publish((symbol_short!("wc_asgn"), wallet.clone()), cluster);
 }
 
-pub fn policy_bundle_proposed(env: &Env, apply_after: u64) {
-    env.events().publish((symbol_short!("pb_prop"), EVENT_VERSION), apply_after);
+// ── #631: Post-incident replay & reconciliation ──────────────────────────────
+
+/// Emitted when an admin takes a deterministic state snapshot via
+/// `compute_state_checksum`. The `score_root` uniquely identifies the
+/// set of all scored entries at that point, enabling later reconciliation.
+pub fn state_snapshot_created(
+    env: &Env,
+    score_root: &soroban_sdk::BytesN<32>,
+    entry_count: u32,
+    ledger_seq: u32,
+) {
+    env.events().publish((symbol_short!("snap"),), (score_root.clone(), entry_count, ledger_seq));
 }
 
-pub fn policy_bundle_applied(env: &Env) {
-    env.events().publish((symbol_short!("pb_appl"), EVENT_VERSION), ());
+/// Emitted when an admin freezes the contract via `freeze_contract`.
+/// In freeze mode all mutating operations are rejected.
+pub fn contract_frozen(env: &Env, by: &Address) {
+    env.events().publish((symbol_short!("frozen"),), by.clone());
+}
+
+/// Emitted when an admin unfreezes the contract via `unfreeze_contract`.
+pub fn contract_unfrozen(env: &Env, by: &Address) {
+    env.events().publish((symbol_short!("unfroz"),), by.clone());
+}
+
+/// Emitted when a post-incident backup restoration completes via
+/// `apply_backup_restore`. Records the checksum root and entry count
+/// for audit trail continuity.
+pub fn backup_restored(
+    env: &Env,
+    score_root: &soroban_sdk::BytesN<32>,
+    entry_count: u32,
+    restored_by: &Address,
+) {
+    env.events().publish(
+        (symbol_short!("bk_rest"),),
+        (score_root.clone(), entry_count, restored_by.clone()),
+    );
+}
+
+/// Emitted when reconciliation completes between two state snapshots.
+/// `matches` is the number of entries that agree; `diverged` is entries
+/// that differ between the two snapshots.
+pub fn reconciliation_verified(
+    env: &Env,
+    snapshot_a: &soroban_sdk::BytesN<32>,
+    snapshot_b: &soroban_sdk::BytesN<32>,
+    entries_matched: u32,
+    entries_diverged: u32,
+    config_matches: bool,
+    auth_matches: bool,
+) {
+    env.events().publish(
+        (symbol_short!("recncil"),),
+        (
+            snapshot_a.clone(),
+            snapshot_b.clone(),
+            entries_matched,
+            entries_diverged,
+            config_matches,
+            auth_matches,
+        ),
+    );
 }

@@ -48,15 +48,23 @@ We follow [Responsible Disclosure](https://en.wikipedia.org/wiki/Coordinated_vul
 
 | Attack vector                        | Mitigation                                                        |
 |--------------------------------------|-------------------------------------------------------------------|
+| Deployment initialization front-running | Both contract initializers require authorization from the nominated admin before writing any privileged state |
 | Unauthorized score write             | `submit_score` requires `service.require_auth()`                  |
 | Compromised service key              | `pause()` halts submissions; `set_service()` rotates the key      |
 | Accidental admin key loss            | Two-step transfer: new admin must call `accept_admin()`           |
 | Score poisoning via out-of-range data | `score` and `confidence` clamped to 0-100 on-chain               |
+| Resource exhaustion via oversized symbols or cryptographic byte payloads | `asset_pair` symbols are capped at 9 bytes and malformed oversized commitment / dispute replay byte payloads reject before hashing, proof parsing, shard fan-out, or storage writes |
 | DoS via unbounded storage            | History ring buffer capped at `HISTORY_MAX_DEPTH` (10) per pair  |
 | Large batch denial of service        | Batch size capped at `MAX_BATCH_SIZE` (20) per invocation        |
+| M-of-N `signers`/`admin_signers` Vec padding | Signer lists bounded by the current signer-set size before any per-signer storage read or `require_auth` call (`TooManySigners`) — see "Memory-Exhaustion & Nested Input Bounds" below |
 | Compromised service floods a pair with submissions | Per-`(wallet, asset_pair)` cooldown (`RateLimitExceeded`); admin-bounded `[MIN_COOLDOWN_SECS, MAX_COOLDOWN_SECS]`, with `override_rate_limit` as an audited emergency escape hatch |
 | Silent malicious contract upgrade    | Time-locked upgrade governance (see below): mandatory delay + on-chain proposal anyone can inspect, plus admin veto |
 | Data-residency / GDPR erasure request | `clear_score_history` and `clear_score` (admin-only) permanently remove scoring data from persistent storage; `clr_hist` / `clr_scr` events provide an on-chain audit trail of every erasure |
+
+The complete caller, signer, and contract-as-caller review is recorded in
+[`docs/cross-contract-authorization-audit.md`](docs/cross-contract-authorization-audit.md).
+The corresponding lifecycle and adversarial coverage index is
+[`docs/critical-state-transition-matrix.md`](docs/critical-state-transition-matrix.md).
 
 ## Upgrade Governance & Threat Model
 
@@ -107,7 +115,103 @@ reproducible build before `executable_after`. An unexpected proposal — or one
 whose hash does not match a published, audited build — is the signal to raise
 an alarm and, if warranted, push for a `veto_upgrade`.
 
-## Bounty Program
+## Memory-Exhaustion & Nested Input Bounds (#612)
+
+### Assets and actors
+
+- **Asset:** the contract's CPU-instruction and memory budget for a single
+  invocation, shared by every caller in that ledger close. A single
+  over-large call can burn a disproportionate share of it before failing.
+- **Actors:** any address able to invoke a public entry point — including
+  a **contract-as-caller** in a composability setup (e.g. an aggregator or
+  gateway forwarding a batch on a user's behalf), which is no more trusted
+  than a direct EOA caller for sizing purposes.
+- **Trust assumption:** the `signers` / `admin_signers` / `submissions` /
+  `proof` arguments are entirely attacker-controlled in shape and size,
+  even when the *content* (a valid address, a valid signature) requires a
+  real credential the attacker may not have.
+
+### Nested shapes in scope
+
+`submit_scores_batch_attested(signers, submissions, attestation)` has two
+independent attacker-controlled dimensions nested inside one call:
+
+1. **Outer:** `submissions: Vec<ScoreSubmissionWithProof>`, bounded by
+   `MAX_BATCH_SIZE` (20).
+2. **Inner:** each entry's `proof: Vec<BytesN<32>>`, bounded by
+   `MAX_MERKLE_PROOF_DEPTH` (30) — checked inside `verify_merkle_proof`
+   before the hash-walk loop runs.
+
+Both bounds were already enforced and are exercised at their maximum
+combined size by `test_max_batch_of_max_depth_proofs_no_panic_and_bounded_cost`
+in `test_memory_exhaustion.rs`.
+
+### Gap found and fixed
+
+The same call's `signers: Vec<Address>` M-of-N list — plus the identical
+pattern in the shared `require_service_signers_auth` (used by
+`veto_parameter_change`) and `require_admin_auth` (used by every
+admin-gated entry point) — had **no upper bound**. A caller could pass an
+arbitrarily long `Vec<Address>`, and the M-of-N loop would perform a
+storage read (`check_signer_expired`) and a `require_auth` host call for
+every entry before the function could fail, regardless of whether any of
+those addresses could actually authorize the call.
+
+**Fix:** each of the three call sites now rejects with `TooManySigners`
+when `signers.len() > <current signer-set size>`, before the loop runs.
+A legitimate M-of-N call never needs more entries than the signer set
+itself contains, so this is a pure bound, not a behavior change for any
+correct caller.
+
+### Fail-safe behavior
+
+- The bound check runs immediately after the existing "not enough
+  signers" (`threshold`) check and before any storage access or
+  `require_auth`, so the failure path itself does zero attacker-scaled
+  work.
+- Rejection returns `Result::Err`, never panics — preserving the
+  "public reads/writes must not panic" invariant for every caller,
+  including a contract-as-caller.
+- `TooManySigners` reuses the `ServiceSetFull` discriminant (see
+  `errors.rs`) rather than adding a new one: the error enum is already at
+  Soroban's 50-variant XDR hard limit, and `ServiceSetFull` is the
+  existing "too many index entries" family (`CounterpartyLinkFull`,
+  `DisputeIndexFull`, `EmbargoedWalletIndexFull` are aliased the same
+  way). No ABI or storage change.
+
+### Alternatives rejected
+
+- **A fixed constant ceiling (e.g. `MAX_SERVICE_SIGNERS`) instead of the
+  live set size:** rejected because it would still allow padding up to
+  that constant with no benefit to a legitimate caller, and would need to
+  be kept in sync with `MAX_SERVICE_SIGNERS`/`MAX_ADMIN_SIGNERS`
+  independently. Bounding by the actual current set size is both tighter
+  and self-maintaining.
+- **A new `Error` discriminant:** rejected — the enum is at the 50-variant
+  XDR limit; aliasing an existing discriminant matches the project's
+  established convention.
+- **Rewriting `require_admin_auth`/`require_service_signers_auth` into a
+  single shared generic helper:** would touch many call sites for a
+  cosmetic dedup and is out of scope for this issue; each is fixed in
+  place with the identical one-line bound instead.
+
+### What monitors/operators should watch
+
+No new event is required — a rejected oversized call is indistinguishable
+in on-chain effect from any other rejected auth call (nothing is written).
+Operators running off-chain signer tooling should treat a `TooManySigners`
+error the same as `UnauthorizedSigner`/`InsufficientSigners`: a signal to
+check the pipeline building the `signers` argument, not a contract
+incident.
+
+### Rollback / recovery
+
+This is a pure validation tightening with no storage or ABI change: it can
+be rolled back by reverting the three bound checks in a follow-up upgrade
+(through the existing time-locked upgrade governance above) with no
+migration step, since no persisted data or discriminant values change.
+
+
 
 There is currently no formal bug bounty program.  Outstanding security reports will be credited in the release notes and can be listed in your portfolio with our written consent.
 

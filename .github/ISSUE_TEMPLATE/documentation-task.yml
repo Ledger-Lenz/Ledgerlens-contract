@@ -1,0 +1,95 @@
+name: "\U0001F4DA Documentation task"
+description: Add or correct README.md, CONTRIBUTING.md, or docs/ content to match actual contract behavior.
+title: "[Docs] "
+labels:
+  - "type: documentation"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The rule for every doc task in this repo: **inspect the implementation and describe what it actually
+        does, not what it was designed to do or what the docs currently claim it does.** If you find the code
+        and an existing doc disagree, the doc task is to fix the doc to match the code (or, if the code is
+        wrong, file a separate implementation-task issue — don't silently "document" a bug as if it were
+        intended behavior).
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What's missing, stale, or incorrect, in one or two sentences.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: primary-area
+    attributes:
+      label: Primary area
+      options:
+        - Documentation architecture and contributor workflow
+        - Interface / ABI reference (docs/interface-spec.md, docs/errors.md)
+        - Storage & rent reference (docs/storage-layout.md)
+        - Security & governance reference (docs/governance.md, attestation specs)
+        - Composability / integration guide (docs/amm-integration-guide.md, examples/)
+        - Other (specify in Summary)
+    validations:
+      required: true
+
+  - type: textarea
+    id: relevant-files
+    attributes:
+      label: Relevant files
+      placeholder: |
+        README.md
+        CONTRIBUTING.md
+        docs/<topic>.md
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Current behavior (inspect before documenting)
+      description: >
+        What does the code actually do in the area this doc covers? Cite function names and file/line. If this
+        task is fixing a stale doc, quote the stale claim next to what's actually true now.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: expected-work
+    attributes:
+      label: Expected work
+      options:
+        - label: Inspected the current implementation and the doc reflects concrete, verified behavior — not aspirational or assumed behavior.
+          required: true
+        - label: Cross-references to source-of-truth code included (file path, and function name or line where reasonable) so the doc doesn't drift silently next time the code changes.
+          required: true
+        - label: Checked for consistency against related existing docs (README.md, CONTRIBUTING.md, other docs/*.md) — contradictions resolved, or noted explicitly if they can't be resolved in this PR.
+          required: true
+        - label: No broken links or references to files/functions that don't exist introduced or left in place.
+          required: true
+        - label: New/changed doc linked from README.md and/or CONTRIBUTING.md if it's something a contributor should discover, not just stumble into.
+          required: true
+        - label: If the inspection surfaced a real implementation gap (not just a doc gap), it's flagged in this issue/PR rather than silently written up as if it were already fixed — a code fix is a separate implementation-task issue.
+          required: true
+
+  - type: textarea
+    id: compatibility-impact
+    attributes:
+      label: Compatibility impact
+      description: State explicitly — documentation-only changes are almost always "None".
+      value: "None — documentation-only change, no contract code touched."
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      value: |
+        - Cosmetic refactors that do not support the stated behavior.
+        - Fixing implementation bugs found while documenting — file a separate implementation-task issue instead.
+        - Broad rewrites without compatibility and migration notes.
+    validations:
+      required: false

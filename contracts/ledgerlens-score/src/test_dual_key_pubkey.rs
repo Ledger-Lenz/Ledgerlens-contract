@@ -10,8 +10,8 @@ use soroban_sdk::{
 };
 
 use crate::{
-    Error, LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreAttestation,
-    ScoreAttestationInput,
+    Error, LedgerLensScoreContract, LedgerLensScoreContractClient, MaybeScoreAttestation,
+    MaybeThresholdAttestation, ScoreAttestation, ScoreAttestationInput,
 };
 
 const START_TS: u64 = 1_700_000_000;
@@ -40,11 +40,27 @@ fn pubkey_bytes(env: &Env, key: &SigningKey) -> Bytes {
     Bytes::from_slice(env, pt.as_bytes())
 }
 
-fn sign(env: &Env, contract_id: &Address, key: &SigningKey, wallet: &Address, pair: &Symbol) -> ScoreAttestation {
+fn sign(
+    env: &Env,
+    contract_id: &Address,
+    contract_version: u32,
+    key: &SigningKey,
+    wallet: &Address,
+    pair: &Symbol,
+) -> ScoreAttestation {
     let digest = env.as_contract(contract_id, || {
         LedgerLensScoreContract::compute_commitment(
-            env, wallet, pair, 50, false, false, START_TS, 90, 1,
-            &BytesN::from_array(env, &[0u8; 32]), 0,
+            env,
+            wallet,
+            pair,
+            50,
+            false,
+            false,
+            START_TS,
+            90,
+            1,
+            &BytesN::from_array(env, &[0u8; 32]),
+            contract_version,
         )
         .unwrap()
         .to_bytes()
@@ -58,7 +74,7 @@ fn sign(env: &Env, contract_id: &Address, key: &SigningKey, wallet: &Address, pa
         commitment: BytesN::from_array(env, &digest),
         signature: BytesN::from_array(env, &sig_bytes),
         contract_id: BytesN::from_array(env, &[0u8; 32]),
-        contract_version: 0,
+        contract_version,
         nonce: 0,
     }
 }
@@ -80,7 +96,11 @@ fn submit(
         &START_TS,
         &90,
         &1,
-        &Some(ScoreAttestationInput::Single(att)),
+        &Some(ScoreAttestationInput {
+            attestation: MaybeScoreAttestation::Some(att),
+            threshold_attestation: MaybeThresholdAttestation::None,
+            commitment: None,
+        }),
     ) {
         Ok(Ok(())) => Ok(()),
         Ok(Err(_)) => Err(crate::Error::InvalidAttestation),
@@ -95,10 +115,6 @@ fn test_instant_rotation_promotes_key_immediately() {
     let (env, client, _admin, _) = setup();
     let old_key = signing_key(1);
     let new_key = signing_key(2);
-    let contract_id = env.register_contract(None, LedgerLensScoreContract);
-    // Use a fresh client on the same env to share the contract.
-    let (env, client, _admin, _) = setup();
-    let contract_id = client.address.clone();
 
     client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &old_key));
     // Instant rotation: overlap = 0
@@ -122,7 +138,8 @@ fn test_old_key_rejected_after_instant_rotation() {
     client.set_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &old_key));
     client.rotate_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &new_key), &0u64);
 
-    let att = sign(&env, &contract_id, &old_key, &wallet, &pair);
+    let version = client.get_contract_version();
+    let att = sign(&env, &contract_id, version, &old_key, &wallet, &pair);
     let result = submit(&client, &env, &wallet, &pair, att);
     assert_eq!(result, Err(Error::InvalidAttestation));
 }
@@ -142,7 +159,8 @@ fn test_new_key_accepted_during_overlap() {
     client.rotate_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &new_key), &3600u64);
 
     // New key is the pending key — sign with it.
-    let att = sign(&env, &contract_id, &new_key, &wallet, &pair);
+    let version = client.get_contract_version();
+    let att = sign(&env, &contract_id, version, &new_key, &wallet, &pair);
     assert!(submit(&client, &env, &wallet, &pair, att).is_ok());
 }
 
@@ -159,7 +177,8 @@ fn test_old_key_accepted_during_overlap() {
     client.rotate_service_pubkey(&Vec::new(&env), &pubkey_bytes(&env, &new_key), &3600u64);
 
     // Old key is still the active key during overlap.
-    let att = sign(&env, &contract_id, &old_key, &wallet, &pair);
+    let version = client.get_contract_version();
+    let att = sign(&env, &contract_id, version, &old_key, &wallet, &pair);
     assert!(submit(&client, &env, &wallet, &pair, att).is_ok());
 }
 
@@ -200,7 +219,8 @@ fn test_old_key_rejected_after_overlap_expires() {
     // Advance time past the overlap window.
     env.ledger().with_mut(|l| l.timestamp = START_TS + overlap + 1);
 
-    let att = sign(&env, &contract_id, &old_key, &wallet, &pair);
+    let version = client.get_contract_version();
+    let att = sign(&env, &contract_id, version, &old_key, &wallet, &pair);
     let result = submit(&client, &env, &wallet, &pair, att);
     assert_eq!(result, Err(Error::InvalidAttestation));
 }
@@ -221,7 +241,8 @@ fn test_new_key_accepted_after_overlap_expires() {
     // Advance time past the overlap window.
     env.ledger().with_mut(|l| l.timestamp = START_TS + overlap + 1);
 
-    let att = sign(&env, &contract_id, &new_key, &wallet, &pair);
+    let version = client.get_contract_version();
+    let att = sign(&env, &contract_id, version, &new_key, &wallet, &pair);
     assert!(submit(&client, &env, &wallet, &pair, att).is_ok());
 }
 

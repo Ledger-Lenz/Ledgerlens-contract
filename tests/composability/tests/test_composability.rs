@@ -10,7 +10,7 @@
 //! turn invoke LedgerLens — rather than calling the gate functions directly.
 
 use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
-use mock_amm::{MockAmm, MockAmmClient, MockAmmError};
+use mock_amm::{FailPolicy as AmmFailPolicy, MockAmm, MockAmmClient, MockAmmError};
 use mock_lending::{MockLending, MockLendingClient, MockLendingError};
 use soroban_sdk::{
     symbol_short,
@@ -23,6 +23,7 @@ const MIN_CONFIDENCE: u32 = 50;
 
 struct Fixture<'a> {
     env: Env,
+    admin: Address,
     ledgerlens: LedgerLensScoreContractClient<'a>,
     amm: MockAmmClient<'a>,
     lending: MockLendingClient<'a>,
@@ -43,19 +44,49 @@ fn setup<'a>() -> Fixture<'a> {
 
     let amm_id = env.register_contract(None, MockAmm);
     let amm = MockAmmClient::new(&env, &amm_id);
-    amm.initialize(&ledgerlens_id, &GATE_THRESHOLD);
-    amm.set_liquidity_gate_config(&GATE_THRESHOLD, &MIN_CONFIDENCE);
+    amm.initialize(&admin, &ledgerlens_id, &GATE_THRESHOLD);
+    amm.set_liquidity_gate_config(
+        &admin,
+        &GATE_THRESHOLD,
+        &MIN_CONFIDENCE,
+        &AmmFailPolicy::FailClosed,
+        &604_800,
+        &0,
+    );
 
     let lending_id = env.register_contract(None, MockLending);
     let lending = MockLendingClient::new(&env, &lending_id);
-    lending.initialize(&ledgerlens_id, &GATE_THRESHOLD, &MIN_CONFIDENCE);
+    lending.initialize(&admin, &ledgerlens_id, &GATE_THRESHOLD, &MIN_CONFIDENCE);
 
-    Fixture { env, ledgerlens, amm, lending }
+    Fixture { env, admin, ledgerlens, amm, lending }
 }
 
 /// Submits a score for `wallet`, advancing the ledger past the 1-hour
 /// cooldown first so repeated submissions in the same test never collide.
 fn submit_score(fixture: &Fixture, wallet: &Address, score: u32, confidence: u32) {
+    fixture.env.ledger().with_mut(|l| l.timestamp += 3_601);
+    fixture.ledgerlens.submit_score(
+        &Vec::new(&fixture.env),
+        wallet,
+        &symbol_short!("XLM_USDC"),
+        &score,
+        &false,
+        &false,
+        &fixture.env.ledger().timestamp(),
+        &confidence,
+        &1,
+        &None,
+    );
+}
+
+fn submit_score_with_finality_buffer(
+    fixture: &Fixture,
+    wallet: &Address,
+    score: u32,
+    confidence: u32,
+    buffer_secs: u64,
+) {
+    fixture.ledgerlens.set_finality_buffer(&Vec::new(&fixture.env), &buffer_secs);
     fixture.env.ledger().with_mut(|l| l.timestamp += 3_601);
     fixture.ledgerlens.submit_score(
         &Vec::new(&fixture.env),
@@ -79,7 +110,7 @@ fn both_mock_contracts_deploy_alongside_ledgerlens() {
     // mock-amm and mock-lending compile, link against ledgerlens-score, and
     // register in the same Env as a real LedgerLens deployment.
     let fixture = setup();
-    assert_eq!(fixture.ledgerlens.get_version(), 4);
+    assert_eq!(fixture.ledgerlens.get_version(), 5);
 }
 
 // ── Acceptance criterion: AMM swap rejected/accepted by risk score ─────────
@@ -111,6 +142,22 @@ fn amm_swap_rejected_for_unknown_wallet() {
 
     let result = fixture.amm.try_swap(&wallet, &symbol_short!("XLM_USDC"), &1_000);
     assert_eq!(result, Err(Ok(MockAmmError::HighRiskWallet)));
+}
+
+#[test]
+fn amm_swap_rejected_while_safe_score_is_still_pending_finality() {
+    let fixture = setup();
+    let wallet = Address::generate(&fixture.env);
+    submit_score_with_finality_buffer(&fixture, &wallet, 10, 95, 300);
+
+    assert_eq!(
+        fixture.amm.try_swap(&wallet, &symbol_short!("XLM_USDC"), &1_000),
+        Err(Ok(MockAmmError::HighRiskWallet))
+    );
+
+    fixture.env.ledger().with_mut(|l| l.timestamp += 301);
+    fixture.ledgerlens.commit_pending_score(&wallet, &symbol_short!("XLM_USDC"));
+    assert_eq!(fixture.amm.try_swap(&wallet, &symbol_short!("XLM_USDC"), &1_000), Ok(Ok(())));
 }
 
 // ── AMM gated liquidity provision (issue #214) ───────────────────────────────
@@ -168,8 +215,107 @@ fn amm_provide_liquidity_uses_set_risk_oracle() {
         &None,
     );
 
-    fixture.amm.set_risk_oracle(&alt_oracle_id);
+    fixture.amm.set_risk_oracle(&fixture.admin, &alt_oracle_id);
     assert_eq!(fixture.amm.try_provide_liquidity_gated(&provider, &500), Ok(Ok(())));
+}
+
+#[test]
+fn amm_config_rejects_unauthorized_admin_rotation() {
+    let fixture = setup();
+    let attacker = Address::generate(&fixture.env);
+    let oracle = Address::generate(&fixture.env);
+
+    assert_eq!(
+        fixture.amm.try_set_risk_oracle(&attacker, &oracle),
+        Err(Ok(MockAmmError::Unauthorized))
+    );
+}
+
+#[test]
+fn amm_swap_rejects_stale_score() {
+    let fixture = setup();
+    let wallet = Address::generate(&fixture.env);
+    submit_score(&fixture, &wallet, 10, 90);
+    fixture.amm.set_liquidity_gate_config(
+        &fixture.admin,
+        &GATE_THRESHOLD,
+        &MIN_CONFIDENCE,
+        &AmmFailPolicy::FailClosed,
+        &1,
+        &0,
+    );
+    fixture.env.ledger().with_mut(|l| l.timestamp += 2);
+
+    assert_eq!(
+        fixture.amm.try_swap(&wallet, &symbol_short!("XLM_USDC"), &1_000),
+        Err(Ok(MockAmmError::StaleScore))
+    );
+}
+
+#[test]
+fn amm_swap_reports_unavailable_oracle_fail_closed() {
+    let fixture = setup();
+    let wallet = Address::generate(&fixture.env);
+    fixture.amm.set_risk_oracle(&fixture.admin, &Address::generate(&fixture.env));
+
+    assert_eq!(
+        fixture.amm.try_swap(&wallet, &symbol_short!("XLM_USDC"), &1_000),
+        Err(Ok(MockAmmError::OracleUnavailable))
+    );
+}
+
+#[test]
+fn amm_swap_fail_open_is_explicit_for_unavailable_oracle() {
+    let fixture = setup();
+    let wallet = Address::generate(&fixture.env);
+    fixture.amm.set_risk_oracle(&fixture.admin, &Address::generate(&fixture.env));
+    fixture.amm.set_liquidity_gate_config(
+        &fixture.admin,
+        &GATE_THRESHOLD,
+        &MIN_CONFIDENCE,
+        &AmmFailPolicy::FailOpen,
+        &604_800,
+        &0,
+    );
+
+    assert_eq!(fixture.amm.try_swap(&wallet, &symbol_short!("XLM_USDC"), &1_000), Ok(Ok(())));
+}
+
+#[test]
+fn amm_swap_rejects_unsupported_oracle_version() {
+    let fixture = setup();
+    let wallet = Address::generate(&fixture.env);
+    submit_score(&fixture, &wallet, 10, 90);
+    fixture.amm.set_liquidity_gate_config(
+        &fixture.admin,
+        &GATE_THRESHOLD,
+        &MIN_CONFIDENCE,
+        &AmmFailPolicy::FailClosed,
+        &604_800,
+        &(fixture.ledgerlens.get_contract_version() + 1),
+    );
+
+    assert_eq!(
+        fixture.amm.try_swap(&wallet, &symbol_short!("XLM_USDC"), &1_000),
+        Err(Ok(MockAmmError::UnsupportedVersion))
+    );
+}
+
+#[test]
+fn amm_swap_supports_old_client_version_zero_against_new_contract() {
+    let fixture = setup();
+    let wallet = Address::generate(&fixture.env);
+    submit_score(&fixture, &wallet, 10, 90);
+    fixture.amm.set_liquidity_gate_config(
+        &fixture.admin,
+        &GATE_THRESHOLD,
+        &MIN_CONFIDENCE,
+        &AmmFailPolicy::FailClosed,
+        &604_800,
+        &0,
+    );
+
+    assert_eq!(fixture.amm.try_swap(&wallet, &symbol_short!("XLM_USDC"), &1_000), Ok(Ok(())));
 }
 
 // ── Acceptance criterion: lending gate fails on low confidence ─────────────
@@ -204,6 +350,22 @@ fn lending_borrow_rejected_for_high_risk_score_even_with_high_confidence() {
 
     let result = fixture.lending.try_borrow(&wallet, &symbol_short!("XLM_USDC"), &1_000);
     assert_eq!(result, Err(Ok(MockLendingError::RiskGateRejected)));
+}
+
+#[test]
+fn lending_borrow_rejected_while_safe_score_is_still_pending_finality() {
+    let fixture = setup();
+    let wallet = Address::generate(&fixture.env);
+    submit_score_with_finality_buffer(&fixture, &wallet, 10, 90, 300);
+
+    assert_eq!(
+        fixture.lending.try_borrow(&wallet, &symbol_short!("XLM_USDC"), &1_000),
+        Err(Ok(MockLendingError::RiskGateRejected))
+    );
+
+    fixture.env.ledger().with_mut(|l| l.timestamp += 301);
+    fixture.ledgerlens.commit_pending_score(&wallet, &symbol_short!("XLM_USDC"));
+    assert_eq!(fixture.lending.try_borrow(&wallet, &symbol_short!("XLM_USDC"), &1_000), Ok(Ok(())));
 }
 
 // ── Acceptance criterion: embargoed wallet → gate false regardless of score ─
@@ -270,4 +432,84 @@ fn lending_borrow_rejects_non_positive_amount_before_consulting_ledgerlens() {
 
     let result = fixture.lending.try_borrow(&wallet, &symbol_short!("XLM_USDC"), &-5);
     assert_eq!(result, Err(Ok(MockLendingError::InvalidAmount)));
+}
+
+// ── Sandwich simulations around suspicious score updates (issue #797) ────────
+
+#[test]
+fn sandwich_simulation_fail_closed_blocks_consumers_before_first_score_and_after_clear() {
+    let fixture = setup();
+    let wallet = Address::generate(&fixture.env);
+    let pair = symbol_short!("XLM_USDC");
+
+    // Before any score exists, both consumers fail closed.
+    assert_eq!(fixture.amm.try_swap(&wallet, &pair, &1_000), Err(Ok(MockAmmError::HighRiskWallet)));
+    assert_eq!(
+        fixture.lending.try_borrow(&wallet, &pair, &1_000),
+        Err(Ok(MockLendingError::RiskGateRejected))
+    );
+
+    // A suspicious but syntactically valid low-risk update immediately flips
+    // both consumers to "allow".
+    submit_score(&fixture, &wallet, 10, 95);
+    assert_eq!(fixture.amm.try_swap(&wallet, &pair, &1_000), Ok(Ok(())));
+    assert_eq!(fixture.lending.try_borrow(&wallet, &pair, &1_000), Ok(Ok(())));
+
+    // If operators later clear the score, both consumers revert to fail-closed.
+    fixture.ledgerlens.clear_score(&Vec::new(&fixture.env), &wallet, &pair);
+    assert_eq!(fixture.amm.try_swap(&wallet, &pair, &1_000), Err(Ok(MockAmmError::HighRiskWallet)));
+    assert_eq!(
+        fixture.lending.try_borrow(&wallet, &pair, &1_000),
+        Err(Ok(MockLendingError::RiskGateRejected))
+    );
+}
+
+#[test]
+fn sandwich_simulation_cooldown_prevents_immediate_score_flip_back() {
+    let fixture = setup();
+    let wallet = Address::generate(&fixture.env);
+    let pair = symbol_short!("XLM_USDC");
+
+    submit_score(&fixture, &wallet, 10, 95);
+
+    // Consumer query immediately after a suspicious low-risk update succeeds.
+    assert_eq!(fixture.amm.try_swap(&wallet, &pair, &1_000), Ok(Ok(())));
+
+    // An immediate corrective/high-risk overwrite is blocked by cooldown, so
+    // the exploitable window is bounded by the cooldown rather than allowing
+    // intra-window oscillation.
+    let immediate_flip = fixture.ledgerlens.try_submit_score(
+        &Vec::new(&fixture.env),
+        &wallet,
+        &pair,
+        &95,
+        &false,
+        &false,
+        &fixture.env.ledger().timestamp(),
+        &95,
+        &1,
+        &None,
+    );
+    assert!(immediate_flip.is_err(), "cooldown should block immediate score flip");
+
+    // Once the cooldown elapses, the updated risk score takes effect and
+    // consumers query the stricter state on the next call.
+    fixture.env.ledger().with_mut(|l| l.timestamp += 3_601);
+    fixture.ledgerlens.submit_score(
+        &Vec::new(&fixture.env),
+        &wallet,
+        &pair,
+        &95,
+        &false,
+        &false,
+        &fixture.env.ledger().timestamp(),
+        &95,
+        &1,
+        &None,
+    );
+    assert_eq!(fixture.amm.try_swap(&wallet, &pair, &1_000), Err(Ok(MockAmmError::HighRiskWallet)));
+    assert_eq!(
+        fixture.lending.try_borrow(&wallet, &pair, &1_000),
+        Err(Ok(MockLendingError::RiskGateRejected))
+    );
 }

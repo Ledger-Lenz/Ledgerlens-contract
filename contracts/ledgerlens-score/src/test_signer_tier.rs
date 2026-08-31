@@ -11,6 +11,8 @@
 
 use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
 
+use ledgerlens_test_support::generate_score_roles;
+
 use crate::{Error, LedgerLensScoreContract, LedgerLensScoreContractClient};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -25,8 +27,7 @@ fn setup<'a>() -> (Env, LedgerLensScoreContractClient<'a>) {
 
 fn initialized<'a>() -> (Env, LedgerLensScoreContractClient<'a>) {
     let (env, client) = setup();
-    let admin = Address::generate(&env);
-    let service = Address::generate(&env);
+    let (admin, service) = generate_score_roles(&env);
     client.initialize(&admin, &service);
     (env, client)
 }

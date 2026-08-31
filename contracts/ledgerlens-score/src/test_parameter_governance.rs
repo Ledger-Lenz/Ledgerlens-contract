@@ -218,3 +218,53 @@ fn test_veto_before_half_timelock_succeeds() {
     assert_eq!(record.status, ParameterProposalStatus::Vetoed);
     assert!(client.get_pending_param_prop_ids().is_empty());
 }
+
+#[test]
+fn test_executed_proposal_removed_from_pending_index() {
+    let (env, client, admin, _service) = setup();
+    let value = encode_u64(&env, MIN_COOLDOWN_SECS);
+
+    let proposal_id = client.propose_parameter_change(
+        &admin_signers(&env, &admin),
+        &param_key_cooldown(),
+        &value,
+    );
+    assert_eq!(client.get_pending_param_prop_ids(), Vec::from_array(&env, [proposal_id]));
+
+    advance_to(&env, START_TS + DEFAULT_UPGRADE_DELAY_SECS);
+    client.execute_parameter_change(&admin_signers(&env, &admin), &proposal_id);
+
+    assert!(client.get_pending_param_prop_ids().is_empty());
+}
+
+#[test]
+fn test_expired_full_pending_set_is_pruned_before_accepting_new_proposal() {
+    let (env, client, admin, _service) = setup();
+    let value = encode_u64(&env, MIN_COOLDOWN_SECS);
+
+    env.as_contract(&client.address, || {
+        storage::test_seed_pending_parameter_proposals(
+            &env,
+            MAX_PENDING_PARAMETER_PROPOSALS,
+            &admin,
+            &param_key_cooldown(),
+            &value,
+        );
+    });
+    assert_eq!(client.get_pending_param_prop_ids().len(), MAX_PENDING_PARAMETER_PROPOSALS);
+
+    advance_to(&env, START_TS + DEFAULT_UPGRADE_DELAY_SECS * 2 + 1);
+
+    let proposal_id = client.propose_parameter_change(
+        &admin_signers(&env, &admin),
+        &param_key_cooldown(),
+        &value,
+    );
+
+    assert_eq!(proposal_id, MAX_PENDING_PARAMETER_PROPOSALS as u64 + 1);
+    assert_eq!(client.get_pending_param_prop_ids(), Vec::from_array(&env, [proposal_id]));
+    for expired_id in 1..=MAX_PENDING_PARAMETER_PROPOSALS as u64 {
+        let record = client.get_parameter_proposal(&expired_id);
+        assert_eq!(record.status, ParameterProposalStatus::Expired);
+    }
+}

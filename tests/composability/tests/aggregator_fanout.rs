@@ -5,7 +5,7 @@
 //! links, and delegation setups, then exercises every aggregator read
 //! function against the heterogeneous multi-shard environment.
 
-use ledgerlens_aggregator::{LedgerLensAggregator, LedgerLensAggregatorClient};
+use ledgerlens_aggregator::{LedgerLensAggregator, LedgerLensAggregatorClient, SplitBrainStatus};
 use ledgerlens_score::{
     Error as ScoreError, LedgerLensScoreContract, LedgerLensScoreContractClient,
 };
@@ -292,7 +292,25 @@ fn test_supports_interface_recognises_capabilities() {
     assert!(fix.aggregator.supports_interface(&symbol_short!("gate")));
     assert!(fix.aggregator.supports_interface(&symbol_short!("aggr")));
     assert!(fix.aggregator.supports_interface(&symbol_short!("federated")));
+    assert!(fix.aggregator.supports_interface(&symbol_short!("sbrain")));
+    assert!(fix.aggregator.supports_interface(&symbol_short!("health")));
     assert!(!fix.aggregator.supports_interface(&symbol_short!("unknown")));
+}
+
+#[test]
+fn test_detect_split_brain_reports_aligned_shards() {
+    let fix = setup();
+    let wallet = Address::generate(&fix.env);
+    let pair = symbol_short!("XLM_USDC");
+
+    let report = fix.aggregator.detect_split_brain(&wallet, &pair);
+
+    assert_eq!(report.status, SplitBrainStatus::Aligned);
+    assert_eq!(report.shard_count, 3);
+    assert_eq!(report.available_count, 3);
+    assert_eq!(report.quorum_count, 3);
+    assert_eq!(report.mismatch_count, 0);
+    assert_eq!(report.diagnostics.len(), 3);
 }
 
 // ── Test: get_decay_rate delegates to the primary shard ─────────────────

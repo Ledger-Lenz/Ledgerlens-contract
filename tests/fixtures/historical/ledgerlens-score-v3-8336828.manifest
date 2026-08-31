@@ -1,0 +1,22 @@
+format_version=1
+fixture_id=ledgerlens-score-v3-8336828
+source_commit=8336828159b7e7ff05d018200ce7f7a385bdade5
+source_contract_version=3
+rust_toolchain=1.85.0
+soroban_sdk=21.7.7
+lockfile=tests/fixtures/historical/ledgerlens-score-v3-8336828.Cargo.lock
+lock_sha256=5b9a90e17efcb2886dc98b8de36f29bc1665338652f239cc769fcef4f6fc3d30
+lock_bytes=40893
+build_environment=RUSTC_BOOTSTRAP=1 RUSTFLAGS=-Zcrate-attr=feature(unsigned_is_multiple_of)
+build_command=cp tests/fixtures/historical/ledgerlens-score-v3-8336828.Cargo.lock Cargo.lock && RUSTC_BOOTSTRAP=1 RUSTFLAGS="-Zcrate-attr=feature(unsigned_is_multiple_of)" cargo +1.85.0 build --target wasm32-unknown-unknown --release -p ledgerlens-score --locked && wasm-opt target/wasm32-unknown-unknown/release/ledgerlens_score.wasm -o ledgerlens-score-v3-8336828.wasm -Oz --disable-reference-types --disable-multivalue --disable-bulk-memory
+reproduction_script=scripts/reproduce-historical-wasm.sh
+wasm_opt=131
+wasm_path=tests/fixtures/historical/ledgerlens-score-v3-8336828.wasm
+wasm_sha256=ae9ec87205342f28d8072f7a1d62d7f35844ad0502ce597087666dd22e980e1b
+wasm_bytes=213850
+wasm_max_bytes=524288
+spec_bytes=112028
+spec_max_bytes=262144
+current_consumers=mock-amm,mock-lending
+stable_capabilities=score,gate,cgate
+rollback=redeploy fixture source commit with this manifest and route consumers to the prior contract id

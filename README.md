@@ -10,9 +10,15 @@ Soroban smart contract that serves as the on-chain risk-score registry for **Led
 
 LedgerLens detects wash trading and artificial volume on the Stellar Decentralised Exchange (SDEX) by analysing trade data with statistical (Benford's Law) and machine learning techniques. The off-chain detection pipeline computes a **LedgerLens Risk Score (0-100)** for wallets and asset pairs, and this contract acts as the **on-chain truth layer** for those scores — making fraud signals composable with other Soroban protocols (AMMs, lending platforms, DEX aggregators) without relying on an external oracle.
 
+New to the terminology below? [`docs/glossary.md`](docs/glossary.md) defines every term precisely
+against the actual implementation — including a few (**shard**, **finality**, **attestation**,
+**pause**) whose meaning here is narrower or different from what you might assume from general
+blockchain usage.
+
 ## Features
 
 - **On-Chain Risk Score Registry**: Stores the latest LedgerLens risk score, flags, confidence, and timestamp per wallet/asset-pair
+- **Replay Forensics**: The replay harness can emit a deterministic incident evidence bundle that packages transactions, events, configuration snapshots, issue references, and hashes for audits and incident response.
 - **Authorized Score Submission**: Only the authorised LedgerLens off-chain service account can write scores
 - **Composable Read Access**: Any Soroban contract can query risk scores to gate suspicious activity via `query_risk_gate` (score-only) or `query_risk_gate_with_confidence` (score + confidence floor) — both infallible, side-effect free, and safe to call directly inside another protocol's guard clause
 - **Benford & ML Flags**: Distinguishes between statistical anomaly flags and ML classifier flags
@@ -48,12 +54,17 @@ LedgerLens detects wash trading and artificial volume on the Stellar Decentralis
 ### Core Components
 
 - **lib.rs**: Main contract implementation — entry points including `submit_score`, `submit_scores_batch`, and query functions
+- **tools/replay/src/main.rs**: Replay harness and incident evidence bundle generator for forensic workflows
 - **types.rs**: `RiskScore` data structure (score, flags, confidence, timestamp)
 - **storage.rs**: Persistent storage for per-wallet/asset-pair risk scores
 - **errors.rs**: Custom error types for contract operations
 - **test.rs**: Test suite covering submission, retrieval, and authorization
 
 ## Contract Functions
+
+### Replay and Forensics
+
+The replay harness in [tools/replay/src/main.rs](tools/replay/src/main.rs) consumes NDJSON snapshots, replays them into the contract, and emits a deterministic incident evidence bundle. The bundle is designed to be reproducible across reruns and is useful for incident response, operator handoffs, and audit trails. Operators can add issue references with `--issue-ref` flags; the bundle includes transaction evidence, emitted events, a config snapshot, and SHA-256 hashes for each section plus an overall bundle hash.
 
 ### `initialize(admin: Address, service: Address)`
 One-time setup. Sets the admin (who can rotate the service address) and the LedgerLens off-chain service account authorised to submit scores.
@@ -546,6 +557,11 @@ See [`examples/amm_gate_example.rs`](examples/amm_gate_example.rs) and
 [`contracts/mock-amm/`](contracts/mock-amm/) (`provide_liquidity_gated`,
 `set_risk_oracle`).
 
+One important caveat: a safe score can still be stale. If your protocol is
+sensitive to detection lag, layer a max-age check on top of the gate, require
+confidence for high-value actions, and fail closed when the oracle is silent or
+your own pause flag is active.
+
 ## Security Features
 
 1. **Authorization Checks**: Only the authorised LedgerLens service account can submit scores
@@ -556,6 +572,8 @@ See [`examples/amm_gate_example.rs`](examples/amm_gate_example.rs) and
 6. **Submission Rate Limiting**: A configurable per-`(wallet, asset_pair)` cooldown (default 1 h) bounds how often the service account can overwrite a score — see [Rate Limiting](#rate-limiting)
 7. **Score Attestation**: An opt-in secp256k1 signature over the score payload lets the off-chain pipeline vouch for its contents independent of `require_auth` — see [Score Attestation](#score-attestation)
 8. **Score Submission Floor**: An opt-in per-wallet floor that blocks downward score-revision attacks on wallets whose historical peak crossed a danger level — see [Score Submission Floor](#score-submission-floor)
+
+These are backed by a set of non-negotiable implementation invariants — fail-closed gates, no-panic reads, bounded storage, and append-only event/error stability — documented with their concrete enforcement (code + tests + CI) in [`docs/invariants.md`](docs/invariants.md).
 
 ## Testing
 
@@ -577,11 +595,13 @@ soroban contract optimize --wasm target/wasm32-unknown-unknown/release/ledgerlen
 ### 2. Deploy to Testnet
 
 ```bash
-soroban contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/ledgerlens_score.optimized.wasm \
-  --source deployer \
-  --network testnet
+./deploy.sh --dry-run testnet deployer GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 ```
+
+Reviewed deployment manifests live under `deploy/manifests/`. `deploy.sh`
+validates the selected manifest before use and fails closed if the local Rust
+or Stellar/Soroban CLI version drifts from the pinned project expectations.
+See [`docs/deployment-manifests.md`](docs/deployment-manifests.md).
 
 ### 3. Submit a Risk Score
 
@@ -627,8 +647,12 @@ soroban contract invoke \
 ├── rustfmt.toml
 ├── clippy.toml
 ├── deploy.sh                           ← Build, optimize, deploy, initialize
+├── deploy/manifests/                   ← Reviewed environment deployment manifests
 ├── docs/
+│   ├── deployment-manifests.md         ← Manifest schema and toolchain drift checks
 │   └── interface-spec.md               ← ILedgerLensScore composability spec
+│   └── contract-build-lints.md         ← WASM-only dead-code detection policy
+│   └── ledgerlens-score-module-ownership.md ← Score module ownership map
 ├── examples/
 │   └── amm_gate.rs                     ← Reference AMM integration (query_risk_gate)
 ├── contracts/
@@ -755,8 +779,13 @@ pub struct RiskScore {
 
 - **Networks**: `testnet` for development, `mainnet` for production. Contract IDs per network are recorded in this repo's deployment docs and must be mirrored into `api`'s environment configuration (`CONTRACT_ID`, `RPC_URL`, `NETWORK`).
 - **Secrets**: the "service" keypair that calls `submit_score` lives in `api`'s secret store — never in `core`, `data`, or `dashboard`. This repo only ever stores the **public address** of that account on-chain.
-- **CI**: workflow templates live in `.github`; this repo's contract CI builds with `cargo build --target wasm32-unknown-unknown --release` and runs `cargo test`.
+- **CI**: workflow templates live in `.github`; this repo's contract CI builds with `cargo build --target wasm32-unknown-unknown --release`, runs `cargo test`, checks contract-only wasm lints via `tools/check_contract_build_lints.sh`, and exercises `deploy.sh` RPC failure handling with a shell harness.
 - **Versioning**: tag contract releases as `contract-vX.Y.Z`. `api` should pin against a specific deployed `CONTRACT_ID` + ABI version, not "latest".
+
+### Deployment safety notes
+
+- `deploy.sh` now treats RPC timeouts as unconfirmed state, not success. If deployment or initialization times out, the script exits non-zero and prints the contract id when available so operators can verify chain state manually before retrying.
+- `deploy.sh` now surfaces targeted hints for unavailable RPC endpoints and bad sequence numbers, and it never prints the final "Deployment complete" summary before on-chain verification succeeds.
 
 ### Notes for Other Repos
 
@@ -784,7 +813,7 @@ MIT
 
 ## Contributing
 
-Contributions are welcome. LedgerLens is an open-source public good built for the Stellar ecosystem. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, required checks, and PR guidelines.
+Contributions are welcome. LedgerLens is an open-source public good built for the Stellar ecosystem. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, required checks, and PR guidelines, [`docs/invariants.md`](docs/invariants.md) for the non-negotiable behaviors (fail-closed gates, no-panic reads, bounded storage, append-only event/error stability) that any change to `lib.rs` must preserve, and [`docs/review-checklists.md`](docs/review-checklists.md) for the specific gates governance, cryptography, storage, upgrade, and composability changes are reviewed against.
 
 ## References
 
@@ -796,3 +825,5 @@ Contributions are welcome. LedgerLens is an open-source public good built for th
 - Harea, R. and Mihailă, S. (2025) 'Benford's law: Applicability in accounting and financial anomaly detection', *Challenges of Accounting for Young Researchers*, 3(1).
 - Stellar Development Foundation (2024) *Horizon API Documentation*. Available at: https://developers.stellar.org/api/horizon
 - Stellar Development Foundation (2024) *Soroban Smart Contract Documentation*. Available at: https://soroban.stellar.org/docs
+- [`docs/host-version-support-policy.md`](docs/host-version-support-policy.md) — supported Rust/Soroban build boundary and CI coverage
+- [`docs/network-matrix.md`](docs/network-matrix.md) — supported deployment profiles and failure modes

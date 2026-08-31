@@ -67,7 +67,7 @@ fn initialize_phase(lc: &Lifecycle) {
 
     // Assert admin is stored
     assert_eq!(lc.client.get_admin(), lc.admin);
-    assert_eq!(lc.client.get_version(), 4);
+    assert_eq!(lc.client.get_version(), 5);
 }
 
 /// Phase 2: Add service signers and set multisig threshold
@@ -189,7 +189,7 @@ fn test_full_lifecycle_end_to_end() {
     score_submission_phase(&lc);
 
     // Final assertion: contract is still operational
-    assert_eq!(lc.client.get_version(), 4);
+    assert_eq!(lc.client.get_version(), 5);
 }
 
 /// Test: Wallet risk cluster assignment (issue #205)

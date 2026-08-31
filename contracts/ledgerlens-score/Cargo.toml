@@ -17,6 +17,7 @@ libm = "0.2"
 
 [dev-dependencies]
 soroban-sdk = { version = "21.0.0", features = ["testutils"] }
+ledgerlens-test-support = { path = "../ledgerlens-test-support" }
 # Used only by tests, to produce real secp256k1 ECDSA signatures that
 # exercise `verify_attestation` end-to-end (see `test_attestation.rs`).
 k256 = { version = "0.13.4", features = ["ecdsa"] }
@@ -28,6 +29,11 @@ harness = false
 path = "benches/batch_submit.rs"
 
 [[bench]]
+name = "batch_attested"
+harness = false
+path = "benches/batch_attested.rs"
+
+[[bench]]
 name = "rent_sweep"
 harness = false
 path = "benches/rent_sweep.rs"
@@ -36,6 +42,11 @@ path = "benches/rent_sweep.rs"
 name = "history_eviction"
 harness = false
 path = "benches/history_eviction.rs"
+
+[[bench]]
+name = "batch_worst_case_profiles"
+harness = false
+path = "benches/batch_worst_case_profiles.rs"
 
 [features]
 testutils = ["soroban-sdk/testutils"]
@@ -51,4 +62,9 @@ crate-type = ["lib"]
 [[example]]
 name = "amm_gate_example"
 path = "../../examples/amm_gate_example.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "typed_client_examples"
+path = "../../examples/typed_client_examples.rs"
 crate-type = ["lib"]

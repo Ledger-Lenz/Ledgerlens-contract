@@ -1,0 +1,17 @@
+name: Deploy script smoke test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  dry-run:
+    name: deploy.sh --dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run deploy.sh in dry-run mode
+        run: |
+          chmod +x deploy.sh
+          ./deploy.sh --dry-run testnet deployer GDUMMYSERVICEADDRESSXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

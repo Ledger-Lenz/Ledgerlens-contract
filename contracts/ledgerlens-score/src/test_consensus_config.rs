@@ -82,6 +82,7 @@ fn test_set_consensus_config_non_admin_rejected() {
     // Initialize using a scoped mock just for the initialize call.
     env.mock_all_auths_allowing_non_root_auth();
     client.initialize(&admin, &service);
+    env.set_auths(&[]);
 
     // Without any auth context, set_consensus_config must be rejected.
     let result = client.try_set_consensus_config(&2, &5);

@@ -4,3 +4,4 @@
 *.wasm
 .env
 check.log
+.claude/

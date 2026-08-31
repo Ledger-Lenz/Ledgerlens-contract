@@ -1,0 +1,101 @@
+name: "\U0001F4CA Benchmark task"
+description: Measure and record resource cost (Soroban budget, WASM size) for a specific operation, especially at its worst-case bound.
+title: "[Bench] "
+labels:
+  - "type: benchmark"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Modeled on the existing Criterion suites under `contracts/ledgerlens-score/benches/` (e.g.
+        `batch_submit.rs`, `rent_sweep.rs`, `batch_attested.rs`) and [`docs/wasm-size-budget.md`](../../docs/wasm-size-budget.md).
+        The goal is a number a future PR can be compared against, not a one-off measurement that's forgotten.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What operation is being benchmarked, and why (new feature with no cost data yet, suspected regression, a bounded-storage cap that's never been measured at its ceiling).
+    validations:
+      required: true
+
+  - type: dropdown
+    id: primary-area
+    attributes:
+      label: Primary area
+      options:
+        - Score submission / batch throughput
+        - Storage rent / TTL sweep operations
+        - Attestation / cryptographic verification cost
+        - Bounded-collection worst case (dispute index, embargo list, signer sets, etc.)
+        - WASM binary size
+        - Other (specify in Summary)
+    validations:
+      required: true
+
+  - type: textarea
+    id: relevant-files
+    attributes:
+      label: Relevant files
+      placeholder: |
+        contracts/ledgerlens-score/benches/<name>.rs (new or extended)
+        contracts/ledgerlens-score/src/constants.rs (the MAX_* bound being measured against)
+    validations:
+      required: true
+
+  - type: textarea
+    id: target-and-bound
+    attributes:
+      label: Target function and worst-case bound
+      description: >
+        Name the exact function under test and the `MAX_*` constant (or other parameter) that defines its worst
+        case. If there is no existing cap and this benchmark is exactly how one gets chosen, say that instead.
+      placeholder: "get_expiring_entries, bounded by MAX_TRACKED_SCORE_ENTRIES (500) and MAX_EXPIRING_ENTRIES_PER_CALL (100)."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: expected-work
+    attributes:
+      label: Expected work
+      options:
+        - label: Benchmark added under contracts/ledgerlens-score/benches/ using Criterion, following the existing bench files' structure and naming.
+          required: true
+        - label: Measures cost at multiple input sizes, explicitly including the worst case named above (the MAX_* cap itself, not just a value close to it).
+          required: true
+        - label: Captures Soroban budget cost (env.budget()), not only wall-clock time — wall-clock alone doesn't reflect on-chain execution cost.
+          required: true
+        - label: Result numbers recorded somewhere durable — CHANGELOG.md entry and/or docs/wasm-size-budget.md, not only left in CI artifact logs that expire.
+          required: true
+        - label: A regression threshold or budget ceiling is stated so a future PR has something concrete to be checked against, not just a historical data point.
+          required: true
+        - label: If this benchmark reveals the worst case exceeds a reasonable budget, that's flagged in this issue and a separate implementation-task issue is filed for the fix — this task measures, it does not silently optimize.
+          required: true
+
+  - type: textarea
+    id: results
+    attributes:
+      label: Results (fill in once measured)
+      description: Paste the Criterion summary / budget numbers, or link the CI artifact and CHANGELOG entry once they exist.
+    validations:
+      required: true
+
+  - type: textarea
+    id: compatibility-impact
+    attributes:
+      label: Compatibility impact
+      description: State explicitly — a benchmark addition is almost always "None" (test-only code), unless it required a production change to make something measurable.
+      value: "None — bench-only addition, no production code touched."
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      value: |
+        - Cosmetic refactors that do not support the stated behavior.
+        - Optimizing away a bad number found during benchmarking — file a separate implementation-task issue instead.
+        - Broad rewrites without compatibility and migration notes.
+    validations:
+      required: false

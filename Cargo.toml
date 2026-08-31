@@ -3,9 +3,11 @@ resolver = "2"
 members = [
     "contracts/ledgerlens-score",
     "contracts/ledgerlens-aggregator",
+    "contracts/ledgerlens-test-support",
     "contracts/mock-amm",
     "contracts/mock-lending",
     "tools/replay",
+    "tools/recovery",
     "tests/composability",
 ]
 

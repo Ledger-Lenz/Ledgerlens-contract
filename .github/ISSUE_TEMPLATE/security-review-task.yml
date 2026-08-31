@@ -1,0 +1,101 @@
+name: "\U0001F512 Security review task"
+description: Audit a specific property (constant-time comparisons, replay protection, authorization coverage, etc.) across a defined set of code paths.
+title: "[Security] "
+labels:
+  - "type: security-review"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Modeled on this repo's existing audits — see [`docs/audit-constant-time-2026-07-20.md`](../../docs/audit-constant-time-2026-07-20.md)
+        and [`docs/replay-protection-audit.md`](../../docs/replay-protection-audit.md) for the expected shape and
+        level of detail. A security review produces a dated `docs/audit-<topic>-<YYYY-MM-DD>.md` document, not
+        just a PR description.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What property is being audited, and why now (new code path added, external report, scheduled review, etc.).
+    validations:
+      required: true
+
+  - type: dropdown
+    id: primary-area
+    attributes:
+      label: Primary area
+      options:
+        - Cryptography (signature verification, ZK proofs, Verkle commitments)
+        - Replay / commit-reveal protection
+        - Authorization & multisig coverage
+        - Fail-closed gate semantics
+        - Bounded-resource / DoS surface
+        - Privacy (GDPR deletion, data exposure)
+        - Other (specify in Summary)
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: >
+        The exact, numbered list of functions/files under review — copy the style of the existing audits (a
+        numbered list of function names with their file). State explicit exclusions and why (e.g. Soroban host
+        intrinsics whose properties are inherited, not implemented here).
+      placeholder: |
+        1. `verify_attestation` — per-score signature verification (lib.rs)
+        2. `verify_signature` — shared secp256k1 recovery + pubkey comparison (lib.rs)
+
+        Excludes: `secp256k1_recover`, `require_auth` (Soroban host intrinsics).
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: expected-work
+    attributes:
+      label: Expected work
+      options:
+        - label: Scope is precisely defined above, including explicit exclusions and why they're excluded.
+          required: true
+        - label: Path-by-path findings recorded — one table per function/path, each step of the logic checked against the property under review, with a file/line citation.
+          required: true
+        - label: Every invariant in docs/invariants.md relevant to this scope (fail-closed gates, no-panic reads, bounded storage, event/error stability, as applicable) explicitly checked against the reviewed code, not assumed to hold.
+          required: true
+        - label: Non-production code (tests, examples, benches) that would otherwise look like a finding is called out separately as acceptable, with why.
+          required: true
+        - label: A summary table and one explicit pass/fail conclusion sentence included — not just a list of individual findings with no rollup.
+          required: true
+        - label: Any finding that requires a code change is filed as a separate implementation-task issue and referenced here — this review documents and proves, it does not silently patch.
+          required: true
+
+  - type: textarea
+    id: findings
+    attributes:
+      label: Findings (fill in once the review is complete)
+      description: Paste or link the path-by-path findings and summary table, or link the docs/audit-*.md file once it exists.
+    validations:
+      required: true
+
+  - type: textarea
+    id: compatibility-impact
+    attributes:
+      label: Compatibility impact
+      description: >
+        State explicitly. A review itself should have no ABI/event/error/storage impact — if a finding leads to
+        a fix in *this* PR (only appropriate for a trivial, unambiguous fix; anything larger goes in its own
+        implementation-task issue per Expected work above), document that fix's compatibility impact here.
+      value: "None from the review itself. (Any fix bundled in per an explicit exception: describe its ABI/event/error/storage impact here.)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      value: |
+        - Cosmetic refactors that do not support the stated behavior.
+        - Fixing every finding inline — non-trivial fixes are separate implementation-task issues.
+        - Broad rewrites without compatibility and migration notes.
+    validations:
+      required: false

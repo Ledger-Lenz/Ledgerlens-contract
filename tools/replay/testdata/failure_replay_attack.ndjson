@@ -1,0 +1,1 @@
+{"scenario":"replay-attack","wallet":"wallet_replay","asset_pair":"XLM_USDC","score":50,"timestamp":1000000,"confidence":80,"model_version":1}

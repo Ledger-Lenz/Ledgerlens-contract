@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LedgerLensTraceabilityReportV1",
+  "type": "object",
+  "required": [
+    "version",
+    "timestamp",
+    "summary",
+    "items"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "enum": [
+        "1.0.0"
+      ]
+    },
+    "timestamp": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "total_issues",
+        "total_invariants",
+        "total_tests",
+        "coverage_percentage",
+        "status"
+      ],
+      "properties": {
+        "total_issues": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_invariants": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_tests": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "coverage_percentage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASSED",
+            "FAILED",
+            "INCOMPLETE"
+          ]
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "issue_id",
+          "invariants"
+        ],
+        "properties": {
+          "issue_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "invariants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "invariant_id",
+                "description",
+                "test_ids",
+                "verified"
+              ],
+              "properties": {
+                "invariant_id": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "test_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "verified": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

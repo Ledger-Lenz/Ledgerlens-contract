@@ -159,3 +159,87 @@ pub fn apply_parameter_change(
     }
     Err(Error::InvalidParameterKey)
 }
+
+/// Returns the current value of a parameter without modification.
+pub fn get_current_parameter_value(env: &Env, param_key: &Symbol) -> Result<Bytes, Error> {
+    if param_key == &param_key_cooldown() {
+        let secs = storage::get_cooldown_secs(env);
+        return Ok(Bytes::from_array(env, &secs.to_be_bytes()));
+    }
+    if param_key == &param_key_history_depth() {
+        let depth = storage::get_history_max_depth(env);
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(&depth.to_be_bytes());
+        return Ok(Bytes::from_array(env, &bytes));
+    }
+    if param_key == &param_key_decay_rate() {
+        let (num, denom) = storage::get_decay_rate(env);
+        let mut bytes = [0u8; 8];
+        bytes[0..4].copy_from_slice(&num.to_be_bytes());
+        bytes[4..8].copy_from_slice(&denom.to_be_bytes());
+        return Ok(Bytes::from_array(env, &bytes));
+    }
+    if param_key == &param_key_velocity_cap() {
+        let cap = storage::get_score_velocity_cap(env);
+        let enabled = if cap.enabled { 1u8 } else { 0u8 };
+        let mut bytes = [0u8; 5];
+        bytes[0] = enabled;
+        bytes[1..5].copy_from_slice(&cap.points_per_hour.to_be_bytes());
+        return Ok(Bytes::from_array(env, &bytes));
+    }
+    if param_key == &param_key_upgrade_delay() {
+        let delay = storage::get_upgrade_delay(env);
+        return Ok(Bytes::from_array(env, &delay.to_be_bytes()));
+    }
+    Err(Error::InvalidParameterKey)
+}
+
+/// Returns the set of capabilities affected by a parameter change.
+fn get_affected_capabilities(env: &Env, param_key: &Symbol) -> soroban_sdk::Vec<Symbol> {
+    use soroban_sdk::Vec as SorobanVec;
+
+    let mut caps = SorobanVec::new(env);
+    if param_key == &param_key_cooldown() {
+        caps.push_back(symbol_short!("cooldown"));
+        caps.push_back(symbol_short!("ratelimit"));
+    } else if param_key == &param_key_history_depth() {
+        caps.push_back(symbol_short!("history"));
+        caps.push_back(symbol_short!("decay"));
+    } else if param_key == &param_key_decay_rate() {
+        caps.push_back(symbol_short!("decay"));
+        caps.push_back(symbol_short!("score"));
+    } else if param_key == &param_key_velocity_cap() {
+        caps.push_back(symbol_short!("velcap"));
+        caps.push_back(symbol_short!("ratelimit"));
+    } else if param_key == &param_key_upgrade_delay() {
+        caps.push_back(symbol_short!("upgrade"));
+        caps.push_back(symbol_short!("govern"));
+    }
+    caps
+}
+
+/// Simulates a parameter change without applying it. Returns before/after values,
+/// affected capabilities, and execution window.
+pub fn simulate_parameter_change(
+    env: &Env,
+    param_key: &Symbol,
+    new_value: &Bytes,
+    proposed_at: u64,
+    time_lock_secs: u64,
+) -> Result<crate::types::ParameterSimulation, Error> {
+    validate_parameter_value(env, param_key, new_value)?;
+
+    let current_value = get_current_parameter_value(env, param_key)?;
+    let affected = get_affected_capabilities(env, param_key);
+    let exec_start = proposed_at.saturating_add(time_lock_secs);
+    let exec_end = proposed_at.saturating_add(time_lock_secs.saturating_mul(2));
+
+    Ok(crate::types::ParameterSimulation {
+        param_key: param_key.clone(),
+        current_value,
+        new_value: new_value.clone(),
+        affected_capabilities: affected,
+        execution_window_start: exec_start,
+        execution_window_end: exec_end,
+    })
+}

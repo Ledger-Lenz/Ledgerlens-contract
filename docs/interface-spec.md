@@ -1,6 +1,6 @@
 # `ILedgerLensScore` — Composability Interface Specification
 
-**Status:** Stable · **Interface version:** 2 · **Contract:** `LedgerLensScoreContract`
+**Status:** Stable · **Interface version:** 3 · **Contract:** `LedgerLensScoreContract`
 
 LedgerLens turns off-chain fraud signals (Benford's-Law analysis + an ML
 ensemble) into an on-chain, 0–100 risk score per `(wallet, asset_pair)`. The
@@ -126,11 +126,46 @@ capabilities (all `symbol_short!`):
 | `batch`         | `submit_scores_batch`                                                |
 | `gate`          | `query_risk_gate`                                                    |
 | `aggr`          | `get_aggregate_score` (cross-asset aggregate risk)                   |
+| `count`         | `get_score_count`                                                    |
 | `batch_attested`| `submit_scores_batch_attested` (Merkle-root attestation)             |
+| `cgate`         | `query_risk_gate_with_confidence` / global confidence floor         |
 | `emb`           | `set_score_embargo` / `lift_score_embargo`                          |
 | `cons`          | `commit_consensus` / `reveal_consensus` / `set_consensus_config`     |
+| `pr_rd`         | `is_pair_paused`                                                     |
+| `meta`          | `get_interface_metadata`                                             |
 
 Unrecognised capabilities return `false`.
+
+### 1.4 `get_interface_metadata` — versioned metadata discovery
+
+```rust
+fn get_interface_metadata(env: Env) -> InterfaceMetadata
+```
+
+Returns a compact, versioned description of the contract's published surface so
+consumers can discover capabilities and semantic constraints at runtime without
+hard-coding the ABI. The structure is stable across compatible upgrades within
+this interface major version, and integrators should treat it as read-only
+metadata rather than a second source of truth.
+
+```rust
+#[contracttype]
+pub struct InterfaceMetadata {
+    pub interface_version: u32,
+    pub contract_version: u32,
+    pub capabilities: Vec<Symbol>,
+    pub semantic_constraints: Vec<Symbol>,
+}
+```
+
+The metadata currently advertises the following capabilities and constraints:
+
+- Capabilities: `score`, `history`, `batch`, `gate`, `aggr`, `count`, `cgate`, `meta`
+- Semantic constraints: `fail_closed`, `side_effect_free`, `bounded_score_range`
+
+The `meta` capability is reserved for this metadata surface itself; callers can
+use it to detect whether the deployment exports `get_interface_metadata` before
+trying to read it.
 
 > Note: `batch_attested` is a 14-character symbol, longer than
 > `symbol_short!`'s 9-character ceiling, so it is constructed via
@@ -146,7 +181,7 @@ Unrecognised capabilities return `false`.
 | `get_score(env, wallet, asset_pair) -> Result<RiskScore, Error>` | latest score | `Err(ScoreNotFound)` if absent |
 | `get_score_history(env, wallet, asset_pair) -> Vec<RiskScore>` | up to 10 entries, oldest first | empty `Vec` if none |
 | `get_aggregate_score(env, wallet) -> Result<AggregateRiskScore, Error>` | cross-asset weighted view | `Err(ScoreNotFound)` if the wallet has no scores |
-| `get_version(env) -> u32` | contract build version | currently `2` (was `1` prior to the `BatchResult` ABI change) |
+| `get_version(env) -> u32` | contract build version | currently `4` (reflecting the current contract build) |
 
 `get_score` is the right call when you need the full struct (confidence, model
 version, flags) rather than a yes/no gate decision. Prefer `query_risk_gate`
@@ -204,7 +239,7 @@ when `model_version` advances.
 There are two independent version numbers:
 
 1. **Contract version** — `get_version()` (backed by `CONTRACT_VERSION`,
-   currently `2`). Bumped on any breaking ABI change.
+   currently `4`). Bumped on any breaking ABI change.
 2. **Interface version** — the number at the top of this document. It tracks
    the `ILedgerLensScore` surface specifically.
 
@@ -278,6 +313,12 @@ below are stable** — integrators may match on the numeric code:
   this function rather than `query_risk_gate` for high-value guard clauses.
   The admin-configurable `global_min_confidence` allows a system-wide floor to
   be enforced without requiring every integrating protocol to specify one.
+- **Freshness is separate from confidence.** A high-confidence score can still
+  be stale if the off-chain pipeline has not published a replacement yet.
+  LedgerLens does not currently bake max-age into `query_risk_gate`, so
+  consumers that care about detection lag must enforce their own freshness
+  bound, re-check their own pause state, and fail closed when the score is too
+  old or the oracle is silent.
 - **`query_risk_gate` and `query_risk_gate_with_confidence` cannot be
   weaponised against you.** Both are infallible and side-effect free by design,
   so an attacker cannot craft inputs that make them panic, consume unexpected
@@ -311,8 +352,13 @@ if !client.query_risk_gate(&user, &symbol_short!("XLM_USDC"), &75) {
 Cross-contract calls cost gas. For hot paths, cache the gate result per wallet
 for a short window (e.g. a handful of ledgers) and re-query when the cache
 expires. Keep the TTL short: a wallet's score can change the moment the
-off-chain pipeline submits an update. Caching trades freshness for cost — never
-cache a *safe* verdict longer than you are willing to be wrong about it.
+off-chain pipeline submits an update, and a cached *safe* verdict can age into
+the wrong answer during detection lag. Caching trades freshness for cost —
+never cache a safe verdict longer than you are willing to be wrong about it.
+
+If your protocol already tracks a pause state, check that first and short-circuit
+to the fail-closed branch while paused. Then apply a max-age bound to the score
+itself before you treat the gate result as actionable.
 
 ### 6.3 Fallback behaviour when `ScoreNotFound`
 
@@ -320,7 +366,8 @@ With `query_risk_gate` the not-found case is already folded into `false`
 (fail closed) — no extra handling required. If you call `get_score` directly,
 handle `Err(ScoreNotFound)` explicitly and default to your protocol's
 fail-closed branch unless you have a deliberate reason to allow unknown wallets
-through.
+through. The same rule applies to stale scores: if the age check fails, treat
+the result exactly like `ScoreNotFound`.
 
 ### 6.4 Feature-detect before using newer functions
 
@@ -375,7 +422,7 @@ incorrect cross-contract calls at query time rather than a clear error up front.
 
 ### 7.1 Targeted interface version
 
-The aggregator targets **interface version 2** (the version at the top of this
+The aggregator targets **interface version 3** (the version at the top of this
 document). Concretely, it invokes the following canonical functions on every
 registered shard, each identified by its `supports_interface` capability:
 

@@ -1,1 +1,17 @@
 avoid-breaking-exported-api = false
+
+# ── Panic-safety deny rules (issue #777) ─────────────────────────────────────
+# clippy.toml supports only configuration values for existing lints, not lint
+# level overrides (those live in .cargo/config.toml rustflags or source-level
+# attributes).  The panic-guard lint levels are therefore declared in
+# .cargo/config.toml (see rustflags) and documented here for discoverability.
+#
+# Enforced by CI via `cargo clippy --all-targets -- -D warnings` plus the
+# extra flags in .cargo/config.toml:
+#   -W clippy::unwrap_used
+#   -W clippy::expect_used
+#   -W clippy::indexing_slicing
+#   -W clippy::arithmetic_side_effects
+#
+# Existing call-sites that predate these rules may carry a scoped
+# `#[allow(clippy::unwrap_used)]` with a safety comment.  New code must not.
