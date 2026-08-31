@@ -879,6 +879,34 @@ impl LedgerLensScoreContract {
     ///
     /// See [docs/commit-reveal-flow.md](../../docs/commit-reveal-flow.md) for the full
     /// multi-model consensus commit-reveal sequence and security considerations.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{Error, LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// let empty_submissions = Vec::<ledgerlens_score::ModelSubmission>::new(&env);
+    /// let empty_nonces = Vec::<u64>::new(&env);
+    /// let result = client.try_reveal_consensus(
+    ///     &Vec::new(&env),
+    ///     &wallet,
+    ///     &pair,
+    ///     &empty_submissions,
+    ///     &empty_nonces,
+    ///     &1_700_000_000,
+    /// );
+    /// assert!(matches!(result, Ok(Err(Error::ConsensusInputEmpty))));
+    /// ```
     #[allow(clippy::too_many_arguments)]
     pub fn reveal_consensus(
         env: Env,
