@@ -2904,6 +2904,27 @@ impl LedgerLensScoreContract {
 
     /// Returns the currently registered score delegate (custodian) for `sub_wallet`,
     /// or `None` if no delegation exists.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let sub_wallet = Address::generate(&env);
+    /// let custodian = Address::generate(&env);
+    /// // Before any delegation is registered, returns None.
+    /// assert!(client.get_score_delegate(&sub_wallet).is_none());
+    /// // Register a delegation and confirm it is readable.
+    /// client.set_score_delegate(&sub_wallet, &custodian);
+    /// assert_eq!(client.get_score_delegate(&sub_wallet), Some(custodian));
+    /// ```
     pub fn get_score_delegate(env: Env, sub_wallet: Address) -> Option<Address> {
         storage::get_score_delegate(&env, &sub_wallet)
     }
