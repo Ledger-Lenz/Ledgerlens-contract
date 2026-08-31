@@ -2944,6 +2944,22 @@ impl LedgerLensScoreContract {
     ///
     /// # Errors
     /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient, InterpolationMethod};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_interpolation_method(&InterpolationMethod::CubicSpline);
+    /// assert_eq!(client.get_interpolation_method(), InterpolationMethod::CubicSpline);
+    /// ```
     pub fn set_interpolation_method(env: Env, method: InterpolationMethod) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
@@ -3858,6 +3874,26 @@ impl LedgerLensScoreContract {
     ///
     /// # Errors
     /// - [`Error::InsufficientPairData`] when fewer than 2 pairs have scores.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, symbol_short};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// // Submit scores for two pairs to satisfy the 2-pair minimum.
+    /// client.submit_score(&Vec::new(&env), &wallet, &symbol_short!("XLM_USDC"), &60, &false, &false, &1, &90, &1, &None);
+    /// client.submit_score(&Vec::new(&env), &wallet, &symbol_short!("XLM_BTC"), &80, &false, &false, &2, &85, &1, &None);
+    /// let var_95 = client.get_portfolio_var(&wallet, &95);
+    /// assert!(var_95 <= 100);
+    /// ```
     pub fn get_portfolio_var(env: Env, wallet: Address, confidence: u32) -> Result<u32, Error> {
         let all_pairs = storage::get_wallet_pairs(&env, &wallet);
 
@@ -4057,6 +4093,24 @@ impl LedgerLensScoreContract {
     /// asset class's override when one is configured, otherwise the global
     /// `risk_threshold` default. Deterministic and safe when no policy
     /// profile exists for the pair.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, symbol_short};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// // No per-pair profile configured → falls back to the global default.
+    /// let threshold = client.get_effective_risk_threshold(&pair);
+    /// assert!(threshold <= 100);
+    /// ```
     pub fn get_effective_risk_threshold(env: Env, asset_pair: Symbol) -> u32 {
         storage::get_effective_risk_threshold(&env, &asset_pair)
     }
@@ -4068,6 +4122,23 @@ impl LedgerLensScoreContract {
     /// within the last `get_pair_volatility_window()` seconds, computed
     /// incrementally via Welford's algorithm on every `submit_score`.
     /// Returns `0` when fewer than 2 samples exist.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, symbol_short};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// // No submissions yet → fewer than 2 samples → returns 0.
+    /// assert_eq!(client.get_pair_volatility(&pair), 0);
+    /// ```
     pub fn get_pair_volatility(env: Env, asset_pair: Symbol) -> u32 {
         let state = match storage::get_pair_volatility_state(&env, &asset_pair) {
             Some(s) => s,
