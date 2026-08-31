@@ -711,6 +711,32 @@ impl LedgerLensScoreContract {
     /// Read-only lookup of the pending score held for `(wallet, asset_pair)`,
     /// if any. Returns `None` when the buffer is disabled or no score is
     /// currently in the hold window.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// // No pending score before any submission.
+    /// assert_eq!(client.get_pending_score(&wallet, &asset_pair), None);
+    /// // Enable the finality buffer so submit_score creates a pending entry.
+    /// client.set_finality_buffer(&Vec::new(&env), &60);
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &42, &true, &false, &1, &90, &1, &None);
+    /// let pending = client.get_pending_score(&wallet, &asset_pair);
+    /// assert!(pending.is_some());
+    /// assert_eq!(pending.unwrap().score, 42);
+    /// ```
     pub fn get_pending_score(
         env: Env,
         wallet: Address,
