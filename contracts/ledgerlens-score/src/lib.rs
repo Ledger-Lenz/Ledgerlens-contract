@@ -822,6 +822,23 @@ impl LedgerLensScoreContract {
     // ── HyperLogLog unique-wallet estimation ─────────────────────────────────
 
     /// Admin-only. Sets the HLL precision `p` ∈ [HLL_MIN_PRECISION, HLL_MAX_PRECISION].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// client.set_hll_precision(&Vec::new(&env), &8);
+    /// assert_eq!(client.get_hll_precision(), 8);
+    /// ```
     pub fn set_hll_precision(
         env: Env,
         admin_signers: Vec<Address>,
