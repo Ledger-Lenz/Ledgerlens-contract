@@ -2911,6 +2911,32 @@ impl LedgerLensScoreContract {
     /// Returns the full delegation chain for a wallet, from the wallet through all custodians.
     /// Returns a vector of addresses: [wallet, custodian1, custodian2, ...] up to MAX_DELEGATION_DEPTH.
     /// Returns empty vector if wallet not found or chain cannot be resolved.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let custodian = Address::generate(&env);
+    /// // With no delegation set the chain contains only the wallet itself.
+    /// let chain = client.get_delegation_chain(&wallet);
+    /// assert_eq!(chain.len(), 1);
+    /// assert_eq!(chain.get(0).unwrap(), wallet.clone());
+    /// // Register a delegation and confirm the chain now includes the custodian.
+    /// client.set_score_delegate(&wallet, &custodian);
+    /// let chain = client.get_delegation_chain(&wallet);
+    /// assert_eq!(chain.len(), 2);
+    /// assert_eq!(chain.get(0).unwrap(), wallet);
+    /// assert_eq!(chain.get(1).unwrap(), custodian);
+    /// ```
     pub fn get_delegation_chain(env: Env, wallet: Address) -> Vec<Address> {
         let mut chain: Vec<Address> = Vec::new(&env);
         let mut current = wallet.clone();
