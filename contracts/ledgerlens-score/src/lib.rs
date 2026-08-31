@@ -687,6 +687,25 @@ impl LedgerLensScoreContract {
 
     /// Returns the current finality buffer in seconds. `0` means the buffer
     /// is disabled and `submit_score` commits immediately.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // Defaults to 0, i.e. the buffer is disabled until configured.
+    /// assert_eq!(client.get_finality_buffer(), 0);
+    /// client.set_finality_buffer(&Vec::new(&env), &300);
+    /// assert_eq!(client.get_finality_buffer(), 300);
+    /// ```
     pub fn get_finality_buffer(env: Env) -> u64 {
         storage::get_finality_buffer_secs(&env)
     }
