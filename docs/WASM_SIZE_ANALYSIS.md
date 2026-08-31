@@ -61,7 +61,6 @@ Regressions:
   
 Improvements:
   validator module:     40KB → 38KB (-5.0%)
-```
 
 ## Performance Benchmarks
 
@@ -83,7 +82,7 @@ let mut analysis = WasmBinaryAnalysis::new(280_000); // 280KB binary
 analysis.add_module("score", 150_000, SizeCategory::Core);
 analysis.add_module("validator", 50_000, SizeCategory::Feature);
 analysis.add_feature("oracle_staleness", 30_000, SizeCategory::Feature);
-```
+```yaml
 
 ### Detecting Regressions
 
@@ -97,7 +96,6 @@ if comparison.requires_review {
         println!("  {}: +{} bytes", regression.name, regression.increase_bytes);
     }
 }
-```
 
 ### Sorting by Impact
 
@@ -107,7 +105,7 @@ let modules = analysis.modules_by_size();
 for module in modules.iter().take(5) {
     println!("{}: {:.1}%", module.name, module.percentage);
 }
-```
+```yaml
 
 ## Resource Constraints
 

@@ -33,7 +33,7 @@ fn test_audit_replay_score_submission_emits_event() {
     // Verify that finality buffer events are emitted
     // Verify that score_committed or score_vetoed is emitted
 }
-```
+```yaml
 
 **Coverage**:
 - Score submission → `score_submitted`
@@ -67,7 +67,6 @@ fn test_audit_replay_correlation_id_links_workflow() {
         assert_eq!(extract_correlation_id(event), correlation_id);
     }
 }
-```
 
 **Workflow Coverage**:
 - Score submission workflow
@@ -101,7 +100,7 @@ fn test_audit_replay_reconstruct_score_history() {
         client.get_score(&wallet, &asset_pair).score
     );
 }
-```
+```yaml
 
 ### 4. Event Schema Stability Tests
 
@@ -114,7 +113,6 @@ fn test_audit_replay_score_event_schema_immutable() {
     // Verify that field types are consistent
     // Verify that old events can still be parsed
 }
-```
 
 ### 5. Boundary and Failure Case Tests
 
@@ -141,7 +139,7 @@ fn test_audit_replay_replay_after_upgrade() {
     // Verify old events can still be replayed
     // Verify migration was successful
 }
-```
+```yaml
 
 ## Implementation Patterns
 
@@ -177,7 +175,6 @@ def reconstruct_audit_trail(events, wallet):
                 workflow['status'] = 'vetoed'
     
     return timeline
-```
 
 ### Pattern 2: Fraud Detection
 
@@ -200,7 +197,7 @@ def detect_fraud(events):
                     })
     
     return issues
-```
+```yaml
 
 ### Pattern 3: State Reconciliation
 
@@ -219,7 +216,6 @@ def reconcile_state(events, on_chain_state):
             )
     
     return True  # Audit passed
-```
 
 ## Resource Tracking
 
@@ -271,7 +267,7 @@ fn test_audit_replay_score_lifecycle() {
     // Should have score_submitted and score_committed
     assert!(relevant_events.len() >= 2);
 }
-```
+```yaml
 
 ### Example 2: Admin Transfer Audit
 
@@ -310,7 +306,6 @@ fn test_audit_replay_admin_transfer() {
     
     assert!(found_init && found_accept);
 }
-```
 
 ## Compliance Verification
 

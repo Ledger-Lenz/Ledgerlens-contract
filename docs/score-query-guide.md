@@ -30,7 +30,7 @@ LedgerLens exposes multiple query functions for different use cases. Choosing th
 **Signature:**
 ```rust
 fn get_score(env: Env, wallet: Address, asset_pair: Symbol) -> Result<RiskScore, Error>
-```
+```yaml
 
 **What it does:**
 - Retrieves the latest raw risk score for `(wallet, asset_pair)`.
@@ -66,7 +66,6 @@ match client.get_score(&user, &symbol_short!("XLM_USDC")) {
     }
     Err(e) => return Err(MyError::SystemError(e)),
 }
-```
 
 ---
 
@@ -79,7 +78,7 @@ fn get_effective_score(
     wallet: Address,
     asset_pair: Symbol,
 ) -> Result<EffectiveRiskScore, Error>
-```
+```yaml
 
 **What it does:**
 - Retrieves the latest raw score and applies staleness filtering.
@@ -121,7 +120,6 @@ match client.get_effective_score(&user, &symbol_short!("XLM_USDC")) {
     }
     Err(e) => return Err(MyError::SystemError(e)),
 }
-```
 
 ---
 
@@ -135,7 +133,7 @@ fn query_risk_gate(
     asset_pair: Symbol,
     gate_threshold: u32,
 ) -> bool
-```
+```yaml
 
 **What it does:**
 - Returns `true` if `score < gate_threshold` (wallet is safe).
@@ -161,7 +159,6 @@ if !client.query_risk_gate(&user, &symbol_short!("XLM_USDC"), &threshold) {
     return Err(MyError::UserTooRisky);
 }
 // Proceed with swap
-```
 
 ---
 
@@ -174,7 +171,7 @@ fn peek_effective_score(
     wallet: Address,
     asset_pair: Symbol,
 ) -> Option<EffectiveRiskScore>
-```
+```yaml
 
 **What it does:**
 - Retrieves the effective score (with staleness decay applied) without extending TTL.
@@ -201,7 +198,6 @@ match preview {
     None => println!("No score or embargoed"),
 }
 // No TTL mutated; read many wallets without gas penalty.
-```
 
 ---
 
@@ -217,7 +213,7 @@ graph TD
     E -->|Yes, and extend TTL| F["Use get_effective_score"]
     E -->|Yes, but no TTL extension| G["Use peek_effective_score"]
     E -->|No| H["Use get_score"]
-```
+```yaml
 
 ---
 

@@ -75,7 +75,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # wasm32-unknown-unknown target.  You can also install it explicitly:
 rustup toolchain install 1.81.0
 rustup target add wasm32-unknown-unknown --toolchain 1.81.0
-```
+```yaml
 
 ### Step 1 — Check out the exact commit
 
@@ -86,7 +86,6 @@ cd Ledgerlens-contract
 # Replace <COMMIT_SHA> with the Git commit that was deployed on-chain.
 # For a tagged release, use the tag instead: git checkout contract-v1.2.3
 git checkout <COMMIT_SHA>
-```
 
 ### Step 2 — Build the contract
 
@@ -98,18 +97,16 @@ cargo build \
   --release \
   -p ledgerlens-score \
   --locked
-```
+```yaml
 
 ### Step 3 — Compute the SHA-256 hash of the local artifact
 
 ```bash
 sha256sum target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
-```
 
 Example output:
 ```
 a1b2c3d4e5f6...  target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
-```
 
 ### Step 4 — Retrieve the on-chain WASM hash
 
@@ -122,7 +119,7 @@ easiest way is via the Stellar CLI:
 stellar contract info \
   --id <CONTRACT_ID> \
   --network <NETWORK>
-```
+```yaml
 
 The output includes a `wasm_hash` field — that is the SHA-256 hash of the
 bytecode currently installed on-chain.
@@ -141,7 +138,6 @@ curl -s https://soroban-testnet.stellar.org \
       "keys": ["<CONTRACT_CODE_XDR_KEY>"]
     }
   }' | jq '.result.entries[0].xdr'
-```
 
 > **Note**: the on-chain `wasm_hash` is the hash of the *raw* WASM bytes before
 > any Soroban optimization step.  If you apply `stellar contract optimize` (or
@@ -167,7 +163,7 @@ else
   echo "  Local:   $LOCAL_HASH"
   echo "  On-chain: $ONCHAIN_HASH"
 fi
-```
+```yaml
 
 If the hashes match, the deployed contract bytecode is confirmed to correspond
 to the source at `<COMMIT_SHA>` in this repository.
@@ -193,7 +189,6 @@ Fix:
 
 ```bash
 rustup target add wasm32-unknown-unknown --toolchain 1.81.0
-```
 
 ### Build fails with feature errors on Rust ≥ 1.82
 

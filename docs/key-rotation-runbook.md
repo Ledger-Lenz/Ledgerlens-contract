@@ -27,7 +27,7 @@ soroban contract invoke \
   add_service_signer \
   --admin_signants '["<ADMIN_1>", "<ADMIN_2>"]' \
   --signer "<NEW_SIGNER_ADDRESS>"
-```
+```yaml
 
 ### Procedure: Remove a Service Signer
 
@@ -40,7 +40,6 @@ soroban contract invoke \
   remove_service_signer \
   --admin_signants '["<ADMIN_1>", "<ADMIN_2>"]' \
   --signer "<SIGNER_TO_REMOVE>"
-```
 
 **Note:** The threshold auto-adjusts downward if it exceeds the new set size.
 
@@ -62,7 +61,7 @@ for signer in "<OLD_SIGNER_1>" "<OLD_SIGNER_2>"; do
   soroban contract invoke --id $CONTRACT_ID --source $ADMIN_KEY --network $NETWORK -- \
     remove_service_signer --admin_signants '["<ADMIN>"]' --signer "$signer"
 done
-```
+```yaml
 
 ### Constraints
 
@@ -85,7 +84,6 @@ soroban contract invoke \
   add_admin_signer \
   --admin_signants '["<ADMIN_1>", "<ADMIN_2>"]' \
   --signer "<NEW_ADMIN_SIGNER>"
-```
 
 ### Procedure: Remove an Admin Signer
 
@@ -98,7 +96,7 @@ soroban contract invoke \
   remove_admin_signer \
   --admin_signants '["<ADMIN_1>", "<ADMIN_2>"]' \
   --signer "<ADMIN_TO_REMOVE>"
-```
+```yaml
 
 ### Constraints
 
@@ -123,7 +121,6 @@ soroban contract invoke \
   --admin_signants '["<ADMIN>"]' \
   --new_key "<NEW_65BYTE_PUBKEY>" \
   --overlap_secs 86400
-```
 
 During the overlap window both old and new pubkeys are accepted for attestation verification. After the overlap expires, only the new key is accepted.
 
@@ -139,7 +136,7 @@ soroban contract invoke \
   --admin_signants '["<ADMIN>"]' \
   --new_key "<NEW_PUBKEY>" \
   --overlap_secs 0
-```
+```yaml
 
 ### Verification
 
@@ -159,7 +156,6 @@ soroban contract invoke \
   --network $NETWORK \
   -- \
   get_service_pubkey
-```
 
 ---
 
@@ -195,7 +191,7 @@ soroban contract invoke \
   --overlap_secs 3600
 
 # 5. Unfreeze (if frozen)
-```
+```yaml
 
 ### Scenario 2: Threshold Lost (Too Few Signers)
 
@@ -209,7 +205,6 @@ soroban contract invoke \
   add_service_signer \
   --admin_signants '["<ADMIN>"]' \
   --signer "<NEW_SIGNER>"
-```
 
 ### Scenario 3: Rotation Interrupted (Network Failure)
 
@@ -228,7 +223,7 @@ soroban contract invoke \
   get_service_signers
 
 # 3. Depending on state, either add remaining signers or remove partial ones
-```
+```yaml
 
 ### Scenario 4: Pubkey Rotation with Stale Signatures
 
@@ -243,7 +238,6 @@ soroban contract invoke \
   --admin_signants '["<ADMIN>"]' \
   --new_key "<CURRENT_NEW_KEY>" \
   --overlap_secs 3600
-```
 
 ---
 
@@ -253,17 +247,16 @@ Run the key-rotation rehearsal on testnet before any production change:
 
 ```bash
 ./scripts/rotate-keys-rehearsal.sh
-```
+```yaml
 
 For a dry run:
 ```bash
 ./scripts/rotate-keys-rehearsal.sh --dry-run
-```
 
 To keep the deployment for manual inspection:
 ```bash
 ./scripts/rotate-keys-rehearsal.sh --keep-deployment
-```
+```yaml
 
 ### What the Rehearsal Validates
 
