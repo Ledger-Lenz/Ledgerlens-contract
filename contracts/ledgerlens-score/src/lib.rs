@@ -844,6 +844,26 @@ impl LedgerLensScoreContract {
     }
 
     /// Estimates the number of unique wallets scored for `asset_pair` using HyperLogLog.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &pair, &42, &false, &false, &1, &90, &1, &None);
+    /// let estimate = client.estimate_unique_wallets(&pair);
+    /// assert!(estimate >= 1); // At least one wallet scored
+    /// ```
     pub fn estimate_unique_wallets(env: Env, asset_pair: Symbol) -> u64 {
         storage::hll_estimate(&env, &asset_pair)
     }
