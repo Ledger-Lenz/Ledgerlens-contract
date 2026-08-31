@@ -10539,6 +10539,83 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
+    /// Applies a previously proposed policy bundle once its time-lock has elapsed.
+    ///
+    /// Re-verifies at execution time that a bundle proposal exists and that
+    /// `now >= apply_after`. Each entry in the bundle is applied in order via
+    /// the same dispatch logic as `apply_param_change`. If any entry carries an
+    /// unrecognised key the call returns [`Error::InvalidParameterKey`] and the
+    /// entire bundle is rolled back (no entries are applied). Clears the pending
+    /// bundle on success and emits `pb_appl`.
+    ///
+    /// Admin only.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    /// - [`Error::NoPendingUpgrade`] if no bundle proposal exists.
+    /// - [`Error::UpgradeNotReady`] if the time-lock has not yet elapsed.
+    /// - [`Error::InvalidParameterKey`] if any entry carries an unrecognised key.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use ledgerlens_score::{PolicyBundleEntry, ParamValue};
+    /// # use soroban_sdk::{testutils::{Address as _, Ledger as _}, Env, Address, Vec, symbol_short};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let mut entries = Vec::new(&env);
+    /// entries.push_back(PolicyBundleEntry {
+    ///     param_key: symbol_short!("risk_thr"),
+    ///     new_value: ParamValue::U32(80),
+    /// });
+    /// client.propose_policy_bundle(&Vec::new(&env), &entries);
+    /// // Advance past the time-lock delay and apply the bundle.
+    /// env.ledger().with_mut(|l| l.timestamp += 86_401);
+    /// client.apply_policy_bundle(&Vec::new(&env));
+    /// assert_eq!(client.get_risk_threshold(), 80);
+    /// ```
+    pub fn apply_policy_bundle(
+        env: Env,
+        admin_signers: Vec<Address>,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        let proposal =
+            storage::get_pending_policy_bundle(&env).ok_or(Error::NoPendingUpgrade)?;
+        if env.ledger().timestamp() < proposal.apply_after {
+            return Err(Error::UpgradeNotReady);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        for i in 0..proposal.entries.len() {
+            let entry = proposal.entries.get(i).unwrap();
+            match &entry.new_value {
+                ParamValue::U32(v) if entry.param_key == symbol_short!("risk_thr") => {
+                    storage::set_risk_threshold(&env, *v)
+                }
+                ParamValue::U32(v) if entry.param_key == symbol_short!("hist_dep") => {
+                    storage::set_history_max_depth(&env, *v)
+                }
+                ParamValue::U64(v) if entry.param_key == symbol_short!("upg_dly") => {
+                    storage::set_upgrade_delay(&env, *v)
+                }
+                ParamValue::U64(v) if entry.param_key == symbol_short!("stale_w") => {
+                    storage::set_staleness_window(&env, *v)
+                }
+                _ => return Err(Error::InvalidParameterKey),
+            }
+        }
+        storage::clear_pending_policy_bundle(&env);
+        events::policy_bundle_applied(&env);
+        Ok(())
+    }
+
     // ── Oracle staleness threshold (issue #429) ────────────────────────────────
 
     /// Admin-only. Sets the maximum age (in seconds) of oracle price data before
