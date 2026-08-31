@@ -729,6 +729,32 @@ impl LedgerLensScoreContract {
     /// - [`Error::NoPendingScore`] if no pending score exists for
     ///   `(wallet, asset_pair)`.
     /// - [`Error::FinalityWindowNotElapsed`] if `commit_after > now`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::{Address as _, Ledger as _}, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// // Enable a 60-second finality buffer.
+    /// client.set_finality_buffer(&Vec::new(&env), &60);
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &42, &true, &false, &1, &90, &1, &None);
+    /// // Advance past the hold window so the pending score can be committed.
+    /// env.ledger().with_mut(|l| l.timestamp += 61);
+    /// client.commit_pending_score(&wallet, &asset_pair);
+    /// let score = client.get_score(&wallet, &asset_pair);
+    /// assert_eq!(score.score, 42);
+    /// ```
     pub fn commit_pending_score(
         env: Env,
         wallet: Address,
