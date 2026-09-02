@@ -7,6 +7,7 @@ This document establishes the baseline WebAssembly (WASM) binary size breakdown 
 - **Target Contract**: `ledgerlens-score`
 - **WASM Binary Path**: `target/wasm32-unknown-unknown/release/ledgerlens_score.wasm`
 - **Total Binary Size**: 442,107 bytes (~442 KB)
+- **Tolerance**: 5%
 
 ---
 
