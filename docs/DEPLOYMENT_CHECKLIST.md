@@ -38,7 +38,7 @@ Before deploying to production, release managers must verify:
 cargo test --all --release
 cargo tarpaulin --out Html --output-dir coverage/
 # Verify coverage badge shows >90%
-```
+```yaml
 
 ### Compatibility Checklist
 
@@ -55,7 +55,6 @@ cargo tarpaulin --out Html --output-dir coverage/
 # Compare exported signatures
 cargo doc --no-deps
 diff <(cargo doc old_rev) <(cargo doc new_rev)
-```
 
 #### Event Schema Stability
 
@@ -72,7 +71,7 @@ cargo test event_stability --lib
 
 # Verify correlation ID reproducibility
 cargo test test_audit_replay_correlation_id_linking
-```
+```yaml
 
 #### Storage Compatibility
 
@@ -88,7 +87,6 @@ Provide a mapping of:
 |------------|-----------|--------------|-----------|
 | admin | Address | (new) | - |
 | scores | Map<(Wallet,Pair), Score> | (same) | - |
-```
 
 #### Error Stability
 
@@ -101,7 +99,7 @@ Provide a mapping of:
 ```bash
 # List all error variants
 grep -E "pub enum Error|^    [A-Z][a-zA-Z0-9]+," src/errors.rs
-```
+```yaml
 
 ### Resource Usage Checklist
 
@@ -118,12 +116,11 @@ Complete the resource usage table for each changed function:
 |----------|-----------------|------------|-------------|-------|
 | submit_score | 10 | 50 | 1024 | O(1) |
 | get_score | 2 | 10 | 0 | Read-only |
-```
 
 Benchmarking command:
 ```bash
 cargo +nightly bench --features bench 2>&1 | grep -E "submit_score|get_score"
-```
+```yaml
 
 ## Pre-Deployment Phase (Release Management)
 
@@ -154,7 +151,6 @@ cargo +nightly bench --features bench 2>&1 | grep -E "submit_score|get_score"
 DEPLOYMENT_HASH=$(sha256sum build/ledgerlens_score.wasm | cut -d' ' -f1)
 echo "Deployment Hash: $DEPLOYMENT_HASH" > DEPLOYMENT.txt
 gpg --sign --armor DEPLOYMENT.txt
-```
 
 Store in: `/deployments/v<VERSION>/DEPLOYMENT.txt.asc`
 
@@ -195,7 +191,7 @@ Store in: `/deployments/v<VERSION>/DEPLOYMENT.txt.asc`
 3. Execute rollback: ...
 4. Verify reverted: ...
 5. Post-incident review: ...
-```
+```yaml
 
 ## Deployment Phase (Network)
 
@@ -216,7 +212,6 @@ cargo test --test '*' -- --ignored --network testnet
 
 # Verify WASM hash
 soroban contract info --network testnet --id <CONTRACT_ID> | grep hash
-```
 
 ### Deployment Safety Checks
 
@@ -259,7 +254,6 @@ Deployment:
 Post-deployment:
   Block Height: 51234582
   Verification: PASSED ✓
-```
 
 ## Post-Deployment Phase
 
@@ -290,7 +284,7 @@ soroban contract invoke --network $NETWORK --id $CONTRACT_ID get_score \
   --wallet <WALLET> --pair "stellar:usdc"
 
 echo "✓ All smoke tests passed"
-```
+```yaml
 
 ### Event Audit Checklist
 
@@ -314,7 +308,6 @@ jq -r '.[] | .topics[0] | ascii_downcase' deployment_events.json | sort | uniq -
 jq '.[] | select(.data | contains("Error"))' deployment_events.json
 
 echo "Event audit complete. Review deployment_events.json"
-```
 
 ### Operator Notification Checklist
 
@@ -347,7 +340,6 @@ Rollback Plan: Available if needed
 Contact: @release-team
 
 All systems nominal ✓
-```
 
 ## Post-Deployment Validation (24-48 hours)
 
@@ -403,7 +395,7 @@ Deployment Block: <BLOCK>
 
 Status: APPROVED ✓
 EOF
-```
+```yaml
 
 ### Issue Resolution Checklist
 
@@ -473,7 +465,6 @@ I certify that:
 - [ ] All team members have been notified
 
 **Signed:**
-```
 Name: _____________________
 Date: _____________________
 Signature: _________________
@@ -481,7 +472,7 @@ Signature: _________________
 WASM Hash: _________________
 Block Height: ______________
 Network: ___________________
-```
+```yaml
 
 **For Security Auditor:**
 
@@ -492,11 +483,10 @@ I certify that:
 - [ ] Resource usage is bounded
 
 **Signed:**
-```
 Name: _____________________
 Date: _____________________
 Signature: _________________
-```
+```yaml
 
 **For Operations Manager:**
 
@@ -507,17 +497,15 @@ I certify that:
 - [ ] Team is trained on changes
 
 **Signed:**
-```
 Name: _____________________
 Date: _____________________
 Signature: _________________
-```
+```yaml
 
 ## Deployment Records
 
 All deployment records are stored in `/deployments/` directory:
 
-```
 deployments/
 ├── v1.2.3/
 │   ├── DEPLOYMENT.txt.asc          # Signed deployment hash
@@ -527,7 +515,7 @@ deployments/
 │   ├── audit_events.json            # Complete event stream
 │   ├── AUDIT_REPORT.md              # State audit verification
 │   └── SIGN_OFF.txt                 # Approver signatures
-```
+```yaml
 
 ## See Also
 

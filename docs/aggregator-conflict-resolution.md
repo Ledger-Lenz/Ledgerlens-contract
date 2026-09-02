@@ -55,4 +55,4 @@ let score = client.get_score(&wallet, &pair);
 
 // Switch back to HighestScore
 client.set_conflict_resolution_policy(&ConflictPolicy::HighestScore);
-```
+```yaml

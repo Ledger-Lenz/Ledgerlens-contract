@@ -34,7 +34,7 @@ the clearest high-risk signals.
 // Consumer-side settings passed at initialize / set_liquidity_gate_config
 const GATE_THRESHOLD: u32 = 90;  // only block wallets scored 90–100
 const MIN_CONFIDENCE: u32 = 30;  // accept scores with low certainty
-```
+```yaml
 
 **Trade-off:** Wallets with moderately elevated risk (score 75–89) pass the
 gate.  Low-confidence scores are accepted, meaning signals backed by sparse
@@ -56,7 +56,6 @@ a reasonable confidence level before trusting the signal.
 ```rust
 const GATE_THRESHOLD: u32 = 75;  // recommended default; mirrors mock-amm fixture
 const MIN_CONFIDENCE: u32 = 50;  // score must be backed by moderate certainty
-```
 
 **Trade-off:** Some legitimate wallets with sparse transaction history will be
 blocked because their confidence is below 50.  This is the intended behavior:
@@ -77,7 +76,7 @@ uncertainty is treated as a rejection.
 ```rust
 const GATE_THRESHOLD: u32 = 60;
 const MIN_CONFIDENCE: u32 = 80;  // require high certainty before allowing
-```
+```yaml
 
 **Trade-off:** Significantly more wallets are blocked.  New wallets (no score)
 and wallets whose scores were submitted by fewer than the quorum of service
@@ -97,7 +96,6 @@ liquidation time) rather than an immediate fee.  This justifies a lower
 ```rust
 const GATE_THRESHOLD: u32 = 75;
 const MIN_CONFIDENCE: u32 = 60;  // stricter than the equivalent AMM
-```
 
 **Rationale:** Use `query_risk_gate_with_confidence` rather than
 `query_risk_gate` so that a wallet with a technically-passing score but
@@ -110,7 +108,7 @@ this: a wallet with `score = 10, confidence = 20` is rejected even though
 ```rust
 const GATE_THRESHOLD: u32 = 50;
 const MIN_CONFIDENCE: u32 = 85;
-```
+```yaml
 
 **Explicitly unsafe configurations to avoid:**
 
@@ -136,9 +134,8 @@ bad actor) is worse than a false-positive (blocking a legitimate user).
 
 ### 4.2 Failover secondary configured
 
-```
 primary.set_failover_contract(admin_signers, secondary_contract_id)
-```
+```yaml
 
 When the primary is paused, gate calls consult the secondary's `get_score_opt`.
 The secondary score is accepted only when:

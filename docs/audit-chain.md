@@ -10,7 +10,6 @@ For each admin action, a single canonical hash is computed:
 
 ```
 action_hash = sha256(action_name || actor || params || timestamp)
-```
 
 Where:
 - `action_name`: 8-byte Symbol (e.g., `symbol_short!("pause")`, `symbol_short!("upg_prop")`)
@@ -24,7 +23,6 @@ The audit root is updated after each action:
 
 ```
 new_root = sha256(old_root || action_hash)
-```
 
 - Start with genesis root = `sha256([0; 32])` (all zeros) at initialization
 - Each subsequent action appends to the chain
@@ -47,7 +45,6 @@ At initialization, the audit root is set to:
 
 ```
 genesis_root = sha256(0x0000000000000000000000000000000000000000000000000000000000000000)
-```
 
 (SHA-256 of 32 zero bytes)
 
@@ -131,7 +128,7 @@ def verify_audit_chain(events, on_chain_root_bytes):
         root = hashlib.sha256(chain_preimage).digest()
     
     return root == on_chain_root_bytes
-```
+```yaml
 
 ## 7. Replay Evidence Bundles
 

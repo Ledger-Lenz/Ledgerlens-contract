@@ -29,7 +29,6 @@ A symbol passes through four states before it is permanently gone:
     │  30-day notice period (same as breaking-change window)
     ▼
   Removed
-```
 
 ### State definitions
 
@@ -79,7 +78,7 @@ section with:
 - `function_name(param: Type) -> ReturnType` — use `new_function_name` instead.
   Will be removed in interface version N+2.
   Migration: replace `client.function_name(x)` with `client.new_function_name(x, &default_param)`.
-```
+```yaml
 
 ### 3.2 `supports_interface` capability signal
 
@@ -101,7 +100,6 @@ if client.supports_interface(&Symbol::new(&env, "new_cap")) {
 } else {
     // Fall back to old path (still valid during deprecated window)
 }
-```
 
 ### 3.3 Rustdoc `#[deprecated]` annotation
 
@@ -113,7 +111,7 @@ Where a Rust-level wrapper function is deprecated, it is annotated:
 /// Deprecated since interface v3. Will be removed in interface v5.
 #[deprecated(since = "3.0.0", note = "use `new_function_name` instead")]
 pub fn old_function_name(...) { ... }
-```
+```yaml
 
 The `#![allow(deprecated)]` directive at the top of `lib.rs` suppresses the
 warning inside the contract itself (the `contractimpl` macro calls spec
@@ -166,7 +164,6 @@ following this template:
 
 4. **Validate on testnet** before deploying to mainnet. The testnet deployment
    is updated at least 30 days before the mainnet removal.
-```
 
 ---
 
