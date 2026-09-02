@@ -5407,6 +5407,24 @@ impl LedgerLensScoreContract {
     /// # Errors
     /// - [`Error::NotInitialized`] if the contract has no admin yet.
     /// - [`Error::InvalidPubkeyLength`] if `pubkey` is not 33 or 65 bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Bytes};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // 33-byte compressed SEC-1 pubkey.
+    /// let pubkey = Bytes::from_array(&env, &[3u8; 33]);
+    /// client.set_service_pubkey(&Vec::new(&env), &pubkey);
+    /// assert_eq!(client.get_service_pubkey().unwrap(), pubkey);
+    /// ```
     pub fn set_service_pubkey(
         env: Env,
         admin_signers: Vec<Address>,
@@ -5434,6 +5452,25 @@ impl LedgerLensScoreContract {
     /// # Errors
     /// - [`Error::ServicePubkeyNotSet`] if `set_service_pubkey` has never
     ///   been called.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Bytes};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // No pubkey configured yet -> Error::ServicePubkeyNotSet.
+    /// assert!(client.try_get_service_pubkey().is_err());
+    /// let pubkey = Bytes::from_array(&env, &[3u8; 33]);
+    /// client.set_service_pubkey(&Vec::new(&env), &pubkey);
+    /// assert_eq!(client.get_service_pubkey().unwrap(), pubkey);
+    /// ```
     pub fn get_service_pubkey(env: Env) -> Result<Bytes, Error> {
         storage::get_service_pubkey(&env).ok_or(Error::ServicePubkeyNotSet)
     }
@@ -5447,6 +5484,26 @@ impl LedgerLensScoreContract {
     /// replaced immediately with no overlap.
     ///
     /// Admin only.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Bytes};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let old_key = Bytes::from_array(&env, &[3u8; 33]);
+    /// client.set_service_pubkey(&Vec::new(&env), &old_key);
+    /// let new_key = Bytes::from_array(&env, &[4u8; 33]);
+    /// // Instant rotation: overlap_secs = 0 promotes the new key immediately.
+    /// client.rotate_service_pubkey(&Vec::new(&env), &new_key, &0);
+    /// assert_eq!(client.get_service_pubkey().unwrap(), new_key);
+    /// ```
     pub fn rotate_service_pubkey(
         env: Env,
         admin_signers: Vec<Address>,
@@ -5480,6 +5537,30 @@ impl LedgerLensScoreContract {
 
     /// Returns the pending pubkey and its overlap-window expiry, or `None` if
     /// no rotation is currently in flight.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, Bytes};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // No rotation in flight yet.
+    /// assert!(client.get_pending_service_pubkey().is_none());
+    /// let old_key = Bytes::from_array(&env, &[3u8; 33]);
+    /// client.set_service_pubkey(&Vec::new(&env), &old_key);
+    /// let new_key = Bytes::from_array(&env, &[4u8; 33]);
+    /// // Rotate with a 1 hour overlap window -> pending entry is created.
+    /// client.rotate_service_pubkey(&Vec::new(&env), &new_key, &3600);
+    /// let (pending_key, expiry) = client.get_pending_service_pubkey().unwrap();
+    /// assert_eq!(pending_key, new_key);
+    /// assert_eq!(expiry, 3600);
+    /// ```
     pub fn get_pending_service_pubkey(env: Env) -> Option<(Bytes, u64)> {
         storage::get_pending_service_pubkey(&env)
     }
