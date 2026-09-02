@@ -17,7 +17,7 @@ libm = "0.2"
 
 [dev-dependencies]
 soroban-sdk = { version = "21.0.0", features = ["testutils"] }
-ledgerlens-test-support = { path = "../ledgerlens-test-support" }
+ledgerlens-test-support = { version = "0.1.0", path = "../ledgerlens-test-support" }
 # Used only by tests, to produce real secp256k1 ECDSA signatures that
 # exercise `verify_attestation` end-to-end (see `test_attestation.rs`).
 k256 = { version = "0.13.4", features = ["ecdsa"] }
