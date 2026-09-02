@@ -25,7 +25,7 @@ cargo build --target wasm32-unknown-unknown --release -p ledgerlens-score --lock
 
 # 5. Verify the production deployment
 ./scripts/verify-deployment.sh <target-network> <contract-id> <admin-identity>
-```
+```yaml
 
 ### 2.2 Rotate Service Key
 
@@ -46,7 +46,6 @@ soroban contract invoke \
 # 3. Update the off-chain detection pipeline to use the new key
 # 4. Verify the pipeline is signing correctly with the new key
 ./scripts/verify-deployment.sh <NETWORK> <CONTRACT_ID> <ADMIN_KEY>
-```
 
 ### 2.3 Extend Entry TTLs (Rental Sweep)
 
@@ -59,7 +58,7 @@ soroban contract invoke \
   extend_entry_ttls \
   --admin-signers '[<ADMIN_ADDRESS>]' \
   --entries '[{"wallet":"...","asset_pair":"XLM_USDC","end_of_epoch":1234567890}]'
-```
+```yaml
 
 ### 2.4 Monitor Contract Health
 
@@ -111,7 +110,6 @@ soroban contract invoke \
   --network <NETWORK> \
   -- \
   get_pending_upgrade
-```
 
 ## 3. Failure Scenarios
 
@@ -127,7 +125,7 @@ soroban contract invoke \
   --network <NETWORK> \
   -- \
   is_paused
-```
+```yaml
 
 **Recovery:**
 ```bash
@@ -138,7 +136,6 @@ soroban contract invoke \
   -- \
   unpause \
   --admin-signers '[<ADMIN_ADDRESS>]'
-```
 
 **Verification:**
 ```bash
@@ -149,7 +146,7 @@ soroban contract invoke \
   -- \
   is_paused
 # Should return false (0)
-```
+```yaml
 
 ### 3.2 Pause — Per-Pair Freeze
 
@@ -164,7 +161,6 @@ soroban contract invoke \
   -- \
   is_pair_paused \
   --asset-pair XLM_USDC
-```
 
 **Recovery:**
 ```bash
@@ -177,7 +173,7 @@ soroban contract invoke \
   --admin-signers '[<ADMIN_ADDRESS>]' \
   --asset-pair XLM_USDC \
   --paused false
-```
+```yaml
 
 ### 3.3 Service Key Compromise
 
@@ -247,7 +243,6 @@ soroban contract invoke \
   --asset-pair XLM_USDC
 
 # Re-submit the score if needed
-```
 
 ### 3.7 Signer/Configuration Rotation Failure
 
@@ -296,7 +291,7 @@ echo "Finality Buffer: $(soroban contract invoke --id <CONTRACT_ID> --source <AD
 echo "Paused Pairs: $(soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network <NETWORK> -- get_paused_pairs)"
 echo "Service Signers: $(soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network <NETWORK> -- get_service_signers)"
 echo "Service Threshold: $(soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_KEY> --network <NETWORK> -- get_service_threshold)"
-```
+```yaml
 
 ### 4.2 Restore Procedures
 
@@ -326,7 +321,6 @@ echo "Service Signers: $(soroban contract invoke --id $CID --source $SRC --netwo
 echo "Paused Pairs: $(soroban contract invoke --id $CID --source $SRC --network $NET -- get_paused_pairs)"
 echo "Score Floor Policy: $(soroban contract invoke --id $CID --source $SRC --network $NET -- get_score_floor_policy)"
 echo "Pending Upgrade: $(soroban contract invoke --id $CID --source $SRC --network $NET -- get_pending_upgrade || echo 'None')"
-```
 
 ## 6. Monitoring Dashboard Queries
 

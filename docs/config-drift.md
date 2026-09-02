@@ -31,7 +31,7 @@ through the `replay` tool.
 ```bash
 cargo run -p replay --manifest-path tools/replay/Cargo.toml -- \
   config-drift approved.json observed.json
-```
+```yaml
 
 4. Treat any `drift`, `missing_observed_field`, `unexpected_observed_field`,
    `unknown_approved_field`, or `unknown_observed_field` entry as an operator

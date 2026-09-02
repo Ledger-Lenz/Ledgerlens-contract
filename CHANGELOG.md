@@ -9,10 +9,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- **Canonical score-submission normalization** (`#686`): Introduced `NormalizedSubmission` (internal, non-ABI type in `types.rs`) and two private helpers — `normalize_submission` and `validate_normalized_submission` — in `lib.rs`. Both `submit_score` and `submit_scores_batch` now convert raw caller fields into a `NormalizedSubmission` before any range checks, model-version governance, or storage writes. This collapses the previously divergent validation order between the single and batch paths into a single, deterministic sequence:
+  1. `score > 100` → `InvalidScore` (code 4)
+  2. `confidence > 100` → `InvalidConfidence` (code 5)
+  3. `timestamp == 0` → `InvalidTimestamp` (code 25)
+  4. model-version registry checks → `ModelVersionNotRegistered` / `ModelVersionNotReady` / `ModelVersionDeprecated`
+
+  **ABI/compatibility notes:** No public function signatures, return types, error discriminants, storage layout, or emitted events were changed. `NormalizedSubmission` is not `#[contracttype]` and is therefore not part of the XDR-encoded ABI; it is purely an in-process transfer object. Callers built against any earlier ABI version do not need to regenerate bindings. The `validate_risk_score` helper used by `write_score_with_rate_limit` is preserved as a belt-and-suspenders guard. Closes #686.
 - **Memory-exhaustion tests for maximum-sized nested inputs**: `contracts/ledgerlens-score/src/test_memory_exhaustion.rs` exercises `submit_scores_batch_attested` at its maximum nested shape (`MAX_BATCH_SIZE` entries × `MAX_MERKLE_PROOF_DEPTH`-deep proofs each), asserting no panic and measuring worst-case CPU/memory cost, plus regression coverage for the new `signers`/`admin_signers` bound below and a bounded-read test for `get_expiring_entries`. Closes #612.
 - **Interface versioning & migration policy**: [`docs/interface-versioning-policy.md`](docs/interface-versioning-policy.md) defines breaking vs. non-breaking changes, a 30-day notice period for breaking releases, and programmatic detection via `supports_interface`. Cross-referenced from `docs/interface-spec.md`, `CHANGELOG.md`, and `CONTRIBUTING.md`. Closes #418.
 - **`get_admin_set`**: Read-only query returning the current M-of-N admin co-signer set, mirroring `get_admin_signers`. Closes #239.
-- **Rustdoc examples**: Added runnable usage examples for `get_hysteresis_margin` (closes #229) and `get_staleness_window` (closes #227).
+- **Rustdoc examples**: Added runnable usage examples for `get_hysteresis_margin` (closes #229), `get_staleness_window` (closes #227), and `set_service_threshold` (closes #984).
+- **Rustdoc examples**: Added runnable usage examples for `get_service_signers` (closes #985), `get_service_signer_count` (closes #986), `set_signer_tier` (closes #987), and `get_last_service_activity` (closes #988).
 - **Parameter Change Governance**: Added `propose_parameter_change`, `execute_parameter_change`, and `veto_parameter_change` for time-locked admin parameter changes with service-signer veto during the first half of the delay window. Supports cooldown, history depth, decay rate, velocity cap, and upgrade delay parameters. See [`docs/governance.md`](docs/governance.md).
 - **Mock AMM liquidity gate**: `contracts/mock-amm` adds `provide_liquidity_gated`, `set_risk_oracle`, and confidence-aware gate configuration. See [`examples/amm_gate_example.rs`](examples/amm_gate_example.rs).
 - **Batch submit benchmarks**: Criterion suite in `contracts/ledgerlens-score/benches/batch_submit.rs` measuring throughput and Soroban budget cost at batch sizes 1, 10, 50, and 100. Results uploaded as CI artifacts on merge to `main`.
@@ -53,14 +61,8 @@ This version corresponds to on-chain `CONTRACT_VERSION = 3`. It merges all the a
 
 ### Changed
 - `query_risk_gate` now respects active score embargoes, hysteresis bands, and score delegates.
-
-### What Broke
 - **Admin Multisig Signatures**: Functions that require admin privileges (e.g. `set_history_max_depth`, `set_pair_weight`, `transfer_admin`, `cancel_admin_transfer`, `pause`, `unpause`, `set_watchlist`, `set_escalation_threshold`, `reset_breach_count`, `set_risk_threshold`, `set_jump_threshold`) now require an `admin_signers: Vec<Address>` parameter.
 - **Service Multisig Signatures**: `submit_score` now takes `signers: Vec<Address>` as its first parameter to support M-of-N threshold service authorizations.
-
-### Migration Guide
-- **Ingestion Pipeline**: Update calls to `submit_score` to include the `signers` array as the first argument. If using legacy single-service authorization, pass an empty vector (`Vec::new(&env)`).
-- **Admin Scripts**: Recompile deployment and administrative scripts to supply the `admin_signers` vector argument to all configured admin functions.
 
 ---
 
@@ -75,12 +77,7 @@ This version corresponds to on-chain `CONTRACT_VERSION = 2`. It introduces batch
 
 ### Changed
 - The return type of `submit_scores_batch` changed from `u32` (count of accepted entries) to the structured `BatchResult` detailing accept/reject metrics.
-
-### What Broke
 - **Batch Integration**: Any integrations calling `submit_scores_batch` and expecting a raw `u32` return value will fail due to the change to `BatchResult`.
-
-### Migration Guide
-- **Batch Consumers**: Update the client binding code to parse the structured `BatchResult` struct rather than treating the response as a primitive `u32`.
 
 ---
 
@@ -113,8 +110,3 @@ This version corresponds to on-chain `CONTRACT_VERSION = 1`.
   - `get_last_submit_time`
   - `get_score_count`
 
-### What Broke
-- Not applicable (Initial Version).
-
-### Migration Guide
-- Not applicable (Initial Version).

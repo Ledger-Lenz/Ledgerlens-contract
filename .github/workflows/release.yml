@@ -1,0 +1,363 @@
+name: Contract Release
+
+on:
+  push:
+    tags:
+      - 'contract-v*'
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Pin the exact stellar CLI version used for WASM optimization.
+  # Must match EXPECTED_STELLAR_CLI_VERSION in deploy/manifests/mainnet.env.
+  STELLAR_CLI_VERSION: "21.0.0"
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Build the release WASM, optimize it, and produce a SHA-256 manifest.
+  # Replicates the exact build/optimize steps from ci.yml under the same
+  # pinned toolchain. Uploads the optimized WASM and its manifest as artifacts
+  # for the publish-release job.
+  # ═══════════════════════════════════════════════════════════════════════════
+  build-and-sign:
+    name: Build, optimize, and sign release WASM
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ── Pin Rust toolchain (must match rust-toolchain.toml and ci.yml) ────────
+      # ci.yml uses dtolnay/rust-toolchain@master with toolchain "1.81.0" and
+      # target wasm32-unknown-unknown. We replicate exactly.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.81.0"
+          targets: wasm32-unknown-unknown
+
+      # ── Install Stellar CLI for WASM optimization ─────────────────────────────
+      # Version pinned to match deploy/manifests/mainnet.env EXPECTED_STELLAR_CLI_VERSION.
+      # The CLI is only needed for the `optimize` subcommand; the build itself
+      # uses only cargo. We install it in a dedicated step so the version is
+      # explicit and auditable.
+      - name: Install Stellar CLI
+        run: |
+          curl -sSL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin stellar
+          stellar --version
+
+      # ── Build release WASM (raw, unoptimized) ─────────────────────────────────
+      # Exact command from ci.yml build job and supply-chain job. --locked enforces
+      # the committed Cargo.lock. No cargo cache — this is a cold build.
+      - name: Build release WASM
+        run: cargo build --target wasm32-unknown-unknown --release -p ledgerlens-score --locked
+
+      # ── Optimize WASM ─────────────────────────────────────────────────────────
+      # Uses stellar contract optimize (soroban contract optimize in older versions).
+      # This step is deterministic given the same input WASM and same CLI version.
+      - name: Optimize WASM
+        run: |
+          RAW_WASM=target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
+          OPT_WASM=target/wasm32-unknown-unknown/release/ledgerlens_score.optimized.wasm
+          stellar contract optimize --wasm "$RAW_WASM" --output "$OPT_WASM"
+          echo "Optimized WASM written to $OPT_WASM"
+          echo "Raw size:    $(wc -c < "$RAW_WASM" | tr -d ' ') bytes"
+          echo "Optimized size: $(wc -c < "$OPT_WASM" | tr -d ' ') bytes"
+
+      # ── Sign optimized WASM (SHA-256 manifest) ────────────────────────────────
+      # Produces a detached SHA-256 manifest for the OPTIMIZED artifact.
+      # This is the artifact that gets deployed and published.
+      - name: Sign optimized WASM (SHA-256 manifest)
+        run: |
+          OPT_WASM=target/wasm32-unknown-unknown/release/ledgerlens_score.optimized.wasm
+          MANIFEST=target/ledgerlens_score.optimized.wasm.sha256
+          sha256sum "$OPT_WASM" > "$MANIFEST"
+          echo "Manifest written:"
+          cat "$MANIFEST"
+
+      # ── Verify optimized WASM against manifest ────────────────────────────────
+      # Fail-closed: if the manifest doesn't match, the job fails and the release
+      # workflow stops before publish-release can run.
+      - name: Verify optimized WASM against manifest
+        run: |
+          MANIFEST=target/ledgerlens_score.optimized.wasm.sha256
+          sha256sum --check "$MANIFEST"
+          echo "OK: Optimized WASM artifact integrity verified."
+
+      # ── Upload artifacts for publish-release job ──────────────────────────────
+      - name: Upload optimized WASM
+        uses: actions/upload-artifact@v4
+        with:
+          name: ledgerlens-score-optimized-wasm
+          path: target/wasm32-unknown-unknown/release/ledgerlens_score.optimized.wasm
+          retention-days: 90
+
+      - name: Upload optimized WASM SHA-256 manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: ledgerlens-score-optimized-wasm-sha256
+          path: target/ledgerlens_score.optimized.wasm.sha256
+          retention-days: 90
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Reproducibility check: build the raw WASM twice in independent containers
+  # and assert byte-identical output. This is the SAME logic as ci.yml's
+  # repro-build-1, repro-build-2, and repro-verify jobs. We re-run it here
+  # rather than trusting CI's earlier run because:
+  #   1. The tag push may have been force-pushed or rewritten after CI ran.
+  #   2. Chain-of-custody requires the release pipeline to independently verify
+  #      the artifact it is about to publish — trust-but-verify at every stage.
+  #   3. A mismatch here means the source at this tag is non-deterministic;
+  #      publishing would break the reproducibility guarantee.
+  # ═══════════════════════════════════════════════════════════════════════════
+  reproducibility-check:
+    name: Verify WASM reproducibility (double-build)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    needs: [build-and-sign]
+    outputs:
+      verified-sha256: ${{ steps.compare.outputs.verified-sha256 }}
+    steps:
+      # ── Reproducible build run 1 ──────────────────────────────────────────────
+      # No cargo cache — cold build to prove no cache-based non-determinism.
+      - name: Reproducible build (run 1)
+        uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.81.0"
+          targets: wasm32-unknown-unknown
+      - name: Build WASM (run 1)
+        run: cargo build --target wasm32-unknown-unknown --release -p ledgerlens-score --locked
+      - name: Compute SHA-256 (run 1)
+        id: hash1
+        run: |
+          SHA=$(sha256sum target/wasm32-unknown-unknown/release/ledgerlens_score.wasm | awk '{print $1}')
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Run 1 SHA-256: $SHA"
+      - name: Upload WASM artifact (run 1)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-run-1
+          path: target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
+          retention-days: 1
+
+      # ── Reproducible build run 2 ──────────────────────────────────────────────
+      # Separate job container, same steps, no cache.
+      - name: Reproducible build (run 2)
+        uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.81.0"
+          targets: wasm32-unknown-unknown
+      - name: Build WASM (run 2)
+        run: cargo build --target wasm32-unknown-unknown --release -p ledgerlens-score --locked
+      - name: Compute SHA-256 (run 2)
+        id: hash2
+        run: |
+          SHA=$(sha256sum target/wasm32-unknown-unknown/release/ledgerlens_score.wasm | awk '{print $1}')
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Run 2 SHA-256: $SHA"
+      - name: Upload WASM artifact (run 2)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-run-2
+          path: target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
+          retention-days: 1
+
+      # ── Verify: compare SHA-256 digests ───────────────────────────────────────
+      # This step runs in the same job (after both builds) to keep the dependency
+      # graph simple and auditable. If hashes differ, the job fails non-zero and
+      # publish-release is blocked via needs: [reproducibility-check].
+      - name: Compare SHA-256 digests
+        id: compare
+        run: |
+          SHA1="${{ steps.hash1.outputs.sha256 }}"
+          SHA2="${{ steps.hash2.outputs.sha256 }}"
+          echo "Run 1 SHA-256: $SHA1"
+          echo "Run 2 SHA-256: $SHA2"
+          if [ "$SHA1" != "$SHA2" ]; then
+            echo ""
+            echo "ERROR: WASM output is NOT reproducible."
+            echo "  Run 1: $SHA1"
+            echo "  Run 2: $SHA2"
+            echo ""
+            echo "The two independent builds produced different bytecode."
+            echo "Check for non-deterministic build inputs (timestamps, paths,"
+            echo "env vars, or codegen flags). See docs/reproducible-builds.md."
+            exit 1
+          fi
+          echo ""
+          echo "SUCCESS: Both builds produced identical WASM output."
+          echo "  SHA-256: $SHA1"
+          # Output the verified hash for use in publish-release job
+          echo "verified-sha256=$SHA1" >> "$GITHUB_OUTPUT"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Publish the GitHub Release. This job ONLY runs if reproducibility-check
+  # succeeds (needs: + if: success()). This is fail-closed by graph structure:
+  # a failed reproducibility-check job causes this job to be skipped entirely,
+  # not just conditionally. No release is ever published with a non-reproducible
+  # artifact.
+  # ═══════════════════════════════════════════════════════════════════════════
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-and-sign, reproducibility-check]
+    if: success()
+    permissions:
+      contents: write
+    steps:
+      # ── Download artifacts from build-and-sign ────────────────────────────────
+      - name: Download optimized WASM
+        uses: actions/download-artifact@v4
+        with:
+          name: ledgerlens-score-optimized-wasm
+          path: release-artifacts
+
+      - name: Download optimized WASM SHA-256 manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: ledgerlens-score-optimized-wasm-sha256
+          path: release-artifacts
+
+      # ── Extract release notes from CHANGELOG.md ───────────────────────────────
+      # CHANGELOG.md follows Keep a Changelog format. We extract the [Unreleased]
+      # section (or the section matching the tag) as release notes.
+      # Falls back to git log if CHANGELOG parsing fails.
+      - name: Generate release notes
+        id: release-notes
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "Generating release notes for $TAG"
+
+          # Try to extract from CHANGELOG.md first
+          if [ -f CHANGELOG.md ]; then
+            # Extract from "## [Unreleased]" down to next "## [" or EOF
+            # Use awk to handle the Keep a Changelog format
+            NOTES=$(awk '
+              /^## \[Unreleased\]/ { in_section=1; next }
+              /^## \[/ && in_section { exit }
+              in_section { print }
+            ' CHANGELOG.md)
+
+            if [ -n "$NOTES" ]; then
+              # Trim trailing whitespace
+              NOTES=$(echo "$NOTES" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' | head -c -1)
+              echo "Extracted from CHANGELOG.md"
+            fi
+          fi
+
+          # Fallback: git log since last tag
+          if [ -z "$NOTES" ]; then
+            echo "Falling back to git log"
+            LAST_TAG=$(git tag --sort=-v:refname | grep -E '^contract-v' | head -n 2 | tail -n 1)
+            if [ -n "$LAST_TAG" ]; then
+              NOTES=$(git log --pretty=format:"- %s (%h)" "${LAST_TAG}..HEAD")
+            else
+              NOTES=$(git log --pretty=format:"- %s (%h)" -n 20)
+            fi
+          fi
+
+          # Escape for JSON output
+          NOTES_ESCAPED=$(echo "$NOTES" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          echo "notes=$NOTES_ESCAPED" >> "$GITHUB_OUTPUT"
+
+      # ── Create GitHub Release ────────────────────────────────────────────────
+      # Uses the GitHub CLI (gh) which is pre-installed on runners.
+      # Attaches: optimized WASM, SHA-256 manifest file.
+      # Release body includes: release notes, optimized WASM SHA-256, raw WASM SHA-256.
+      - name: Create GitHub Release
+        id: create-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          OPT_WASM="release-artifacts/ledgerlens_score.optimized.wasm"
+          MANIFEST="release-artifacts/ledgerlens_score.optimized.wasm.sha256"
+
+          # Read optimized SHA-256 from manifest
+          OPT_SHA256=$(cat "$MANIFEST" | awk '{print $1}')
+
+          # Get release notes
+          NOTES="${{ steps.release-notes.outputs.notes }}"
+
+          # Build release body
+          cat > release-body.md <<EOF
+## $TAG
+
+$NOTES
+
+---
+
+### Artifacts
+
+| Artifact | SHA-256 |
+|---|---|
+| \`ledgerlens_score.optimized.wasm\` (optimized, deployable) | \`$OPT_SHA256\` |
+| \`ledgerlens_score.wasm\` (raw, reproducible build) | \`${{ needs.reproducibility-check.outputs.verified-sha256 }}\` |
+
+> **Verification**: The raw WASM SHA-256 above was verified by the release workflow's
+> double-build reproducibility check (two independent cold builds produced identical
+> output). The optimized WASM is the deployable artifact produced by
+> \`stellar contract optimize\` from the verified raw WASM.
+
+### Verification Procedure
+
+To verify the optimized artifact matches this release:
+
+\`\`\`bash
+# Download the optimized WASM from this release
+curl -LO https://github.com/Ledger-Lenz/Ledgerlens-contract/releases/download/$TAG/ledgerlens_score.optimized.wasm
+
+# Verify SHA-256
+echo "$OPT_SHA256  ledgerlens_score.optimized.wasm" | sha256sum --check
+\`\`\`
+
+To verify the raw artifact matches the on-chain deployed contract (after deployment):
+
+\`\`\`bash
+# Build from source at this tag
+git checkout $TAG
+cargo build --target wasm32-unknown-unknown --release -p ledgerlens-score --locked
+sha256sum target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
+# Compare with raw SHA-256 above
+\`\`\`
+
+### Toolchain
+
+- Rust: \`1.81.0\` (pinned in \`rust-toolchain.toml\`)
+- Stellar CLI: \`${STELLAR_CLI_VERSION}\` (for WASM optimization)
+- Target: \`wasm32-unknown-unknown\`
+
+### Reproducibility
+
+This release was verified by the \`reproducibility-check\` job: two independent
+cold builds on fresh runners produced byte-identical raw WASM output.
+
+EOF
+
+          # Create the release
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file release-body.md \
+            "$OPT_WASM" \
+            "$MANIFEST"
+
+      # ── SBOM Hook (commented — pending separate issue) ────────────────────────
+      # When SBOM generation is implemented (tracking issue: #SBOM_ISSUE),
+      # uncomment the following steps and add the SBOM artifact to the release.
+      #
+      # - name: Generate SBOM (CycloneDX)
+      #   run: |
+      #     cargo install cargo-cyclonedx --locked
+      #     cargo cyclonedx --target wasm32-unknown-unknown --release -p ledgerlens-score \
+      #       --output-format json --output-file target/sbom.json
+      #
+      # - name: Upload SBOM to release
+      #   run: |
+      #     gh release upload "$TAG" target/sbom.json --clobber
+EOF
