@@ -5297,6 +5297,30 @@ impl LedgerLensScoreContract {
     /// Returns `true` when `LastServiceActivityAt == 0` (the service has
     /// never submitted), so a freshly initialized contract is never reported
     /// as "down" before it has had a chance to receive its first submission.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::{Address as _, Ledger as _}, Env, Address, Vec};
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // A brand-new deployment has never submitted, so it's reported alive.
+    /// assert!(client.is_service_alive());
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// client.submit_score(&Vec::new(&env), &wallet, &pair, &42, &false, &false, &1, &90, &1, &None);
+    /// assert!(client.is_service_alive());
+    /// // Advance past the default 1-hour heartbeat alert threshold.
+    /// env.ledger().with_mut(|l| l.timestamp += 3_601);
+    /// assert!(!client.is_service_alive());
+    /// ```
     pub fn is_service_alive(env: Env) -> bool {
         let last_active_at = storage::get_last_service_activity(&env);
         if last_active_at == 0 {
@@ -5315,6 +5339,23 @@ impl LedgerLensScoreContract {
     ///
     /// # Errors
     /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_heartbeat_alert_threshold(), 3_600);
+    /// client.set_heartbeat_alert_threshold(&Vec::new(&env), &7_200);
+    /// assert_eq!(client.get_heartbeat_alert_threshold(), 7_200);
+    /// ```
     pub fn set_heartbeat_alert_threshold(
         env: Env,
         admin_signers: Vec<Address>,
@@ -5331,6 +5372,22 @@ impl LedgerLensScoreContract {
 
     /// Returns the current heartbeat alert threshold in seconds. Defaults to
     /// `DEFAULT_HEARTBEAT_ALERT_THRESHOLD_SECS` (1 hour).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // Untouched contract reports the compiled-in default.
+    /// assert_eq!(client.get_heartbeat_alert_threshold(), 3_600);
+    /// ```
     pub fn get_heartbeat_alert_threshold(env: Env) -> u64 {
         storage::get_heartbeat_alert_threshold(&env)
     }
@@ -5342,6 +5399,24 @@ impl LedgerLensScoreContract {
     ///
     /// # Errors
     /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::{Address as _, Ledger as _}, Env, Address};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// assert_eq!(client.get_last_service_activity(), 0);
+    /// env.ledger().with_mut(|l| l.timestamp = 1_000);
+    /// client.ping_heartbeat();
+    /// assert_eq!(client.get_last_service_activity(), 1_000);
+    /// ```
     pub fn ping_heartbeat(env: Env) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
