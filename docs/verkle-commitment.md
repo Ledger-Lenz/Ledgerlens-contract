@@ -33,16 +33,14 @@ This is sometimes called a **VRF-commitment** or **algebraic hash commitment** i
 
 All arithmetic is logically in the BLS12-381 scalar field:
 
-```
+```rust
 r = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
   ≈ 2^254.85
-```
 
 SHA-256 output is a 256-bit integer. We reduce it into the field by masking the top 3 bits of the most-significant byte:
 
 ```
 z[31] &= 0x1F   // ensures result < 2^253 < r
-```
 
 This is a valid reduction because SHA-256 output is computationally indistinguishable from uniform in `[0, 2^256)`. Masking 3 bits produces a uniform element in `[0, 2^253)`, which is a strict subset of `[0, r)`.
 
@@ -54,10 +52,9 @@ This is a valid reduction because SHA-256 output is computationally indistinguis
 
 Each `(wallet, asset_pair)` key maps to a unique **evaluation point** `z`:
 
-```
+```rust
 preimage = 0x04 || wallet_strkey[56] || pair_ascii[9]
 z        = SHA-256(preimage) with top-3 bits zeroed
-```
 
 Domain separator `0x04` prevents collisions with other hash uses. The wallet strkey is the 56-character Stellar base-32 encoding; the pair is zero-padded ASCII to 9 bytes.
 
@@ -65,10 +62,9 @@ Domain separator `0x04` prevents collisions with other hash uses. The wallet str
 
 The **value element** `v` encodes the current score and its timestamp:
 
-```
+```rust
 preimage = 0x05 || score_le[4] || timestamp_le[8] || z[32]
 v        = SHA-256(preimage) with top-3 bits zeroed
-```
 
 Including `z` in the preimage binds `v` to the specific key — a value from one key cannot be replayed as a value for another. Domain separator `0x05`.
 
@@ -78,7 +74,6 @@ Each `(z, v)` pair produces a **leaf hash**:
 
 ```
 leaf = SHA-256(0x02 || z || v)   // domain separator 0x02 = DOMAIN_LEAF
-```
 
 ### Running Commitment
 
@@ -86,7 +81,6 @@ The global commitment is an **XOR-hash accumulator**:
 
 ```
 new_C = SHA-256(0x06 || (C_prev XOR leaf_i))
-```
 
 **Properties**:
 
@@ -98,7 +92,6 @@ When a score is *updated* (overwritten), the old leaf is XOR-ed out and the new 
 
 ```
 C' = SHA-256(0x06 || (SHA-256(0x06 || (C XOR old_leaf)) XOR new_leaf))
-```
 
 ### Wire Format
 
@@ -107,7 +100,6 @@ The commitment is exposed as **48 bytes** to match the BLS12-381 G1 compressed p
 ```
 output[0..16]  = b"LEDGERLENS_KZG_1"   // context prefix (version tag)
 output[16..48] = 32-byte commitment hash
-```
 
 The prefix makes commitments version-locked: a proof from a different protocol version has an incompatible context prefix and cannot be used against a current commitment.
 
@@ -130,7 +122,6 @@ A membership proof for `(wallet, asset_pair)` contains:
 
 ```
 witness = SHA-256(0x03 || C || z || v)   // DOMAIN_WITNESS
-```
 
 This is analogous to the KZG quotient polynomial `Q(x) = (f(x) - v) / (x - z)`, but instantiated as a hash. The witness binds `(z, v)` to the specific commitment `C` — a proof generated against commitment `C` cannot be presented against a different commitment `C'`.
 
@@ -146,9 +137,8 @@ This is analogous to the KZG quotient polynomial `Q(x) = (f(x) - v) / (x - z)`, 
 
 A non-membership proof proves that a key has **no entry** in the committed state. The value element `v` is fixed to the **non-membership sentinel**:
 
-```
+```rust
 NON_MEMBER_SENTINEL = 0x00...00   // all-zeros (32 bytes)
-```
 
 The sentinel is provably unreachable by the membership value derivation, because `derive_value_element` always includes a non-zero domain separator (`0x05`), making its SHA-256 output non-zero with overwhelming probability (2^−256 collision chance).
 
@@ -156,7 +146,6 @@ The sentinel is provably unreachable by the membership value derivation, because
 
 ```
 witness = SHA-256(0x07 || C || z)   // DOMAIN_NONMEMBER — note: no v
-```
 
 A different domain separator (`0x07` vs `0x03`) ensures membership and non-membership witnesses are never confused, even when `v` coincidentally equals the sentinel.
 
@@ -222,7 +211,6 @@ The evaluation point `z` is deterministically derived from `(wallet, asset_pair)
 
 ```
 z = SHA-256(0x04 || wallet_strkey || pair_ascii) with field reduction
-```
 
 A proof for key `K = (wallet_1, pair_1)` cannot be presented as a proof for key `K' = (wallet_2, pair_2)` because `verify_membership` independently recomputes `z_expected` and checks `z_expected == z_proof`.
 
@@ -269,7 +257,6 @@ Suppose the contract has two live entries:
 ```
 Entry A: wallet=GA..., pair=XLM_USDC, score=42, timestamp=1000
 Entry B: wallet=GB..., pair=BTC_USDC, score=75, timestamp=2000
-```
 
 ### Commitment Computation
 
@@ -287,7 +274,6 @@ C_1   = SHA-256(0x06 || (C_0 XOR leaf_A))
 C_2   = SHA-256(0x06 || (C_1 XOR leaf_B))
 
 commitment = b"LEDGERLENS_KZG_1" || C_2   // 48 bytes
-```
 
 ### Membership Proof for Entry A
 
@@ -295,7 +281,6 @@ commitment = b"LEDGERLENS_KZG_1" || C_2   // 48 bytes
 witness_A = SHA-256(0x03 || C_2 || z_A || v_A)
 
 proof_A = [0x01, z_A[32], v_A[32], witness_A[32]]   // 97 bytes
-```
 
 ### Verification of proof_A
 
@@ -314,6 +299,5 @@ z_C   = SHA-256(0x04 || "GB..."[56] || "XLM_USDC"[9]) with field reduction
 witness_C = SHA-256(0x07 || C_2 || z_C)   // DOMAIN_NONMEMBER, no v
 
 proof_C = [0x02, z_C[32], 0x00...00[32], witness_C[32]]   // 97 bytes
-```
 
 Verification confirms `v == 0` and witness matches, proving absence.

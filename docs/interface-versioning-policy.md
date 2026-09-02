@@ -79,7 +79,6 @@ position other than the end is breaking.
   │   announced but not   │    │                       │
   │   yet deployed)       │    │                       │
   └──────────────────────┘    └──────────────────────┘
-```
 
 1. **A breaking change is first announced as an `Unreleased` entry in
    `CHANGELOG.md`** with a clear "Migration Guide" subsection listing the exact
@@ -110,13 +109,12 @@ let client = LedgerLensScoreContractClient::new(&env, &contract_id);
 if client.supports_interface(&symbol_short!("gate")) {
     // This deployment supports query_risk_gate.
 }
-```
+```yaml
 
 ```rust
 // ⚠️ Avoid: version-number comparison
 let ver = client.get_version();
 if ver >= 2 { /* ... */ }  // Fragile: what if v4 removes nothing you use?
-```
 
 `supports_interface` is an append-only capability registry within a major
 interface version. Once a capability symbol is published, it is never removed

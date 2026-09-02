@@ -28,7 +28,7 @@ worktree:
 
 ```sh
 scripts/reproduce-historical-wasm.sh
-```
+```yaml
 
 It requires Rust 1.85 with `wasm32-unknown-unknown` and Binaryen 131. It does
 not edit the caller's branch or its `Cargo.lock`.
@@ -127,7 +127,6 @@ Run the evidence locally:
 
 ```sh
 cargo test --locked -p composability-tests --test historical_wasm_compat -- --nocapture
-```
 
 ## Failure diagnosis and recovery
 

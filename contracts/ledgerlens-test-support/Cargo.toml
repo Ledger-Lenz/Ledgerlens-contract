@@ -3,6 +3,7 @@ name = "ledgerlens-test-support"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "MIT"
 
 [dependencies]
 soroban-sdk = { version = "21.0.0", features = ["testutils"] }

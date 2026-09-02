@@ -53,14 +53,13 @@ Before proposing an upgrade, complete the following:
 ```bash
 cd /path/to/ledgerlens-contract
 cargo build --target wasm32-unknown-unknown --release
-```
+```yaml
 
 **Output:** `target/wasm32-unknown-unknown/release/ledgerlens_score.wasm`
 
 **Verify the binary exists and is non-empty:**
 ```bash
 ls -lh target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
-```
 
 ---
 
@@ -76,20 +75,18 @@ soroban contract install \
   --wasm target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
 
 # Output will show: "WasmHash: abc123...def789" (64 hex characters)
-```
+```yaml
 
 **Option B: Using sha256sum (if you prefer to compute locally without uploading):**
 ```bash
 sha256sum target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
 # Output: abc123...def789  ledgerlens_score.wasm
-```
 
 **Note:** If using `soroban contract install`, the WASM is uploaded to the network immediately. You can then propose the upgrade with confidence that the WASM is available.
 
 **Save the hash** (you will use it in Step 3):
 ```
 WASM_HASH=abc123...def789
-```
 
 ---
 
@@ -105,7 +102,7 @@ soroban contract invoke \
   -- propose_upgrade \
   --admin-signers '[ADMIN_ADDRESS_1, ADMIN_ADDRESS_2, ...]' \
   --new-wasm-hash WASM_HASH
-```
+```yaml
 
 **Parameters:**
 - `admin-signers`: List of admin addresses that authorize this proposal. Can be a single admin or a multisig set.
@@ -135,7 +132,6 @@ soroban contract invoke \
   --source-account YOUR_ACCOUNT_ADDRESS \
   --contract-id LEDGERLENS_CONTRACT_ID \
   -- get_pending_upgrade
-```
 
 **Response** (if a proposal exists):
 ```json
@@ -144,13 +140,12 @@ soroban contract invoke \
   "proposed_at": 1234567890,
   "executable_after": 1234567890 + 172800 = 1234740690
 }
-```
+```yaml
 
 **Calculate remaining time:**
-```
 remaining_secs = executable_after - current_ledger_timestamp
 remaining_hours = remaining_secs / 3600
-```
+```yaml
 
 ### If You Need to Cancel
 
@@ -163,7 +158,6 @@ soroban contract invoke \
   --contract-id LEDGERLENS_CONTRACT_ID \
   -- veto_upgrade \
   --admin-signers '[ADMIN_ADDRESS]'
-```
 
 This clears the pending proposal. You can then propose a new WASM if needed.
 
@@ -180,7 +174,7 @@ soroban contract invoke \
   --contract-id LEDGERLENS_CONTRACT_ID \
   -- execute_upgrade \
   --admin-signers '[ADMIN_ADDRESS_1, ADMIN_ADDRESS_2, ...]'
-```
+```yaml
 
 **Expected result:**
 - The contract's WASM code is replaced with the new binary.
@@ -207,7 +201,6 @@ soroban contract invoke \
   -- get_score \
   --wallet SOME_WALLET \
   --asset-pair XLM_USDC
-```
 
 Expected: The function returns a valid score (or `ScoreNotFound` if the wallet has no score, but the contract is responsive).
 
@@ -219,7 +212,7 @@ soroban contract invoke \
   --source-account YOUR_ACCOUNT_ADDRESS \
   --contract-id LEDGERLENS_CONTRACT_ID \
   -- get_version
-```
+```yaml
 
 This returns the contract version number (e.g., `2` or `3`). If your new WASM incremented the version, you should see the new number.
 
@@ -263,7 +256,6 @@ soroban contract invoke \
   --contract-id LEDGERLENS_CONTRACT_ID \
   -- pause \
   --admin-signers '[ADMIN_ADDRESS]'
-```
 
 This disables all score submissions and queries (returning `Error::ContractPaused`). Integrators will see the contract is offline. Resume it with `unpause` once the fix is ready.
 
