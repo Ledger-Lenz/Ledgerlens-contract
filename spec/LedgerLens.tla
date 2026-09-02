@@ -229,7 +229,8 @@ TickTime ==
                    score, hwm, breach_count, last_submit_time, embargo_expiry, delegate,
                    tb_tokens, tb_last_refill, tb_capacity,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
-                   cc_finalized, cc_final_score>>
+                   cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ════════════════════════════════════════════════════════════════════════════
 \* GOVERNANCE ACTIONS  (propose / veto / execute / expiry / replacement)
@@ -271,6 +272,7 @@ TickTime ==
 \* ── Action: ProposeGov ───────────────────────────────────────────────────────
 ProposeGov(id, action) ==
     /\ id > 0                          \* id must be a positive natural
+    /\ id /= gov_proposal_id           \* proposal id must be fresh
     /\ action \in Actions              \* action is from the finite domain
     /\ ~GovProposalOpen                \* no concurrently open proposal
     /\ gov_proposal_id' = id
@@ -283,7 +285,8 @@ ProposeGov(id, action) ==
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
                    tb_tokens, tb_last_refill, tb_capacity,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
-                   cc_finalized, cc_final_score>>
+                   cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ── Action: VetoGov ──────────────────────────────────────────────────────────
 VetoGov ==
@@ -294,7 +297,8 @@ VetoGov ==
                    score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
                    tb_tokens, tb_last_refill, tb_capacity,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
-                   cc_finalized, cc_final_score>>
+                   cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ── Action: ExecuteGov ───────────────────────────────────────────────────────
 \* KEY SAFETY PROPERTY: this action is only enabled when GovProposalExecutable
@@ -309,7 +313,8 @@ ExecuteGov ==
                    score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
                    tb_tokens, tb_last_refill, tb_capacity,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
-                   cc_finalized, cc_final_score>>
+                   cc_finalized, cc_final_score,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ── Action: ReplaceGov ───────────────────────────────────────────────────────
 \* Emergency replacement: the open proposal is superseded by a new one.
@@ -552,7 +557,8 @@ ResetConsensusRound ==
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
                    gov_proposal_id, gov_action, gov_proposed_at, gov_expiry,
                    gov_vetoed, gov_executed, gov_replaced_by,
-                   tb_tokens, tb_last_refill, tb_capacity>>
+                   tb_tokens, tb_last_refill, tb_capacity,
+                   upg_approvals, upg_signer_snap, upg_live_signers>>
 
 \* ── Action: ExpireStaleCommit ────────────────────────────────────────────────
 \* Models the Soroban temporary-storage TTL eviction: a signer's commitment is
@@ -610,6 +616,8 @@ AddUpgradeApproval(s) ==
           ELSE /\ upg_approvals'   = upg_approvals \cup {s}
                /\ upg_signer_snap' = snap
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
+                   gov_proposal_id, gov_action, gov_proposed_at, gov_expiry,
+                   gov_vetoed, gov_executed, gov_replaced_by,
                    tb_tokens, tb_last_refill, tb_capacity,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
                    cc_finalized, cc_final_score, upg_live_signers>>
@@ -625,6 +633,8 @@ MutateAdminSet(s) ==
     /\ upg_approvals'   = {}
     /\ upg_signer_snap' = {}
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
+                   gov_proposal_id, gov_action, gov_proposed_at, gov_expiry,
+                   gov_vetoed, gov_executed, gov_replaced_by,
                    tb_tokens, tb_last_refill, tb_capacity,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
                    cc_finalized, cc_final_score>>
@@ -633,6 +643,8 @@ ClearUpgradeApprovals ==
     /\ upg_approvals'   = {}
     /\ upg_signer_snap' = {}
     /\ UNCHANGED <<score, hwm, breach_count, last_submit_time, embargo_expiry, delegate, now,
+                   gov_proposal_id, gov_action, gov_proposed_at, gov_expiry,
+                   gov_vetoed, gov_executed, gov_replaced_by,
                    tb_tokens, tb_last_refill, tb_capacity,
                    cc_committed, cc_commit_time, cc_score, cc_revealed,
                    cc_finalized, cc_final_score, upg_live_signers>>
@@ -742,11 +754,11 @@ NoRevealWithoutCommit ==
     \A s \in Signers : cc_revealed[s] => cc_committed[s]
 
 \* INV-CR-3  A reveal is only accepted within the reveal window.
-\* If a signer has revealed, their commit timestamp must be within
-\* REVEAL_WINDOW ticks of the current `now`.
+\* Whenever a signer reveals in a transition, their commit timestamp must be within
+\* REVEAL_WINDOW ticks of now. Stated as an action property.
 RevealOnlyWithinWindow ==
-    \A s \in Signers :
-        cc_revealed[s] => (now - cc_commit_time[s]) <= REVEAL_WINDOW
+    [][ \A s \in Signers :
+        (~cc_revealed[s] /\ cc_revealed'[s]) => (now - cc_commit_time[s]) <= REVEAL_WINDOW ]_vars
 
 \* INV-CR-4  Once finalized, the final score is within CONSENSUS_EPSILON of
 \*           at least CONSENSUS_K revealed scores.  This is a stronger restatement
@@ -803,11 +815,12 @@ BurstNeverExceedsNewCapacity ==
 \* ResetConsensusRound) may take cc_finalized from TRUE back to FALSE.
 \* This catches any accidental re-entry or double-finalization.
 FinalizationIsTerminalWithinRound ==
-    [][cc_finalized => (cc_finalized' \/ 
-        (\* only ResetConsensusRound may clear it *)
-        /\ cc_committed'   = [s \in Signers |-> FALSE]
-        /\ cc_revealed'    = [s \in Signers |-> FALSE]
-        /\ cc_finalized'   = FALSE)]_vars
+    [][cc_finalized =>
+        (cc_finalized'
+         \/ \* only ResetConsensusRound may clear it
+            /\ cc_committed'   = [s \in Signers |-> FALSE]
+            /\ cc_revealed'    = [s \in Signers |-> FALSE]
+            /\ cc_finalized'   = FALSE)]_vars
 
 \* PROP-CR-2  The final score never changes after finalization within a round.
 \* Once cc_final_score is set it is immutable until ResetConsensusRound.
@@ -829,12 +842,9 @@ VetoBlocksExecution ==
     (gov_vetoed /\ gov_executed) = FALSE
 
 \* INV-GOV-3  An expired proposal can never execute.
-\* gov_expiry = 0 means no proposal has been created yet; once a proposal
-\* exists (gov_proposal_id > 0), execution after expiry is impossible because
-\* GovProposalOpen requires now <= gov_expiry.
+\* Whenever a proposal executes in a transition, now must not exceed expiry.
 StaleProposalCannotExecute ==
-    (gov_proposal_id > 0 /\ gov_executed /\ gov_expiry > 0)
-        => now <= gov_expiry
+    [][ (~gov_executed /\ gov_executed') => now <= gov_expiry ]_vars
 
 \* INV-GOV-4  A replaced proposal can never execute.
 \* The original proposal's gov_replaced_by field is set to a non-zero value
@@ -859,7 +869,11 @@ ExecutionIsTerminal ==
 
 \* PROP-GOV-2  A vetoed proposal permanently cannot execute in the same round.
 VetoIsPermanent ==
-    [][gov_vetoed => gov_vetoed']_vars
+    [][gov_vetoed =>
+        (gov_vetoed'
+         \/ \* Only a new proposal (ProposeGov) may clear gov_vetoed
+            /\ gov_proposal_id' /= gov_proposal_id
+            /\ gov_vetoed'    = FALSE)]_vars
 
 \* ── State constraint (model-checking bound) ──────────────────────────────────
 \* now <= 6 covers: 2 full refill cycles, 1 full commit-reveal-finalize-reset
