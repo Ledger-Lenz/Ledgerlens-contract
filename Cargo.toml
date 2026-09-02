@@ -8,6 +8,7 @@ members = [
     "contracts/mock-lending",
     "tools/replay",
     "tools/recovery",
+    "tools/schema-gen",
     "tools/invocation-fuzzer",
     "tests/composability",
 ]
