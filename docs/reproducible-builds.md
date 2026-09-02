@@ -59,6 +59,88 @@ same binary from the same source commit.
 
 ---
 
+## Dependency license policy & SBOM
+
+LedgerLens commits to more than reproducible builds: it enforces an explicit,
+machine-readable dependency license policy and ships a software bill of
+materials (SBOM) for every release. Both run in CI and are traceable to the
+same commit as the signed WASM.
+
+### License & policy gate (cargo-deny)
+
+The file `deny.toml` codifies the dependency gate enforced by the CI job
+`dependency-license`:
+
+| Policy | Enforcement |
+|--------|-------------|
+| **Allowed licenses** | Only the permissive/weakly-permissive SPDX licenses explicitly listed in `deny.toml [licenses].allow` may appear anywhere in the locked graph. Copyleft licenses (GPL, LGPL, strong MPL, …) are **absent from the list**, so introducing one transitively fails CI. |
+| **Yanked crates** | `advisories.yanked = "deny"` — any dependency yanked from crates.io fails CI. |
+| **Unmaintained crates** | `advisories.unmaintained = "all"` — any crate flagged unmaintained by RustSec fails CI. |
+| **Wildcard path deps** | `bans.wildcards = "deny"` — a `path` dependency without an explicit `version` fails CI. |
+| **Sources** | `sources.allow-registry` restricts to crates.io / pinned git, reinforcing the Cargo.lock source-pinning check. |
+
+Known, pre-existing exceptions (a yanked `spin` and an unmaintained `paste`,
+both pinned deep inside the immutable Soroban 21 toolchain, plus the
+`RUSTSEC-2026-0009` `time` advisory already waived by the `audit` job) are
+recorded in `deny.toml [advisories].ignore` with their rationale. **Any**
+new yanked or unmaintained dependency that is not covered by those documented
+exceptions fails CI — a PR introducing a disallowed license or a banned/yanked
+dependency is rejected.
+
+### SBOM generation
+
+The `supply-chain` CI job — the same job that builds and SHA-256-signs the
+release WASM — generates a [CycloneDX](https://cyclonedx.org) SBOM with
+`cargo-cyclonedx`:
+
+* **Format:** CycloneDX JSON (`bomFormat: CycloneDX`, `specVersion: 1.3`).
+  Each component carries a `purl` (`pkg:cargo/...`) and an SPDX license
+  expression.
+* **Scope:** generated for the `wasm32-unknown-unknown` target, so the SBOM
+  describes exactly the dependency graph embedded in the released
+  `ledgerlens_score.wasm`.
+* **Artifact:** uploaded to GitHub as the `ledgerlens-sbom-cdx` artifact
+  (`target/sbom/*.cdx.json`), alongside the `wasm` and
+  `ledgerlens-score-wasm-sha256-manifest` artifacts, in the same workflow run.
+  Because they are produced in the same job from the same checkout, the SBOM,
+  the binary, and its SHA-256 signature are traceable to a single commit.
+* **Primary document:** `ledgerlens-score.cdx.json` (the shipped contract's
+  embedded dependency graph).
+
+> **Reproducibility note:** SBOM generation lives in the `supply-chain` job,
+> **not** in the `repro-build-1` / `repro-build-2` double-build comparison.
+> CycloneDX embeds a build timestamp, so including it in the byte-for-byte
+> comparison would introduce non-determinism. The WASM reproducibility check
+> remains a pure binary comparison.
+
+#### Local regeneration & validation
+
+```bash
+# Install the pinned tool once
+cargo +1.81.0 install cargo-cyclonedx --version 0.5.8 --locked
+
+# Generate + structurally validate the SBOMs
+tools/generate_sbom.sh
+# Output: target/sbom/*.cdx.json (validated CycloneDX 1.3 JSON)
+
+# Optional: validate any SBOM against the official CycloneDX 1.3 JSON schema
+python3 -m jsonschema -i target/sbom/ledgerlens-score.cdx.json \
+  <(curl -sL https://raw.githubusercontent.com/CycloneDX/specification/1.3/schema/bom-1.3.schema.json)
+```
+
+### Consuming the SBOM
+
+Downstream integrators (AMM / lending protocols, and the `api` / `dashboard` /
+`core` repos for their own compliance tooling) consume the
+`ledgerlens-sbom-cdx` GitHub Actions artifact from each release. Use the `purl`
+field of each component to map a crate to its canonical package, and the
+`licenses` expression to drive their own license-policy checks. Because the
+SBOM and the `ledgerlens-score.wasm.sha256` manifest are produced from the same
+CI run, an integrator can bind a specific SBOM to the exact binary hash they
+deploy, closing their transitive-supply-chain review loop.
+
+---
+
 ## Local verification procedure
 
 Use the steps below to independently reproduce the WASM artifact and compare it
@@ -75,7 +157,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # wasm32-unknown-unknown target.  You can also install it explicitly:
 rustup toolchain install 1.81.0
 rustup target add wasm32-unknown-unknown --toolchain 1.81.0
-```
+```yaml
 
 ### Step 1 — Check out the exact commit
 
@@ -86,7 +168,6 @@ cd Ledgerlens-contract
 # Replace <COMMIT_SHA> with the Git commit that was deployed on-chain.
 # For a tagged release, use the tag instead: git checkout contract-v1.2.3
 git checkout <COMMIT_SHA>
-```
 
 ### Step 2 — Build the contract
 
@@ -98,18 +179,16 @@ cargo build \
   --release \
   -p ledgerlens-score \
   --locked
-```
+```yaml
 
 ### Step 3 — Compute the SHA-256 hash of the local artifact
 
 ```bash
 sha256sum target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
-```
 
 Example output:
 ```
 a1b2c3d4e5f6...  target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
-```
 
 ### Step 4 — Retrieve the on-chain WASM hash
 
@@ -122,7 +201,7 @@ easiest way is via the Stellar CLI:
 stellar contract info \
   --id <CONTRACT_ID> \
   --network <NETWORK>
-```
+```yaml
 
 The output includes a `wasm_hash` field — that is the SHA-256 hash of the
 bytecode currently installed on-chain.
@@ -141,7 +220,6 @@ curl -s https://soroban-testnet.stellar.org \
       "keys": ["<CONTRACT_CODE_XDR_KEY>"]
     }
   }' | jq '.result.entries[0].xdr'
-```
 
 > **Note**: the on-chain `wasm_hash` is the hash of the *raw* WASM bytes before
 > any Soroban optimization step.  If you apply `stellar contract optimize` (or
@@ -167,7 +245,7 @@ else
   echo "  Local:   $LOCAL_HASH"
   echo "  On-chain: $ONCHAIN_HASH"
 fi
-```
+```yaml
 
 If the hashes match, the deployed contract bytecode is confirmed to correspond
 to the source at `<COMMIT_SHA>` in this repository.
@@ -193,7 +271,6 @@ Fix:
 
 ```bash
 rustup target add wasm32-unknown-unknown --toolchain 1.81.0
-```
 
 ### Build fails with feature errors on Rust ≥ 1.82
 

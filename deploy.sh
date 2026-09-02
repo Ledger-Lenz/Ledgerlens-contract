@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# --- usage ---
 # Build, optimize, deploy and initialize the LedgerLens score contract.
 #
 # Usage:
@@ -17,12 +18,33 @@
 #
 # See docs/network-matrix.md for the supported deployment profiles and
 # failure modes.
+# --- end usage ---
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=deploy/validate_manifest.sh
 source "$SCRIPT_DIR/deploy/validate_manifest.sh"
+
+print_usage() {
+  # Extract the usage block delimited by the marker comments in the header.
+  # The markers are validated first so a broken header fails loudly (non-zero
+  # exit, clear error) instead of leaking shell source into --help output or
+  # silently truncating the usage text.
+  grep -q '^# --- usage ---$' "$0" || {
+    echo "ERROR: $0 is missing the '# --- usage ---' marker." >&2
+    return 1
+  }
+  grep -q '^# --- end usage ---$' "$0" || {
+    echo "ERROR: $0 is missing the '# --- end usage ---' marker." >&2
+    return 1
+  }
+  awk '
+    /^# --- usage ---$/     { in_usage = 1; next }
+    /^# --- end usage ---$/ { in_usage = 0; next }
+    in_usage                { sub(/^# ?/, ""); print }
+  ' "$0"
+}
 
 DRY_RUN=false
 CHECK_TOOLCHAIN_ONLY=false
@@ -52,7 +74,7 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --help)
-      sed -n '3,22p' "$0"
+      print_usage
       exit 0
       ;;
     --canary)
@@ -366,39 +388,69 @@ if [ "$DRY_RUN" = false ]; then
   if [ "$CANARY" = true ] && [ "$NETWORK_SELECTOR" = "testnet" ]; then
     log "Running canary checks for post-incident reconciliation (#631)..."
 
+    CANARY_IDENTITY="$ADMIN_IDENTITY"
+    if [ "$CANARY_KEYS" = true ]; then
+      # Use alternate signing identity for canary checks if provided
+      CANARY_IDENTITY="canary-signer"
+    fi
+
+    CANARY_FAILED=false
+
     # Check supported interfaces
     for cap in checksum snapshot freeze export_score reconcile; do
-      RESULT=$(soroban contract invoke \
+      if RESULT=$("$CLI_BIN" contract invoke \
         --id "$CONTRACT_ID" \
-        --source "$ADMIN_IDENTITY" \
-        --network "$NETWORK" \
+        --source "$CANARY_IDENTITY" \
+        --rpc-url "$RPC_URL" \
+        --network-passphrase "$NETWORK_PASSPHRASE" \
         -- \
         supports_interface \
-        --capability "\"$cap\"" 2>/dev/null || echo "false")
-      if echo "$RESULT" | grep -q "true"; then
-        log "  ✅ Interface '$cap' supported"
+        --capability "\"$cap\"" 2>&1); then
+        if echo "$RESULT" | grep -q "true"; then
+          log "  ✅ Interface '$cap' supported"
+        else
+          log "  ⚠ Interface '$cap' not supported"
+          CANARY_FAILED=true
+        fi
       else
-        echo "  ⚠ WARNING: Interface '$cap' not supported" >&2
+        log "  ❌ Interface check '$cap' failed: $RESULT"
+        CANARY_FAILED=true
       fi
     done
 
     # Verify freeze/unfreeze cycle
     log "  Testing freeze/unfreeze cycle..."
-    soroban contract invoke \
+    if FREEZE_OUTPUT=$("$CLI_BIN" contract invoke \
       --id "$CONTRACT_ID" \
-      --source "$ADMIN_IDENTITY" \
-      --network "$NETWORK" \
+      --source "$CANARY_IDENTITY" \
+      --rpc-url "$RPC_URL" \
+      --network-passphrase "$NETWORK_PASSPHRASE" \
       -- \
       freeze_contract \
-      --admin_signants "[\"$ADMIN_ADDRESS\"]" 2>/dev/null && log "  ✅ freeze_contract OK" || echo "  ⚠ freeze_contract failed" >&2
+      --admin_signants "[\"$ADMIN_ADDRESS\"]" 2>&1); then
+      log "  ✅ freeze_contract OK"
+    else
+      log "  ❌ freeze_contract failed: $FREEZE_OUTPUT"
+      CANARY_FAILED=true
+    fi
 
-    soroban contract invoke \
+    if UNFREEZE_OUTPUT=$("$CLI_BIN" contract invoke \
       --id "$CONTRACT_ID" \
-      --source "$ADMIN_IDENTITY" \
-      --network "$NETWORK" \
+      --source "$CANARY_IDENTITY" \
+      --rpc-url "$RPC_URL" \
+      --network-passphrase "$NETWORK_PASSPHRASE" \
       -- \
       unfreeze_contract \
-      --admin_signants "[\"$ADMIN_ADDRESS\"]" 2>/dev/null && log "  ✅ unfreeze_contract OK" || echo "  ⚠ unfreeze_contract failed" >&2
+      --admin_signants "[\"$ADMIN_ADDRESS\"]" 2>&1); then
+      log "  ✅ unfreeze_contract OK"
+    else
+      log "  ❌ unfreeze_contract failed: $UNFREEZE_OUTPUT"
+      CANARY_FAILED=true
+    fi
+
+    if [ "$CANARY_FAILED" = true ]; then
+      die "Canary checks failed; deployment not verified."
+    fi
 
     log "Canary checks complete."
   fi

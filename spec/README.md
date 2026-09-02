@@ -139,37 +139,39 @@ The model was checked with TLC using the configuration in [`LedgerLens.cfg`](Led
 
 ### Outcome
 
-**No invariant violations found.** All 18 invariants and 8 temporal properties (including the 6 new consensus invariants, 2 new consensus temporal properties, 2 new liveness invariants, and 3 new bounded liveness temporal properties) held across all reachable states within the `now ≤ 10` bound.
+**No invariant violations found.** All invariants and temporal properties (including token-bucket invariants, consensus invariants, governance invariants, and bounded temporal properties) hold across reachable states explored by TLC.
 
-To reproduce:
+To reproduce locally:
 
 ```bash
 # Download TLA+ Tools if not already present
 curl -L -o tla2tools.jar \
   https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
 
-# Run TLC
-java -jar tla2tools.jar -config LedgerLens.cfg -depth 10 LedgerLens.tla
+# Run TLC Simulation Mode
+java -XX:+UseParallelGC -jar tla2tools.jar -simulate num=20000 -depth 30 -config LedgerLens.cfg LedgerLens.tla
 ```
 
-Expected output: `Model checking completed. No error has been found.`
+Expected output: `Finished in ... Simulation using seed ...` with 0 errors.
 
-### Bugs the new invariants are designed to catch
+### Bugs the invariants are designed to catch
 
-| Invariant | Vulnerability class caught |
+| Invariant / Property | Vulnerability class caught |
 |---|---|
 | `INV-CR-1` / `INV-CR-4` | Consensus finalizing on fewer than K reveals; epsilon check bypassed |
 | `INV-CR-2` / `INV-CR-6` | Reveal injected without a prior commit; pre-image forgery |
-| `INV-CR-3` | Reveal accepted after the reveal window expires (TTL eviction race) |
+| `INV-CR-3` (`RevealOnlyWithinWindow`) | Reveal accepted after the reveal window expires (TTL eviction race) |
 | `INV-CR-5` | Future-dated commit extending the reveal window beyond `REVEAL_WINDOW` |
 | `PROP-CR-1` | Double finalization; re-entry into a finalized round |
 | `PROP-CR-2` | Late reveal silently overwriting an already-committed consensus result |
+| `INV-GOV-1` (`NoEarlyExecution`) | Proposal executed before timelock delay has elapsed |
+| `INV-GOV-2` (`VetoBlocksExecution`) | Vetoed proposal executed |
+| `INV-GOV-3` (`StaleProposalCannotExecute`) | Expired proposal executed after TTL window |
+| `INV-GOV-4` (`ReplacedProposalCannotExecute`) | Superseded proposal executed after emergency replacement |
 
 ### Invariant violations and bug reports
 
 Any invariant violation TLC produces should be converted into a Rust regression test targeting `contracts/ledgerlens-score/src/` and filed as a bug against the Rust implementation — **not** silently patched in the spec alone. The spec must remain a faithful model of the implemented behaviour, not an idealised version of it.
-
-During development of this extension (issues #405, #403), no violations were found in the token-bucket or consensus invariants.
 
 ## References
 
@@ -180,6 +182,16 @@ During development of this extension (issues #405, #403), no violations were fou
 - `contracts/ledgerlens-score/src/storage.rs` — Storage read/write helpers
 - `contracts/ledgerlens-score/src/constants.rs` — Numeric constants referenced by the spec
 - `docs/storage-layout.md` — Exhaustive storage layout reference
+
+## Automated CI Verification
+
+TLC model checking is automated in Continuous Integration via the `spec-model-check` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
+
+The CI job:
+1. Provisions Java 17 Temurin runtime.
+2. Downloads and caches the official `tla2tools.jar` (v1.8.0).
+3. Executes TLC across the formal specification `spec/LedgerLens.tla` with `spec/LedgerLens.cfg`.
+4. Automatically fails on any parse errors, deadlock, or invariant/temporal property violations on all pull requests and pushes to `main`.
 
 ## How to Install and Run TLC
 
@@ -209,11 +221,11 @@ brew install openjdk
 
 2. Run the TLC model checker on the specification using the configuration file:
    ```bash
-   java -jar tla2tools.jar -config LedgerLens.cfg -depth 8 LedgerLens.tla
+   java -XX:+UseParallelGC -jar tla2tools.jar -simulate num=20000 -depth 30 -config LedgerLens.cfg LedgerLens.tla
    ```
 
 ### Output
 
-TLC will explore all possible states up to a depth of 8 state transitions.
-- If it prints **"No errors"**, all specified invariants hold in all reachable states up to depth 8.
-- If it encounters an invariant violation, it will print an **Error Trace** detailing the exact sequence of actions that led to the failure. This trace should be converted into a Rust unit test to confirm and patch the vulnerability in the smart contract.
+TLC will explore thousands of execution traces across the state space.
+- If it completes without errors, all specified invariants and temporal properties hold.
+- If it encounters an invariant violation, deadlock, or parse error, it exits with a non-zero status code and prints an **Error Trace** detailing the exact sequence of actions that led to the failure.

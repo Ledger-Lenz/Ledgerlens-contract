@@ -69,7 +69,7 @@ The required quorum is a strict majority of healthy registered shards:
 
 ```text
 required_quorum = healthy_count / 2 + 1
-```
+```yaml
 
 The canonical fingerprint is the fingerprint with the highest count among
 available, non-stale shards. If two fingerprints have the same count, the
@@ -110,7 +110,6 @@ registered healthy shard
   -> admin set_shard_health(false) quarantines it
   -> detect_split_brain reports Unhealthy and excludes it from quorum
   -> admin set_shard_health(true) restores it to quorum calculation
-```
 
 `add_shard` remains atomic: it validates authorization, duplicate/self-reference
 checks, shard limit, and capability support before storing the new shard list.
@@ -145,7 +144,7 @@ let report = aggregator.detect_split_brain(&wallet, &symbol_short!("XLM_USDC"));
 if report.status != SplitBrainStatus::Aligned {
     // fail closed or route to fallback shard policy
 }
-```
+```yaml
 
 Operator quarantine:
 
@@ -153,4 +152,3 @@ Operator quarantine:
 aggregator.set_shard_health(&shard_id, &false);
 let healthy = aggregator.get_shard_health(&shard_id);
 assert!(!healthy);
-```

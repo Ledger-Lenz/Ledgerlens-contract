@@ -17,7 +17,6 @@ off-chain pipeline records (NDJSON)
         │                                                  (mismatches + actions)
         ▼
 on-chain state  (via replay harness / get_score queries)
-```
 
 A **reconciliation report** lists every `(wallet, asset_pair)` tuple that
 appears in either source and classifies it as one of:
@@ -56,7 +55,7 @@ python -m ledgerlens.export_scores \
   --since <INCIDENT_START_UNIX> \
   --until <INCIDENT_END_UNIX> \
   --output pipeline_records.ndjson
-```
+```yaml
 
 ### 2. Run the reconciliation script
 
@@ -69,7 +68,6 @@ python -m ledgerlens.export_scores \
   --max-age-secs 86400 \
   --score-tolerance 0 \
   --output reconciliation_report.json
-```
 
 `reconcile.sh` calls the replay harness internally and emits
 `reconciliation_report.json` (see [Report Schema](#report-schema) below).
@@ -79,7 +77,7 @@ python -m ledgerlens.export_scores \
 ```bash
 jq '.summary' reconciliation_report.json
 jq '.entries[] | select(.status != "ok")' reconciliation_report.json
-```
+```yaml
 
 ### 4. Apply remediation
 
@@ -112,7 +110,6 @@ while IFS= read -r line; do
     --model_version 1 --attestation_input null
 done < <(jq -c '.entries[] | select(.status == "mismatch" or .status == "pipeline_only")' \
            reconciliation_report.json)
-```
 
 ### 5. Re-run reconciliation to confirm
 
@@ -151,7 +148,7 @@ and `summary.pipeline_only_count` should reach `0`.
     }
   ]
 }
-```
+```yaml
 
 ---
 
@@ -159,7 +156,6 @@ and `summary.pipeline_only_count` should reach `0`.
 
 Run the reconciliation workflow after every incident and on a weekly schedule:
 
-```
 # crontab entry (weekly, Sundays 02:00 UTC)
 0 2 * * 0  /path/to/scripts/reconcile.sh \
               --pipeline /data/latest_pipeline_dump.ndjson \
@@ -167,7 +163,7 @@ Run the reconciliation workflow after every incident and on a weekly schedule:
               --rpc-url "$RPC_URL" \
               --network "$NETWORK" \
               > /var/log/ledgerlens/reconcile_$(date +\%F).json
-```
+```yaml
 
 ---
 

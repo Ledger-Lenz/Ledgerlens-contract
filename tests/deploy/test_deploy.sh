@@ -50,11 +50,57 @@ EOF
 assert_contains() {
   local file="$1"
   local needle="$2"
-  grep -F "$needle" "$file" >/dev/null 2>&1 || {
+  grep -F -- "$needle" "$file" >/dev/null 2>&1 || {
     echo "expected '$needle' in $file" >&2
     cat "$file" >&2
     exit 1
   }
+}
+
+assert_not_contains() {
+  local file="$1"
+  local needle="$2"
+  if grep -F -- "$needle" "$file" >/dev/null 2>&1; then
+    echo "unexpected '$needle' in $file" >&2
+    cat "$file" >&2
+    exit 1
+  fi
+}
+
+run_help_case() {
+  local output="$TMP_DIR/help.out"
+  bash "$ROOT_DIR/deploy.sh" --help >"$output" 2>&1
+  assert_contains "$output" "Build, optimize, deploy and initialize the LedgerLens score contract."
+  assert_contains "$output" "Usage:"
+  assert_contains "$output" "./deploy.sh [options] <network> <admin-identity> <service-address>"
+  assert_contains "$output" "--dry-run"
+  assert_contains "$output" "--check-toolchain"
+  assert_contains "$output" "--manifest <path>"
+  assert_contains "$output" "--help             Show this help message."
+  # The usage block is extracted from between explicit markers, so shell
+  # implementation lines must never leak into help output and the markers
+  # themselves must not be printed.
+  assert_not_contains "$output" "set -euo pipefail"
+  assert_not_contains "$output" "# --- usage ---"
+  assert_not_contains "$output" "# --- end usage ---"
+}
+
+run_help_marker_integrity_case() {
+  # A header edit that removes a usage marker must fail loudly instead of
+  # silently truncating --help or leaking the rest of the script.
+  local broken_dir="$TMP_DIR/broken-help"
+  local output="$TMP_DIR/help-broken.out"
+  mkdir -p "$broken_dir/deploy"
+  cp -r "$ROOT_DIR/deploy/." "$broken_dir/deploy/"
+  sed '/^# --- end usage ---$/d' "$ROOT_DIR/deploy.sh" >"$broken_dir/deploy.sh"
+
+  if bash "$broken_dir/deploy.sh" --help >"$output" 2>&1; then
+    echo "expected deploy.sh without the '# --- end usage ---' marker to fail" >&2
+    exit 1
+  fi
+
+  assert_contains "$output" "missing the '# --- end usage ---' marker"
+  assert_not_contains "$output" "set -euo pipefail"
 }
 
 run_success_case() {
@@ -122,6 +168,8 @@ run_manifest_rejects_unexpected_key_case() {
   assert_contains "$output" "unexpected manifest key 'SECRET_KEY'"
 }
 
+run_help_case
+run_help_marker_integrity_case
 run_success_case
 run_rust_drift_case
 run_cli_drift_case

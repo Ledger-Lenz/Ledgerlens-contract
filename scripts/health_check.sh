@@ -12,7 +12,7 @@
 #   0  all checks passed
 #   1  one or more checks failed (contract likely unhealthy or unreachable)
 
-set -uo pipefail
+set -euo pipefail
 
 NETWORK="${1:?ERROR: network argument is required (e.g. testnet, mainnet)}"
 CONTRACT_ID="${2:?ERROR: contract-id argument is required}"

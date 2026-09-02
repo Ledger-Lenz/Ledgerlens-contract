@@ -55,8 +55,8 @@ the exhaustive storage reference.
 | `embargo_expiry[w]` | `Wallet → ℤ` | `DataKeyB::ScoreEmbargo(wallet)` | `EmbargoExpiry` | `temporary` | `EmbargoExpiry::Indefinite` maps to `embargo_expiry[w] = -1` (permanent); `EmbargoExpiry::Until(ts)` maps to `embargo_expiry[w] = ts` (time-bounded); absent key maps to `embargo_expiry[w] = 0` (no embargo). |
 
 The abstract `EmbargoActive(w)` predicate maps to the Rust function
-`is_wallet_embargoed(env, wallet)` in `storage.rs`, which performs the
-same test: `Indefinite ⟹ true`; `Until(ts) ⟹ now ≤ ts`; absent ⟹ false`.
+`is_embargoed(env, wallet)` in `storage.rs`, which performs the
+same test: `Indefinite ⟹ true`; `Until(ts) ⟹ now ≤ ts`; absent ⟹ `false`.
 
 ### 2.3 Delegation State
 
@@ -75,24 +75,24 @@ sound under-approximation.
 | TLA+ variable | Type in spec | Rust storage key | Rust type | Storage tier | Notes |
 |---|---|---|---|---|---|
 | `tb_tokens[w]` | `Wallet → ℕ` | `DataKeyD::TokenBucket(wallet, asset_pair)` | `TokenBucket` | `persistent` | `TokenBucket.tokens` (u32) maps to `tb_tokens[w]`. The spec models a single canonical pair; the concrete implementation stores one `TokenBucket` per `(wallet, asset_pair)`. |
-| `tb_last_refill[w]` | `Wallet → ℕ` | `DataKeyD::TokenBucket(wallet, asset_pair)` | `TokenBucket` | `persistent` | `TokenBucket.last_refill_ts` (u64) maps to `tb_last_refill[w]`. Co-located with `tokens` in the same struct. |
-| `tb_capacity` | `ℕ` | Not a dedicated key; derived from `DataKey::CooldownSecs` | `u64` | `instance` | In the spec, `tb_capacity` is a global constant bounding the burst window. In the Rust implementation the burst capacity is implicit in the token-bucket algorithm: `MAX_CAPACITY` maps to `constants::MAX_COOLDOWN_SECS` as the upper bound on the configured cooldown, while `MIN_CAPACITY = 1` corresponds to the minimum one-token-per-cooldown behaviour enforced by `MIN_COOLDOWN_SECS`. The spec explores `MIN_CAPACITY..MAX_CAPACITY` as a range; the Rust contract enforces `[MIN_COOLDOWN_SECS, MAX_COOLDOWN_SECS]`. |
+| `tb_last_refill[w]` | `Wallet → ℕ` | `DataKeyD::TokenBucket(wallet, asset_pair)` | `TokenBucket` | `persistent` | `TokenBucket.last_refill` (u64) maps to `tb_last_refill[w]`. Co-located with `tokens` in the same struct. |
+| `tb_capacity` | `ℕ` | `DataKeyD::BurstCapacity` (via `get_burst_capacity()` / `set_burst_capacity(capacity)`) | `u32` | `instance` | In the spec, `tb_capacity` is a global constant bounding the burst window. In the Rust implementation it is the dedicated burst capacity, stored at `DataKeyD::BurstCapacity` and defaulting to `1` — the legacy flat-cooldown behaviour. `MIN_CAPACITY = 1` is the production default/minimum; the spec's `MAX_CAPACITY = 3` is only a TLC exploration bound (no corresponding hard Rust ceiling — `set_burst_capacity` stores the value as-is). |
 
 The abstract `RefillCount(w)` expression maps to the Rust computation in
-`token_bucket::try_consume` (in `storage.rs`):
+`write_score_with_rate_limit(...)` (in `lib.rs`):
 
 ```
 // Spec
 RefillCount(w) == Min(tb_tokens[w] + (now - tb_last_refill[w]) div COOLDOWN, tb_capacity)
 
 // Rust (simplified)
-let elapsed  = now.saturating_sub(bucket.last_refill_ts);
+let elapsed  = now.saturating_sub(bucket.last_refill);
 let refills  = elapsed / cooldown_secs;
 let refilled = (bucket.tokens + refills).min(capacity);
 ```
 
 The `saturating_sub` in Rust is the implementation of the spec guard
-`RefillAnchorNotInFuture` (INV-TB-4): if `last_refill_ts > now`, the
+`RefillAnchorNotInFuture` (INV-TB-4): if `last_refill > now`, the
 subtraction returns 0 rather than underflowing.
 
 ### 2.5 Consensus Commit-Reveal State
@@ -104,12 +104,12 @@ storage — matching the spec's `REVEAL_WINDOW` eviction model.
 
 | TLA+ variable | Type in spec | Rust storage key | Rust type | Storage tier | Notes |
 |---|---|---|---|---|---|
-| `cc_committed[s]` | `Signer → 𝔹` | `DataKeyC::ConsensusCommitment(service_addr, wallet, asset_pair)` | `BytesN<32>` | `temporary` | Presence of the key encodes `TRUE`; absence encodes `FALSE`. The value is the SHA-256 commitment hash (not the plain-text score, because the Rust contract hides scores at commit time). |
+| `cc_committed[s]` | `Signer → 𝔹` | `DataKeyC::ConsensusCommitment(model, wallet, asset_pair)` | `BytesN<32>` | `temporary` | Presence of the key encodes `TRUE`; absence encodes `FALSE`. The value is the SHA-256 commitment hash (not the plain-text score, because the Rust contract hides scores at commit time). |
 | `cc_commit_time[s]` | `Signer → ℕ` | Implicit in the temporary entry TTL | `u64` (TTL ledger count) | `temporary` | In the Rust implementation the commit time is implicitly encoded as `entry_creation_ledger_sequence`. The spec uses `now - cc_commit_time[s] ≤ REVEAL_WINDOW` to gate reveals; the Rust implementation uses `env.storage().temporary().has(&key)` — the key is automatically evicted by the host when its TTL expires, making `cc_committed[s] = FALSE` after expiry without an explicit delete. |
 | `cc_score[s]` | `Signer → ℕ` | Not stored (hash only) | — | — | The spec stores the score in plain-text (no cryptographic hiding needed for structural invariants). The Rust contract stores only `SHA256(score || nonce)` and verifies the pre-image at reveal time. The abstract model's `cc_score[s]` is the *revealed* value; the commitment is opaque in both model and implementation. |
 | `cc_revealed[s]` | `Signer → 𝔹` | Implicit: absence of commit key after `reveal_consensus` | — | — | A successful reveal consumes the temporary commit entry (deletes it) and writes the score into the consensus accumulator. The spec's `cc_revealed[s] = TRUE` maps to: commit key absent AND score has been accumulated for signer `s` in the current round's vote tally. |
-| `cc_finalized` | `𝔹` | Implicit: `ConsensusReached` check at finalization | — | — | Not stored explicitly; finalization is immediate when K-of-N agreement is detected in `finalize_consensus`. The spec's `cc_finalized = TRUE` maps to the contract state just after `submit_score` writes the consensus result. |
-| `cc_final_score` | `ℕ` | `DataKey::Score(wallet, asset_pair)` | `RiskScore.score` | `persistent` | On finalization, the consensus score is written as the new `RiskScore`. `cc_final_score` in the spec maps directly to `RiskScore.score` immediately after `finalize_consensus`. |
+| `cc_finalized` | `𝔹` | Implicit: `ConsensusReached` check at finalization | — | — | Not stored explicitly; finalization is immediate when K-of-N agreement is detected in `submit_consensus_score` (or inside `reveal_consensus` when the commit-reveal path is used). The spec's `cc_finalized = TRUE` maps to the contract state just after the consensus flow writes the result. |
+| `cc_final_score` | `ℕ` | `DataKey::Score(wallet, asset_pair)` | `RiskScore.score` | `persistent` | On finalization, the consensus score is written as the new `RiskScore`. `cc_final_score` in the spec maps directly to `RiskScore.score` immediately after `submit_consensus_score` (or the finalization step inside `reveal_consensus`). |
 
 ---
 
@@ -121,11 +121,11 @@ storage — matching the spec's `REVEAL_WINDOW` eviction model.
 | `HWM_THRESHOLD` | `DEFAULT_SCORE_FLOOR_HWM` (80) | `constants.rs` | Score floor high-water mark; admin-configurable via `set_score_floor_policy`. |
 | `FLOOR_VALUE` | `DEFAULT_SCORE_FLOOR_MIN` (20) | `constants.rs` | Score floor minimum; co-configured with HWM. |
 | `RISK_THRESHOLD` | `DEFAULT_RISK_THRESHOLD` (75) | `constants.rs` | Default gate threshold; integrators can pass a different `gate_threshold`. |
-| `MIN_CAPACITY` | `1` | spec model config | Maps to `MIN_COOLDOWN_SECS = 60`: minimum cooldown ensures at least one token per 60 s. |
-| `MAX_CAPACITY` | `3` | spec model config | TLC exploration bound; production equivalent is `MAX_COOLDOWN_SECS = 86400`. |
+| `MIN_CAPACITY` | `1` | spec model config | Maps to the production default burst capacity `1` (the `get_burst_capacity()` default) — the legacy flat-cooldown mode with no burst allowance. |
+| `MAX_CAPACITY` | `3` | spec model config | TLC exploration bound only; there is no corresponding hard Rust ceiling — `set_burst_capacity` stores the admin-configured value as-is. |
 | `CONSENSUS_K` | `DEFAULT_CONSENSUS_THRESHOLD_K` (2) | `constants.rs` | Minimum agreeing reveals; admin-configurable via `set_consensus_config`. |
 | `CONSENSUS_EPSILON` | `DEFAULT_CONSENSUS_EPSILON` (5) | `constants.rs` | Max pairwise score distance for agreement; spec uses 10 to cover failing (0 vs 80) and passing (50/50) cases with `Scores = {0, 50, 80}`. |
-| `REVEAL_WINDOW` | `DEFAULT_DISPUTE_REVEAL_WINDOW_SECS` (600) / temporary entry TTL | `constants.rs` | The reveal window in the spec corresponds to the TTL of the temporary storage entry created by `commit_consensus`; when the TTL expires the entry is evicted and `ExpireStaleCommit` fires. |
+| `REVEAL_WINDOW` | `DataKeyB::RevealWindowSecs` (default 3600) via `set_reveal_window(secs)` / temporary entry TTL | `storage.rs` | The reveal window in the spec corresponds to `get_reveal_window_secs()` (default 1 hour, admin-configurable via `set_reveal_window(secs)` — distinct from the dispute-bond `DEFAULT_DISPUTE_REVEAL_WINDOW_SECS`). It drives the TTL of the temporary storage entry created by `commit_consensus`; when the TTL expires the entry is evicted and `ExpireStaleCommit` fires. |
 
 ---
 
@@ -133,9 +133,9 @@ storage — matching the spec's `REVEAL_WINDOW` eviction model.
 
 | TLA+ action | Rust entry point | Authorization | Notes |
 |---|---|---|---|
-| `SubmitScore(w, s)` | `submit_score(...)` / `submit_scores_batch(...)` | `service.require_auth()` or M-of-N | Token-bucket gate in spec maps to `token_bucket::try_consume` in `storage.rs`. Score-floor guard maps to `check_score_floor` in `lib.rs`. |
+| `SubmitScore(w, s)` | `submit_score(...)` / `submit_scores_batch(...)` | `service.require_auth()` or M-of-N | Token-bucket gate in spec maps to `write_score_with_rate_limit(...)` in `lib.rs`. Score-floor guard maps to `score_floor_blocks(...)` in `lib.rs`. |
 | `TickTime` | `env.ledger().timestamp()` advances | host | Not a callable entry point; the ledger clock advances between invocations. Modelled as an explicit action in the spec so TLC can interleave it with other actions. |
-| `SetBurstCapacity(c)` | `set_cooldown(secs)` | `admin.require_auth()` | In the spec `tb_capacity` is a token count; in Rust the equivalent configuration is `cooldown_secs`, which implicitly controls how fast tokens refill. |
+| `SetBurstCapacity(c)` | `set_burst_capacity(capacity)` | `admin.require_auth()` | In the spec `tb_capacity` is a token count; in Rust the equivalent is the dedicated burst capacity, stored at `DataKeyD::BurstCapacity` and configured via `set_burst_capacity` (default `1` = legacy flat-cooldown behaviour). |
 | `SetEmbargo(w, expiry)` | `set_score_embargo(wallet, expiry)` | `admin.require_auth()` | `expiry = -1` → `EmbargoExpiry::Indefinite`; `expiry = ts` → `EmbargoExpiry::Until(ts)`. |
 | `LiftEmbargo(w)` | `lift_score_embargo(wallet)` | `admin.require_auth()` | Clears `DataKeyB::ScoreEmbargo(wallet)`. |
 | `SetDelegate(sub, cust)` | `set_score_delegate(wallet, delegate)` | `wallet.require_auth()` | Cycle detection uses `MAX_DELEGATION_DEPTH` in Rust; spec models 3-hop acyclicity as a sound under-approximation. |
@@ -143,7 +143,7 @@ storage — matching the spec's `REVEAL_WINDOW` eviction model.
 | `ResetBreachCount(w)` | `reset_breach_count(wallet, asset_pair)` (admin) | `admin.require_auth()` | Direct write of 0 to `DataKeyC::BreachCount`. |
 | `CommitConsensus(s, v)` | `commit_consensus(wallet, asset_pair, commitment)` | `signer.require_auth()` | `commitment` is `SHA256(score || nonce)`; score value is hidden until reveal. |
 | `RevealConsensus(s)` | `reveal_consensus(wallet, asset_pair, score, nonce)` | `signer.require_auth()` | Verifies pre-image matches the stored commitment hash; enforces reveal-window via temporary entry TTL. |
-| `FinalizeConsensus` | `finalize_consensus(wallet, asset_pair)` | permissionless | Triggered once `Cardinality(agreeing_reveals) ≥ CONSENSUS_K`. |
+| `FinalizeConsensus` | `submit_consensus_score(...)` (finalization step inside `reveal_consensus` for the commit-reveal path) | `service.require_auth()` or M-of-N | Triggered once `Cardinality(agreeing_reveals) ≥ CONSENSUS_K`; in the commit-reveal flow the same K-of-N check runs inside `reveal_consensus`. |
 | `ResetConsensusRound` | Implicit: TTL expiry of temporary storage entries | host | A new round starts when all temporary commit/reveal entries have expired or been consumed. |
 | `ExpireStaleCommit(s)` | Implicit: Soroban temporary-storage TTL eviction | host | When the TTL elapses the entry is silently removed; a subsequent `reveal_consensus` call finds no commit and returns `RevealWindowExpired`. |
 
@@ -157,21 +157,28 @@ counterpart, tested in the `contracts/ledgerlens-score/src/` test modules.
 | TLA+ invariant | Rust behavioral equivalent | Primary test file(s) |
 |---|---|---|
 | `HistoricalMaxMonotonicity` | `HistoricalMaxScore` key never decreases; only `max(current, new)` is written | `test_score_floor.rs`, `test.rs` |
-| `EmbargoGateSoundness` | `is_wallet_embargoed` returns correct boolean for all three expiry states | `test_embargo.rs` |
+| `EmbargoGateSoundness` | `is_embargoed` returns correct boolean for all three expiry states | `test_embargo.rs` |
 | `DelegationAcyclicity` | `set_score_delegate` rejects cycles via depth-bounded traversal | `test.rs` |
-| `TokensNeverExceedCapacity` (`INV-TB-1`) | `try_consume` clamps `refilled = min(tokens + refills, capacity)` | `test_cooldown.rs`, `test_rate_limit.rs` |
-| `TokensNonNegative` (`INV-TB-2`) | `try_consume` only proceeds when `refilled > 0`; stores `refilled - 1` | `test_rate_limit.rs` |
+| `TokensNeverExceedCapacity` (`INV-TB-1`) | `write_score_with_rate_limit(...)` clamps `refilled = min(tokens + refills, capacity)` | `test_cooldown.rs`, `test_rate_limit.rs` |
+| `TokensNonNegative` (`INV-TB-2`) | `write_score_with_rate_limit(...)` only proceeds when `refilled > 0`; stores `refilled - 1` | `test_rate_limit.rs` |
 | `CapacityReductionCapsNextBurst` (`INV-TB-3`) | Same as INV-TB-1 | `test_cooldown.rs` |
 | `RefillAnchorNotInFuture` (`INV-TB-4`) | `saturating_sub` prevents underflow if clock skews | `test_rate_limit.rs` |
-| `CapacityWithinBounds` (`INV-TB-5`) | `set_cooldown` bounded to `[MIN_COOLDOWN_SECS, MAX_COOLDOWN_SECS]` | `test_rate_limit.rs` |
-| `FinalScoreRequiresKReveals` (`INV-CR-1`) | `finalize_consensus` counts agreeing reveals; rejects if `< CONSENSUS_K` | `test_consensus.rs` |
+| `CapacityWithinBounds` (`INV-TB-5`) | `get_burst_capacity()` defaults to `1` (legacy flat-cooldown); `set_burst_capacity` is admin-only and stores the value as-is — the spec's `MIN_CAPACITY..MAX_CAPACITY` are TLC exploration bounds, not enforced Rust limits | `test_rate_limit.rs` |
+| `FinalScoreRequiresKReveals` (`INV-CR-1`) | `submit_consensus_score(...)` counts agreeing reveals; rejects if `< CONSENSUS_K` (same check inside `reveal_consensus`) | `test_consensus.rs` |
 | `NoRevealWithoutCommit` (`INV-CR-2`) | `reveal_consensus` checks `env.storage().temporary().has(&commit_key)` | `test_consensus.rs` |
 | `RevealOnlyWithinWindow` (`INV-CR-3`) | Temporary entry TTL eviction enforces the window | `test_consensus.rs` |
-| `FinalScoreWithinEpsilonOfCluster` (`INV-CR-4`) | `finalize_consensus` computes median of the agreeing cluster | `test_consensus.rs` |
+| `FinalScoreWithinEpsilonOfCluster` (`INV-CR-4`) | `submit_consensus_score(...)` computes median of the agreeing cluster | `test_consensus.rs` |
 | `CommitTimestampNotInFuture` (`INV-CR-5`) | `commit_consensus` uses `env.ledger().timestamp()` — not caller-supplied | `test_consensus.rs` |
 | `ExpiredCommitCannotReveal` (`INV-CR-6`) | Temporary-storage key absent after TTL → `has()` returns false → reveal rejected | `test_consensus.rs` |
-| `SubmitEnabledWhenConditionsMet` (`INV-LIVE-1`) | Precondition structure of `submit_score`: token check + floor check + embargo check together are sufficient | `test_rate_limit.rs`, `test_score_floor.rs`, `test_embargo.rs` |
-| `ScoreFloorDoesNotBlockAllScores` (`INV-LIVE-2`) | `DEFAULT_SCORE_FLOOR_MIN = 20 < MAX_SCORE = 100`; always an admissible value | `test_score_floor.rs` |
+| `SubmitEnabledWhenConditionsMet` (`INV-LIVE-1`) ⚠️ | Precondition structure of `submit_score`: token check + floor check + embargo check together are sufficient | `test_rate_limit.rs`, `test_score_floor.rs`, `test_embargo.rs` |
+| `ScoreFloorDoesNotBlockAllScores` (`INV-LIVE-2`) ⚠️ | `DEFAULT_SCORE_FLOOR_MIN = 20 < MAX_SCORE = 100`; always an admissible value | `test_score_floor.rs` |
+
+> ⚠️ `INV-LIVE-1` / `INV-LIVE-2` are liveness claims catalogued in
+> [`spec/README.md`](README.md) but are **not** model-checked by TLC: they are
+> absent from both `LedgerLens.tla` and the `INVARIANT` block of
+> `LedgerLens.cfg`. They are kept here because they document real Rust
+> preconditions, but they do not carry the same machine-checked guarantee as
+> the rows above — see `spec/README.md`.
 
 ---
 
@@ -185,9 +192,9 @@ which the abstract mapping is well-defined.
 |---|---|
 | `RiskScore.score ∈ [0, 100]` | `submit_score` rejects `score > 100` with `InvalidScore` |
 | `RiskScore.confidence ∈ [0, 100]` | `submit_score` rejects `confidence > 100` with `InvalidConfidence` |
-| `HistoricalMaxScore(w, p) ≥ Score(w, p).score` at all times | `set_score` in `storage.rs` calls `max(old_hwm, new_score)` before writing |
+| `hwm[w] ≥ score[w]` at all times (TLA+ `HistoricalMaxMonotonicity`; concretely `DataKey::HistoricalMaxScore` ≥ `RiskScore.score`) | `set_score` in `storage.rs` calls `max(old_hwm, new_score)` before writing |
 | `TokenBucket.tokens ≥ 0` | `u32` type in Rust; arithmetic only stores `refilled - 1` after checking `refilled > 0` |
-| `LastSubmitTime(w, p) ≤ env.ledger().timestamp()` | `submit_score` writes `env.ledger().timestamp()` — always ≤ the current host time |
+| `last_submit_time[w] ≤ now` at all times (concretely `DataKey::LastSubmitTime` ≤ `env.ledger().timestamp()`) | `submit_score` writes `env.ledger().timestamp()` — always ≤ the current host time |
 | Delegation graph has no cycle of depth ≤ `MAX_DELEGATION_DEPTH` | `set_score_delegate` traverses up to `MAX_DELEGATION_DEPTH` steps and rejects if a cycle is detected |
 
 ---
