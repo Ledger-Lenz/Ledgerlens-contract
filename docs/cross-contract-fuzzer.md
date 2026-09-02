@@ -40,20 +40,19 @@ Run the same bounded campaign used by CI:
 
 ```bash
 cargo run -p invocation-fuzzer --locked -- smoke --seed 1666232542 --cases 32
-```
+```yaml
 
 Run a larger local campaign, up to the hard maximum of 512 generated cases:
 
 ```bash
 cargo run -p invocation-fuzzer --locked -- smoke --seed 42 --cases 512
-```
 
 Replay one persisted regression exactly twice:
 
 ```bash
 cargo run -p invocation-fuzzer --locked -- replay \
   tools/invocation-fuzzer/corpus/003-boundaries-and-malformed.json
-```
+```yaml
 
 Corpus files are loaded in lexicographic order. The PR smoke seed, mutation
 selection, fresh-environment setup, and replay comparison are deterministic.

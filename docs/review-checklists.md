@@ -105,7 +105,7 @@ New `DataKey`/`DataKeyB`/`DataKeyC`/`DataKeyD` variants, TTL/rent handling, boun
       resolution) is capped per-call (`MAX_EXPIRING_ENTRIES_PER_CALL`-style) so it can't blow a
       single transaction's resource budget even when the collection is at its `MAX_*` ceiling.
 
-**Deep dive:** [`docs/storage-layout.md`](storage-layout.md), [`docs/adr/storage-key-split.md`](adr/storage-key-split.md).
+**Deep dive:** [`docs/storage-layout.md`](storage-layout.md), [`docs/adr/0001-storage-key-enum-split.md`](adr/0001-storage-key-enum-split.md), [`docs/adr/storage-key-split.md`](adr/storage-key-split.md).
 
 ---
 

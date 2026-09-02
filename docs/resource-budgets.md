@@ -23,7 +23,7 @@ Run the benchmarks:
 
 ```bash
 cargo bench -p ledgerlens-score --bench entry_point_budgets
-```
+```yaml
 
 ---
 

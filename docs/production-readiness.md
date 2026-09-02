@@ -66,13 +66,11 @@ Uninitialized → Initialized → Active
                         Paused (global circuit breaker)
                                 ↓
                         Active (unpause restores)
-```
 
 ### 4.2 Score Lifecycle
 ```
 Pending (with finality buffer > 0) → Committed (after buffer elapsed)
 Direct submission (buffer = 0) → Committed immediately
-```
 
 ### 4.3 Upgrade Lifecycle
 ```
@@ -81,7 +79,6 @@ No pending upgrade → Proposed → (48h delay) → Executed
                               Vetoed (within first half of delay)
                                    ↓
                               Expired (2× delay elapses)
-```
 
 ### 4.4 Parameter Change Lifecycle
 ```
@@ -90,12 +87,10 @@ No pending proposal → Proposed → (time-lock) → Executed
                                Vetoed (within first half)
                                     ↓
                                Expired (2× time-lock)
-```
 
 ### 4.5 Model Version Lifecycle
 ```
 Proposed → (upgrade_delay) → Active → Deprecated (permanent)
-```
 
 ## 5. Failure Modes and Mitigations
 

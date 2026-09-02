@@ -41,13 +41,12 @@ soroban contract invoke \
   --id $CONTRACT_ID \
   -- pause \
   --admin_signers '["ADMIN_1","ADMIN_2"]'
-```
+```yaml
 
 Expected contract state: `is_paused() == true`. Confirm:
 
 ```bash
 soroban contract invoke --network mainnet --id $CONTRACT_ID -- is_paused
-```
 
 **Decision point 2:** If only one asset pair is affected and you need the
 rest of the system to keep operating, use `set_pair_paused(pair, true)`
@@ -65,7 +64,7 @@ soroban contract invoke \
   -- remove_service_signer \
   --admin_signers '["ADMIN_1","ADMIN_2"]' \
   --signer $COMPROMISED_SIGNER
-```
+```yaml
 
 Expected contract state: `get_service_signers()` no longer includes
 `$COMPROMISED_SIGNER`; `get_service_signer_count()` decremented by one.
@@ -77,7 +76,6 @@ exposed, rotate it instead/also:
 soroban contract invoke \
   --network mainnet --source-account YOUR_ADMIN_ACCOUNT --id $CONTRACT_ID \
   -- rotate_service_pubkey --new_pubkey $NEW_PUBKEY_HEX
-```
 
 Expected state: `get_pending_service_pubkey()` returns `(new_key,
 overlap_expiry)` until the overlap window elapses, after which
@@ -89,7 +87,7 @@ Add a replacement signer once the new key material is confirmed clean:
 soroban contract invoke \
   --network mainnet --source-account YOUR_ADMIN_ACCOUNT --id $CONTRACT_ID \
   -- add_service_signer --admin_signers '["ADMIN_1","ADMIN_2"]' --signer $NEW_SIGNER
-```
+```yaml
 
 **Decision point 3:** If the compromise could also have touched the admin
 multisig (not just the service signer set), stop here and follow the admin
@@ -109,7 +107,6 @@ rate-limit, or determinism invariants:
 cargo run -p ledgerlens-replay -- \
   --snapshot suspected_window.ndjson \
   --contract-id $CONTRACT_ID
-```
 
 Expected result: harness reports zero panics, all scores in `[0, 100]`, and
 rate limits honored. Any violation is evidence to include in the audit trail

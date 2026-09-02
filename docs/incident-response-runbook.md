@@ -22,7 +22,6 @@
 ```
 Normal ──┬──> Paused ──> Normal
          └──> Frozen ──> Normal
-```
 
 - **Paused** (`pause`): Blocks `submit_score` and other non-admin mutations. Admin governance continues (e.g. `reconcile_state`, `compute_state_checksum`).
 - **Frozen** (`freeze_contract`): Blocks **all** mutating operations including admin governance except `unfreeze_contract`. Designed for incident isolation.
@@ -46,7 +45,7 @@ soroban contract invoke \
   -- \
   freeze_contract \
   --admin_signers '["<ADMIN_ADDRESS>"]'
-```
+```yaml
 
 **Investigation:**
 
@@ -62,7 +61,6 @@ soroban contract invoke \
 
 # 2. Export all scores for off-line analysis
 # (Use export_all_scores_paginated with pagination)
-```
 
 **Recovery:**
 
@@ -80,7 +78,7 @@ soroban contract invoke \
   -- \
   unfreeze_contract \
   --admin_signers '["<ADMIN_ADDRESS>"]'
-```
+```yaml
 
 ### 3.2 Configuration Drift
 
@@ -170,11 +168,10 @@ soroban contract invoke \
 
 ## 7. Reconciliation Workflow
 
-```
 Pre-incident snapshot ──┐
                         ├──> reconcile_state ──> Report
 Post-recovery snapshot ─┘
-```
+```yaml
 
 **On-chain:** `reconcile_state(snapshot_a, snapshot_b)`  
 **Off-chain:** `recovery reconcile pre.json post.json`

@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use ledgerlens_aggregator::{LedgerLensAggregator, LedgerLensAggregatorClient};
 use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
-use mock_amm::{MockAmm, MockAmmClient};
+use mock_amm::{FailPolicy as AmmFailPolicy, MockAmm, MockAmmClient};
 use mock_lending::{MockLending, MockLendingClient};
 use serde::{Deserialize, Serialize};
 use soroban_sdk::{
@@ -171,6 +171,7 @@ impl CampaignReport {
 
 struct Fixture<'a> {
     env: Env,
+    admin: Address,
     wallet: Address,
     score: LedgerLensScoreContractClient<'a>,
     amm: MockAmmClient<'a>,
@@ -199,12 +200,19 @@ fn setup<'a>() -> Fixture<'a> {
 
     let amm_id = env.register_contract(None, MockAmm);
     let amm = MockAmmClient::new(&env, &amm_id);
-    amm.initialize(&score_id, &GATE_THRESHOLD);
-    amm.set_liquidity_gate_config(&GATE_THRESHOLD, &MIN_CONFIDENCE);
+    amm.initialize(&admin, &score_id, &GATE_THRESHOLD);
+    amm.set_liquidity_gate_config(
+        &admin,
+        &GATE_THRESHOLD,
+        &MIN_CONFIDENCE,
+        &AmmFailPolicy::FailClosed,
+        &604_800,
+        &0,
+    );
 
     let lending_id = env.register_contract(None, MockLending);
     let lending = MockLendingClient::new(&env, &lending_id);
-    lending.initialize(&score_id, &GATE_THRESHOLD, &MIN_CONFIDENCE);
+    lending.initialize(&admin, &score_id, &GATE_THRESHOLD, &MIN_CONFIDENCE);
 
     let aggregator_id = env.register_contract(None, LedgerLensAggregator);
     let aggregator = LedgerLensAggregatorClient::new(&env, &aggregator_id);
@@ -216,6 +224,7 @@ fn setup<'a>() -> Fixture<'a> {
 
     Fixture {
         env,
+        admin,
         wallet,
         score,
         amm,
@@ -379,7 +388,7 @@ fn invoke(fixture: &Fixture<'_>, operation: &Operation) -> Result<String> {
         }
         Operation::RotateAmmToUnavailable => {
             let unavailable = Address::generate(&fixture.env);
-            Ok(format!("{:?}", fixture.amm.try_set_risk_oracle(&unavailable)))
+            Ok(format!("{:?}", fixture.amm.try_set_risk_oracle(&fixture.admin, &unavailable)))
         }
         Operation::RawInvoke { target, function, args } => {
             let function = symbol(&fixture.env, function)?;

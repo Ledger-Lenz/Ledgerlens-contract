@@ -124,3 +124,21 @@ fn test_approval_count_zero_initially() {
     let (_env, client, _a1, _a2, _a3) = setup_multisig();
     assert_eq!(client.get_upgrade_approval_count(), 0);
 }
+
+/// `get_upgrade_approval_count` reads storage directly and never checks
+/// `has_admin`, so it must return `0` (not panic, not error) on a contract
+/// that hasn't even been initialized yet. Every existing test in this file
+/// goes through `setup_multisig()`, which always initializes and configures
+/// the multisig first, so the pre-initialization path was previously
+/// untested for this function.
+#[test]
+fn test_approval_count_zero_before_initialize() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = START_TS);
+
+    let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.get_upgrade_approval_count(), 0);
+}

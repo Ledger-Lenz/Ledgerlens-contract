@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ledgerlens.dev/schemas/risk_score.schema.json",
+  "title": "RiskScore",
+  "$defs": {
+    "RiskScore": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "benford_flag": {
+          "type": "boolean"
+        },
+        "benford_score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "commitment": {
+          "anyOf": [
+            {
+              "type": "string",
+              "contentEncoding": "base64"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "confidence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "ml_flag": {
+          "type": "boolean"
+        },
+        "ml_score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "model_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "network_score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "timestamp": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "benford_flag",
+        "benford_score",
+        "commitment",
+        "confidence",
+        "ml_flag",
+        "ml_score",
+        "model_version",
+        "network_score",
+        "score",
+        "timestamp"
+      ]
+    }
+  },
+  "description": "On-chain record of the latest LedgerLens risk assessment for a\nwallet / asset-pair combination."
+}

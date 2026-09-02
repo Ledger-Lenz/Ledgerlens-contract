@@ -1,6 +1,9 @@
 # ADR: DataKey Storage-Key Split Analysis
 
-**Date:** 2026-07-20 · **Status:** Analysis complete — consolidation not recommended
+**Date:** 2026-07-20 · **Status:** Analysis complete — Formalized in [**ADR 0001: Storage-Key Enum Partitioning**](0001-storage-key-enum-split.md)
+
+> [!NOTE]
+> This analysis has been formalized into the project's official decision record: [**ADR 0001: Storage-Key Enum Partitioning**](0001-storage-key-enum-split.md). Please refer to ADR 0001 for up-to-date variant budgets and contributor placement rules.
 
 ## Context
 
