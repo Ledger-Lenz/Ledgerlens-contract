@@ -1,1 +1,191 @@
+# .cargo/mutants.toml — cargo-mutants scope configuration
+#
+# Baseline scope (pre-#935): zk_range_proof.rs and verkle.rs only.
+# The `examine_globs` key is the default scope used by plain `cargo mutants`
+# invocations (e.g. the nightly shard-a job and the mutation-test.sh script).
+#
+# Spike #935 expanded this file with named shard profiles that cover the
+# contract's remaining security-critical modules. See docs/mutation-testing.md
+# for the full benchmark methodology, runtime estimates, and surviving-mutant
+# findings that justify the expanded scope.
+
 examine_globs = ["src/zk_range_proof.rs", "src/verkle.rs"]
+
+# ── Global defaults for all shard runs ────────────────────────────────────────
+
+# Maximum wall-clock time (seconds) per mutant before it is counted as a
+# surviving mutant (timeout). 120 s is generous for the Soroban test harness
+# on a standard 2-vCPU runner.
+timeout = 120
+
+# Number of cargo-test workers. Keep at 1 to avoid flakiness from tests that
+# share env/socket state; the workflow matrix provides outer parallelism.
+jobs = 1
+
+# ── Shard A — baseline (zk / verkle) ──────────────────────────────────────────
+# Preserves the original narrow scope unchanged. Used by the nightly Mon/Wed/Fri
+# run and by `mutation-test.sh`.
+
+[profile.shard-a]
+include_source_files = [
+    "contracts/ledgerlens-score/src/zk_range_proof.rs",
+    "contracts/ledgerlens-score/src/verkle.rs",
+]
+test_workspace = false
+additional_cargo_args = [
+    "--package", "ledgerlens-score",
+    "--test", "test_zk_range_proof",
+    "--test", "test_verkle",
+]
+timeout = 120
+
+# ── Shard B — upgrade governance ──────────────────────────────────────────────
+# Covers the time-lock proposal/execute/veto paths and the upgrade-delay
+# setter validated in parameter_governance.rs.
+
+[profile.shard-b]
+include_source_files = [
+    "contracts/ledgerlens-score/src/parameter_governance.rs",
+]
+include_re = [
+    "validate_parameter_value",
+    "apply_parameter_change",
+    "propose_upgrade",
+    "execute_upgrade",
+    "veto_upgrade",
+    "set_upgrade_delay",
+    "get_upgrade_delay",
+    "set_pending_upgrade",
+    "get_pending_upgrade",
+    "clear_pending_upgrade",
+]
+test_workspace = false
+additional_cargo_args = [
+    "--package", "ledgerlens-score",
+    "--test", "test_upgrade",
+    "--test", "test_parameter_governance",
+    "--test", "test_param_timelock",
+    "--test", "test_upgrade_multisig",
+]
+timeout = 120
+
+# ── Shard C — rate-limiting / cooldown ────────────────────────────────────────
+# Covers the per-(wallet, asset_pair) cooldown enforcement, the per-pair
+# override, batch rate-limit paths, and admin override helpers.
+
+[profile.shard-c]
+include_source_files = [
+    "contracts/ledgerlens-score/src/storage.rs",
+]
+include_re = [
+    "set_cooldown_secs",
+    "get_cooldown_secs",
+    "set_last_submit_time",
+    "get_last_submit_time",
+    "clear_last_submit_time",
+    "set_pair_cooldown",
+    "get_pair_cooldown",
+    "clear_pair_cooldown",
+    "set_cooldown",
+    "get_cooldown",
+    "override_rate_limit",
+    "batch_override_rate_limit",
+]
+test_workspace = false
+additional_cargo_args = [
+    "--package", "ledgerlens-score",
+    "--test", "test_rate_limit",
+    "--test", "test_cooldown",
+    "--test", "test_cooldown_period",
+    "--test", "test_rate_limit_override_log",
+    "--test", "test_rate_limit_window",
+    "--test", "test_adaptive_rate_limit",
+]
+timeout = 120
+
+# ── Shard D — score-submission floor ──────────────────────────────────────────
+# Covers the historical-max tracking, floor policy validation, and the
+# per-submission enforcement check (including batch enforcement).
+
+[profile.shard-d]
+include_source_files = [
+    "contracts/ledgerlens-score/src/storage.rs",
+]
+include_re = [
+    "set_historical_max_score",
+    "get_historical_max_score",
+    "clear_historical_max_score",
+    "set_score_floor_policy",
+    "get_score_floor_policy",
+    "override_score_floor",
+    "is_score_floor_enabled",
+]
+test_workspace = false
+additional_cargo_args = [
+    "--package", "ledgerlens-score",
+    "--test", "test_score_floor",
+    "--test", "test_is_score_floor_enabled",
+]
+timeout = 120
+
+# ── Shard E — full expanded scope (weekend sweep) ─────────────────────────────
+# All four security-critical areas in a single run. Longer timeout for the
+# weekend runners that have more headroom.
+
+[profile.shard-e]
+include_source_files = [
+    "contracts/ledgerlens-score/src/zk_range_proof.rs",
+    "contracts/ledgerlens-score/src/verkle.rs",
+    "contracts/ledgerlens-score/src/parameter_governance.rs",
+    "contracts/ledgerlens-score/src/storage.rs",
+]
+include_re = [
+    "validate_parameter_value",
+    "apply_parameter_change",
+    "propose_upgrade",
+    "execute_upgrade",
+    "veto_upgrade",
+    "set_upgrade_delay",
+    "get_upgrade_delay",
+    "set_pending_upgrade",
+    "get_pending_upgrade",
+    "clear_pending_upgrade",
+    "set_cooldown_secs",
+    "get_cooldown_secs",
+    "set_last_submit_time",
+    "get_last_submit_time",
+    "clear_last_submit_time",
+    "set_pair_cooldown",
+    "get_pair_cooldown",
+    "clear_pair_cooldown",
+    "set_cooldown",
+    "get_cooldown",
+    "override_rate_limit",
+    "batch_override_rate_limit",
+    "set_historical_max_score",
+    "get_historical_max_score",
+    "clear_historical_max_score",
+    "set_score_floor_policy",
+    "get_score_floor_policy",
+    "override_score_floor",
+    "is_score_floor_enabled",
+]
+test_workspace = false
+additional_cargo_args = [
+    "--package", "ledgerlens-score",
+    "--test", "test_zk_range_proof",
+    "--test", "test_verkle",
+    "--test", "test_upgrade",
+    "--test", "test_parameter_governance",
+    "--test", "test_param_timelock",
+    "--test", "test_upgrade_multisig",
+    "--test", "test_rate_limit",
+    "--test", "test_cooldown",
+    "--test", "test_cooldown_period",
+    "--test", "test_rate_limit_override_log",
+    "--test", "test_rate_limit_window",
+    "--test", "test_adaptive_rate_limit",
+    "--test", "test_score_floor",
+    "--test", "test_is_score_floor_enabled",
+]
+timeout = 180
