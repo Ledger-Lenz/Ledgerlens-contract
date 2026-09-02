@@ -317,3 +317,22 @@ fn test_configured_delay_applied_to_proposal() {
     // Now = START_TS + 86400; executable_after = now + MAX_UPGRADE_DELAY_SECS.
     assert_eq!(proposal.executable_after, START_TS + 86_400 + MAX_UPGRADE_DELAY_SECS);
 }
+
+/// `execute_upgrade` on a contract that has never been `initialize`d (no admin
+/// set yet). None of the other tests in this file exercise `execute_upgrade`
+/// without first calling `setup()`, which always initializes the contract, so
+/// the `NotInitialized` guard at the top of `execute_upgrade` was previously
+/// untested. This must be rejected before the "no pending upgrade" check is
+/// ever reached.
+#[test]
+fn test_execute_upgrade_before_initialize_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = START_TS);
+
+    let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+
+    let result = client.try_execute_upgrade(&Vec::new(&env));
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+}
