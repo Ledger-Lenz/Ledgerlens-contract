@@ -624,3 +624,46 @@ fn test_consensus_commitment_mismatch() {
     );
     assert_eq!(result, Err(Ok(Error::CommitmentMismatch)));
 }
+
+// ── get_reveal_window default value ────────────────────────────────────────────
+
+// get_reveal_window before any set_reveal_window call must return the
+// storage-layer default (3_600 seconds), not 0 or an error. Checked
+// test_consensus.rs and test_public_error_snapshots.rs first: every existing
+// reference to the reveal window (e.g. test_consensus_reveal_window_expired,
+// snapshot_reveal_window_elapsed_preserves_live_score_state) calls
+// set_reveal_window(1) before reading it, so the unset default was never
+// asserted directly.
+#[test]
+fn test_get_reveal_window_default_before_any_set() {
+    let (_env, client) = setup();
+    assert_eq!(client.get_reveal_window(), 3_600u64);
+}
+
+// ── set_reveal_window under multisig quorum ────────────────────────────────────
+
+// Once an admin multisig quorum is configured, set_reveal_window must enforce
+// it like every other admin setter: supplying fewer than the configured
+// threshold of signers returns InsufficientAdminSigners rather than silently
+// succeeding or panicking. Checked test_admin_multisig.rs first: it exercises
+// this exact pattern for set_risk_threshold and pause, but never for
+// set_reveal_window.
+#[test]
+fn test_set_reveal_window_insufficient_signers_after_multisig_configured() {
+    let (env, client) = setup();
+
+    let s1 = Address::generate(&env);
+    let s2 = Address::generate(&env);
+    client.add_admin_signer(&Vec::new(&env), &s1);
+    client.add_admin_signer(&Vec::new(&env), &s2);
+    client.set_admin_threshold(&Vec::new(&env), &2);
+
+    let mut one_signer = Vec::new(&env);
+    one_signer.push_back(s1);
+    let result = client.try_set_reveal_window(&one_signer, &7_200u64);
+    assert_eq!(result, Err(Ok(Error::InsufficientAdminSigners)));
+
+    // The reveal window must remain at its prior default — the rejected
+    // call must not have taken effect.
+    assert_eq!(client.get_reveal_window(), 3_600u64);
+}
