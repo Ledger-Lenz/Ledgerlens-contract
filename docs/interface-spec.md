@@ -181,7 +181,7 @@ trying to read it.
 | `get_score(env, wallet, asset_pair) -> Result<RiskScore, Error>` | latest score | `Err(ScoreNotFound)` if absent |
 | `get_score_history(env, wallet, asset_pair) -> Vec<RiskScore>` | up to 10 entries, oldest first | empty `Vec` if none |
 | `get_aggregate_score(env, wallet) -> Result<AggregateRiskScore, Error>` | cross-asset weighted view | `Err(ScoreNotFound)` if the wallet has no scores |
-| `get_version(env) -> u32` | contract build version | currently `4` (reflecting the current contract build) |
+| `get_version(env) -> u32` | contract build version | currently `5` (reflecting the current contract build) |
 
 `get_score` is the right call when you need the full struct (confidence, model
 version, flags) rather than a yes/no gate decision. Prefer `query_risk_gate`
@@ -239,7 +239,7 @@ when `model_version` advances.
 There are two independent version numbers:
 
 1. **Contract version** — `get_version()` (backed by `CONTRACT_VERSION`,
-   currently `4`). Bumped on any breaking ABI change.
+   currently `5`). Bumped on any breaking ABI change.
 2. **Interface version** — the number at the top of this document. It tracks
    the `ILedgerLensScore` surface specifically.
 
