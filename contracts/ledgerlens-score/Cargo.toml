@@ -49,6 +49,11 @@ harness = false
 path = "benches/batch_worst_case_profiles.rs"
 
 [[bench]]
+name = "wallet_cluster"
+harness = false
+path = "benches/wallet_cluster.rs"
+
+[[bench]]
 name = "get_delegation_chain"
 harness = false
 path = "benches/get_delegation_chain.rs"
