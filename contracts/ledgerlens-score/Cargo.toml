@@ -49,6 +49,11 @@ harness = false
 path = "benches/batch_worst_case_profiles.rs"
 
 [[bench]]
+name = "verify_membership"
+harness = false
+path = "benches/verify_membership.rs"
+
+[[bench]]
 name = "portfolio_var"
 harness = false
 path = "benches/portfolio_var.rs"
