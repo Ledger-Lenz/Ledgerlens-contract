@@ -38,14 +38,13 @@ client.submit_score(
     &1,                     // model_version
     &None,                  // attestation_input (None = no secp256k1 payload proof)
 );
-```
+```yaml
 
 ### Read a score
 
 ```rust
 let score = client.get_score(&wallet, &symbol_short!("XLM_USDC"));
 println!("score={} confidence={}", score.score, score.confidence);
-```
 
 ### Expected failures
 
@@ -86,7 +85,7 @@ fn swap(env: Env, user: Address) -> Result<(), MyError> {
     // ... proceed
     Ok(())
 }
-```
+```yaml
 
 ### Confidence-gated liquidity add
 
@@ -103,7 +102,6 @@ let is_safe = client.query_risk_gate_with_confidence(
 if !is_safe {
     return Err(MyError::HighRiskOrLowConfidence);
 }
-```
 
 ### Gate semantics
 
@@ -130,14 +128,13 @@ let history = client.get_score_history(&wallet, &symbol_short!("XLM_USDC"));
 for entry in history.iter() {
     println!("ts={} score={}", entry.timestamp, entry.score);
 }
-```
+```yaml
 
 ### Count total submissions
 
 ```rust
 // Never truncated by the ring-buffer depth.
 let total = client.get_score_count(&wallet, &symbol_short!("XLM_USDC"));
-```
 
 ### Configure ring depth (admin only, time-locked)
 
@@ -146,7 +143,7 @@ let total = client.get_score_count(&wallet, &symbol_short!("XLM_USDC"));
 client.set_history_max_depth(&admin_signers, &5);
 // Read current depth:
 let depth = client.get_history_max_depth(); // default: 10
-```
+```yaml
 
 **Depth bounds:** `[1, 50]`. Values outside this range are rejected with
 `Error::InvalidHistoryDepth`. Decreasing the depth lazily evicts old entries on
@@ -179,21 +176,19 @@ client.veto_upgrade(&admin_signers);
 // 3b. Or, once the time-lock has elapsed, execute it.
 // env.ledger().timestamp() must be >= proposal.executable_after
 client.execute_upgrade(&admin_signers);
-```
 
 ### Rotate the service address
 
 ```rust
 client.set_service(&new_service_address);
 assert_eq!(client.get_service(), new_service_address);
-```
+```yaml
 
 ### Configure submission cooldown
 
 ```rust
 // Set to 2 hours (bounds: 60 s – 86 400 s).
 client.set_cooldown(&admin_signers, &7_200u64);
-```
 
 ### Governance errors
 
@@ -214,13 +209,12 @@ binaries):
 
 ```bash
 cargo build --example typed_client_examples -p ledgerlens-score
-```
+```yaml
 
 All tests inside the example are standard `#[test]` functions and run with:
 
 ```bash
 cargo test --example typed_client_examples -p ledgerlens-score
-```
 
 ## See Also
 

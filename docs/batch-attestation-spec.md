@@ -48,7 +48,7 @@ pub struct ScoreSubmissionWithProof {
     /// the node being walked up, 1 if to the left.
     pub proof_flags: u32,
 }
-```
+```yaml
 
 ## 3. Domain-separation scheme (chosen over sorted-pair)
 
@@ -122,20 +122,18 @@ the same byte layout as `ScoreAttestation`.
 Suppose we have four entries whose underlying commitments are `C0, C1, C2, C3`.
 The leaves are:
 
-```
 L0 = SHA-256(0x00 || C0)
 L1 = SHA-256(0x00 || C1)
 L2 = SHA-256(0x00 || C2)
 L3 = SHA-256(0x00 || C3)
-```
+```yaml
 
 The internal nodes are:
 
-```
 N0 = SHA-256(0x01 || L0 || L1)
 N1 = SHA-256(0x01 || L2 || L3)
 R  = SHA-256(0x01 || N0 || N1)        ← merkle_root
-```
+```yaml
 
 The per-entry proofs are:
 
@@ -148,12 +146,11 @@ The per-entry proofs are:
 
 Walk-through for index 2 (proof = `[L3, N0]`, flags = `2`):
 
-```
 level 0: bit 0 of flags (value 2 → binary 10) is 0 → sibling on right.
          current = SHA-256(0x01 || L2 || L3) = N1
 level 1: bit 1 of flags (value 2 → binary 10) is 1 → sibling on left.
          current = SHA-256(0x01 || N0 || N1) = R   ✓ matches root
-```
+```yaml
 
 ## 5. On-chain verification
 
@@ -278,7 +275,6 @@ def sign_root(root: bytes, private_key) -> bytes:
     # during signing). See cryptography's recoverable ECDSA for
     # higher-level helpers.
     raise NotImplementedError("see the pipeline's signing utility")
-```
 
 ## 7. Reference off-chain pipeline (TypeScript)
 
@@ -338,8 +334,7 @@ function signRoot(root: Buffer, privateKey: crypto.KeyObject): Buffer {
   // `(r || s || recovery_id)` as 65 bytes directly.
   throw new Error("see the pipeline's signing utility");
 }
-```
-```
+```yaml
 
 ## 8. Edge cases and limits
 

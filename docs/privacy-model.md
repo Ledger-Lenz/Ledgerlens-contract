@@ -14,7 +14,6 @@ for all output sets `S`:
 
 ```
 Pr[M(D) ∈ S] ≤ exp(ε) × Pr[M(D') ∈ S]
-```
 
 The privacy budget `ε` controls the privacy–utility trade-off:
 lower values provide stronger privacy guarantees but add more noise.
@@ -27,7 +26,6 @@ Noise is drawn from a discrete Laplace distribution `Lap(0, b)` with scale
 
 ```
 b = sensitivity / ε = 100 / ε
-```
 
 using the inverse-CDF (quantile) method:
 
@@ -35,7 +33,6 @@ using the inverse-CDF (quantile) method:
 noise = sign × Lap_magnitude
 sign = ±1 with equal probability
 magnitude = floor(b × (−ln(u)))
-```
 
 where `u` is a uniform random variate in `(0, 1)`.  This is the standard
 **geometric mechanism** for integer-valued queries.
@@ -49,7 +46,7 @@ close) plus a caller-provided `seed` argument:
 
 ```text
 prng = SHA-256(ledger_seq || seed || sensitivity || epsilon_scaled || "DPRN")
-```
+```yaml
 
 This means:
 
@@ -89,7 +86,6 @@ number of asset pairs.
 ```rust
 // Query private aggregate
 let private_score: u32 = client.get_private_aggregate_score(&wallet, &seed);
-```
 
 ## Limits and Caveats
 
@@ -138,7 +134,7 @@ Noise bounds: ±300
 Exact score:  70
 Noised score: 70 + Lap(0, 100) → e.g. 42 or 91
               (always clamped to [0, 100])
-```
+```yaml
 
 ## Irreversible score deletion operations
 

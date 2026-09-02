@@ -13,3 +13,12 @@
 # Build Configuration & Tooling
 /Cargo.toml                          @LedgerLens/arch-reviewers
 /tools/                              @LedgerLens/arch-reviewers
+
+# Operational & Deployment Scripts
+# Gate production (canary-deploy, rollback, key-rotation rehearsal) and encrypted mainnet manifests
+/scripts/                            @LedgerLens/arch-reviewers
+/deploy/                             @LedgerLens/arch-reviewers
+
+# Reference & Integration Tests
+/examples/                           @LedgerLens/arch-reviewers
+/tests/                              @LedgerLens/arch-reviewers

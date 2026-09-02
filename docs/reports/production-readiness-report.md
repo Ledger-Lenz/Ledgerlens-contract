@@ -24,7 +24,7 @@ Generate this file with:
 
 ```bash
 scripts/production-acceptance.sh
-```
+```yaml
 
 Production activation is blocked until the generated report shows passing
 automated checks and links a reviewed testnet canary rehearsal report.

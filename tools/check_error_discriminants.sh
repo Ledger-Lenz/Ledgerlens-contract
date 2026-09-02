@@ -22,7 +22,11 @@ extract_from_stream() {
 }
 
 extract_discriminants() {
-    git show "${1}:${ERRORS_PATH}" | extract_from_stream
+    # `|| true`: git show fails (128) when the file is absent at a ref, and
+    # the grep inside extract_from_stream exits 1 when the enum has no
+    # discriminants — both must fall through to the skip path below instead of
+    # aborting the script via set -e/pipefail.
+    git show "${1}:${ERRORS_PATH}" | extract_from_stream || true
 }
 
 base_pairs="$(extract_discriminants "$BASE_REF")"
