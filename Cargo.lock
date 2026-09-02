@@ -299,6 +299,8 @@ dependencies = [
  "ledgerlens-score",
  "mock-amm",
  "mock-lending",
+ "serde",
+ "serde_json",
  "sha2",
  "soroban-sdk",
  "soroban-spec",
