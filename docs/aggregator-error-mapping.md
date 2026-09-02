@@ -30,7 +30,7 @@ failed and the raw score-contract error code via `get_last_shard_failure`:
 
 ```rust
 pub fn get_last_shard_failure(env: Env) -> Option<(Address, u32)>
-```
+```yaml
 
 - **`Address`** — the contract address of the shard that produced the error.
 - **`u32`** — the raw error code from the `ledgerlens-score::Error` enum,
@@ -70,7 +70,6 @@ if !passes {
     }
     // Otherwise it's a genuine, risk-based rejection.
 }
-```
 
 ## Fallback Policy for Aggregator Unavailability (issue #434)
 

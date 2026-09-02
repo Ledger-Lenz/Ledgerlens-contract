@@ -319,7 +319,7 @@ groups:
     annotations:
       summary: "Oracle data is stale"
       action: "Check oracle feed; restart if needed"
-```
+```yaml
 
 ### Event Stream Monitoring
 
@@ -337,7 +337,6 @@ event_stream watch --topic="sig_exp|sig_expd" --severity=warning
 
 # Watch for upgrades
 event_stream watch --topic="upg_*" --alert-on=all
-```
 
 ## Best Practices
 

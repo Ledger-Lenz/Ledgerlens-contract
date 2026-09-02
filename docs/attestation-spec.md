@@ -52,7 +52,7 @@ pub struct ScoreAttestation {
     /// otherwise-valid attestation for the *same* instance and payload.
     pub nonce: u64,
 }
-```
+```yaml
 
 The `commitment` field is **never trusted as input** — `verify_attestation`
 recomputes it independently from the call's actual arguments and rejects the

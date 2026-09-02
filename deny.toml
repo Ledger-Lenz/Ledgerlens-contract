@@ -1,0 +1,98 @@
+# cargo-deny policy for LedgerLens.
+#
+# This file codifies the dependency license and policy gate enforced in CI
+# (.github/workflows/ci.yml, job `dependency-license`). It is the
+# machine-readable expression of the supply-chain policy described in
+# docs/reproducible-builds.md:
+#
+#   * Only the explicitly allow-listed, permissive licenses below may be used.
+#     Copyleft licenses (e.g. GPL) are intentionally absent from the
+#     allow-list, so a transitive copyleft dependency fails CI immediately.
+#   * Yanked and unmaintained crates are rejected.
+#   * Wildcard path dependencies are rejected.
+#
+# To re-baseline the allow-list after a deliberate, reviewed license decision,
+# run `cargo deny list` and update the `allow` entries (and this comment)
+# accordingly.
+
+# This section is used by `cargo deny check advisories`.
+[advisories]
+# Known, documented exceptions. Everything else — including the first new
+# yanked or unmaintained crate introduced by a future PR — fails CI (see
+# `yanked = "deny"` / `unmaintained = "all"` below).
+ignore = [
+    # RUSTSEC-2026-0009: `time`'s RFC parsing. The fixed `time` release
+    # requires Edition 2024 and cannot be built by the Rust 1.81 toolchain
+    # required for deployable Soroban WASM; `time` is only present via
+    # `serde_with` -> stellar-xdr, and the contract never invokes that parsing
+    # path. Mirrors the exception already documented and applied in the
+    # `audit` CI job. Remove when Soroban permits a newer release toolchain.
+    "RUSTSEC-2026-0009",
+    # spin@0.9.8 is pinned deep inside soroban-wasmi (Soroban 21). The only
+    # yanked release newer than 0.9.8 would require changing the Soroban
+    # toolchain pin, which is out of scope for this ticket. Recorded as a known
+    # exception; any other yanked crate still fails CI.
+    { crate = "spin@0.9.8", reason = "pinned by soroban-wasmi; cannot upgrade without breaking the Soroban 21 toolchain pin (pre-existing, tracked separately)" },
+    # RUSTSEC-2024-0436: `paste` (via wasmi_core -> soroban-wasmi) is archived
+    # by its author. It is feature-complete and ubiquitous, has "No safe
+    # upgrade available", and is fixed by the immutable Soroban 21 pin. Same
+    # rationale as the spin exception above.
+    "RUSTSEC-2024-0436",
+]
+# Fail when a dependency has been yanked from its source registry.
+yanked = "deny"
+# Fail when any crate in the locked graph matches an "unmaintained" advisory.
+unmaintained = "all"
+
+# This section is used by `cargo deny check licenses`.
+[licenses]
+# LedgerLens is MIT. Its third-party dependency graph currently uses only
+# permissive / weakly-permissive licenses — every entry below is SPDX-listed
+# and compatible with the project's MIT posture. Copyleft licenses (GPL, LGPL,
+# strong MPL, etc.) are intentionally NOT listed here, so introducing one
+# transitively fails CI. If a new dependency legitimately needs a license not
+# covered here, it must be explicitly reviewed and added to this list.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-1-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+    # Unlicense / public-domain dedications are allowed only after a vetted
+    # review (memchr is a widely-used, well-maintained crate).
+    "Unlicense",
+]
+# Confidence threshold for matching license text to a known SPDX license. 0.8
+# (the cargo-deny default) avoids false positives while still catching
+# genuinely ambiguous or unparsable licensing.
+confidence-threshold = 0.8
+
+# Workspace members (ledgerlens-score, ledgerlens-aggregator, mock-* , and the
+# tooling/test crates) are licensed MIT but never published to crates.io, so
+# they carry no crates.io license metadata. Ignore license checks for these
+# unpublished workspace crates.
+[licenses.private]
+ignore = true
+
+# This section is used by `cargo deny check bans`.
+[bans]
+# The graph legitimately carries a few multi-version crates today (hashbrown,
+# base64, rand, etc.) pulled in by different transitive subtrees. Warn so the
+# maintainer can review, but do not fail the build on them.
+multiple-versions = "warn"
+# A wildcard path dependency ("path = ..." with no version) can silently drift
+# in a way a locked git/registry source cannot. Reject them.
+wildcards = "deny"
+
+# This section is used by `cargo deny check sources`, reinforcing the existing
+# Cargo.lock source-pinning policy enforced by the `supply-chain` CI job.
+[sources]
+# Only crates.io and the pinned git sources already in Cargo.lock are
+# permitted. Local/path crates are workspace members handled above.
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+unknown-registry = "deny"

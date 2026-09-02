@@ -88,7 +88,7 @@ pub fn submit_score(
     confidence: u32,
     attestation_input: Option<ScoreAttestationInput>,
 ) -> Result<(), Error>;
-```
+```yaml
 
 ### `verify_score_range_proof`
 Allows third-party verifiers to check that a score is below a threshold:
@@ -101,7 +101,6 @@ pub fn verify_score_range_proof(
     proof: Bytes,           // The 800-byte Bulletproof
     threshold: u32,         // The threshold T
 ) -> bool;
-```
 
 The function returns `true` if:
 1.  A score entry exists for the `(wallet, asset_pair)` pair.

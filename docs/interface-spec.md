@@ -39,7 +39,7 @@ fn query_risk_gate(
     asset_pair: Symbol,
     gate_threshold: u32,
 ) -> bool
-```
+```yaml
 
 Returns `true` when `wallet`'s latest score for `asset_pair` is **strictly
 below** `gate_threshold` (safe to proceed), and `false` when the score is
@@ -75,7 +75,6 @@ fn query_risk_gate_with_confidence(
     gate_threshold: u32,
     min_confidence: u32,
 ) -> bool
-```
 
 An extended version of `query_risk_gate` that enforces **both** a maximum risk
 score threshold and a minimum confidence floor. A score whose confidence falls
@@ -113,7 +112,7 @@ Detect this function at runtime with `supports_interface(symbol_short!("cgate"))
 
 ```rust
 fn supports_interface(env: Env, capability: Symbol) -> bool
-```
+```yaml
 
 Returns `true` if this deployment supports the named capability. Use it to
 feature-detect at runtime instead of hardcoding a contract version. Recognised
@@ -140,7 +139,6 @@ Unrecognised capabilities return `false`.
 
 ```rust
 fn get_interface_metadata(env: Env) -> InterfaceMetadata
-```
 
 Returns a compact, versioned description of the contract's published surface so
 consumers can discover capabilities and semantic constraints at runtime without
@@ -156,7 +154,7 @@ pub struct InterfaceMetadata {
     pub capabilities: Vec<Symbol>,
     pub semantic_constraints: Vec<Symbol>,
 }
-```
+```yaml
 
 The metadata currently advertises the following capabilities and constraints:
 
@@ -181,7 +179,7 @@ trying to read it.
 | `get_score(env, wallet, asset_pair) -> Result<RiskScore, Error>` | latest score | `Err(ScoreNotFound)` if absent |
 | `get_score_history(env, wallet, asset_pair) -> Vec<RiskScore>` | up to 10 entries, oldest first | empty `Vec` if none |
 | `get_aggregate_score(env, wallet) -> Result<AggregateRiskScore, Error>` | cross-asset weighted view | `Err(ScoreNotFound)` if the wallet has no scores |
-| `get_version(env) -> u32` | contract build version | currently `4` (reflecting the current contract build) |
+| `get_version(env) -> u32` | contract build version | currently `5` (reflecting the current contract build) |
 
 `get_score` is the right call when you need the full struct (confidence, model
 version, flags) rather than a yes/no gate decision. Prefer `query_risk_gate`
@@ -206,7 +204,6 @@ pub struct RiskScore {
     pub confidence: u32,    // model confidence, 0–100
     pub model_version: u32, // detection-pipeline model version
 }
-```
 
 `AggregateRiskScore` (returned by `get_aggregate_score`) has the following
 stable layout:
@@ -222,7 +219,7 @@ pub struct AggregateRiskScore {
     pub ml_flag_count: u32,      // pairs with ml_flag set
     pub last_updated: u64,       // ledger time of the newest component score
 }
-```
+```yaml
 
 ### Score scale
 
@@ -239,7 +236,7 @@ when `model_version` advances.
 There are two independent version numbers:
 
 1. **Contract version** — `get_version()` (backed by `CONTRACT_VERSION`,
-   currently `4`). Bumped on any breaking ABI change.
+   currently `5`). Bumped on any breaking ABI change.
 2. **Interface version** — the number at the top of this document. It tracks
    the `ILedgerLensScore` surface specifically.
 
@@ -345,7 +342,6 @@ if !client.query_risk_gate(&user, &symbol_short!("XLM_USDC"), &75) {
     return Err(MyError::HighRiskWallet);
 }
 // ... proceed with the protected action ...
-```
 
 ### 6.2 Cache with a TTL
 
@@ -397,7 +393,7 @@ if !is_safe {
     return Err(AmmError::HighRiskWallet);
 }
 // ... proceed with liquidity mint / reserve update ...
-```
+```yaml
 
 **No-score policy:** when LedgerLens has no score for the provider,
 `query_risk_gate_with_confidence` returns `false` (fail closed). Liquidity is
