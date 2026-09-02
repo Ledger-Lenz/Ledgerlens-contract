@@ -90,6 +90,7 @@ jobs:
             cargo mutants \
               --file src/zk_range_proof.rs \
               --file src/verkle.rs \
+              --file src/governance_actions.rs \
               --timeout 300 \
               --output ../../../mutants-report-${{ matrix.shard }} \
               -- -- "$FILTER"
@@ -97,6 +98,7 @@ jobs:
             cargo mutants \
               --file src/zk_range_proof.rs \
               --file src/verkle.rs \
+              --file src/governance_actions.rs \
               --timeout 300 \
               --output ../../../mutants-report-${{ matrix.shard }}
           fi
