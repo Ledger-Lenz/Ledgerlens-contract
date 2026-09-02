@@ -5461,6 +5461,31 @@ impl LedgerLensScoreContract {
     }
 
     /// Returns the current M-of-N service signer set.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // `initialize` does not populate the M-of-N set.
+    /// assert!(client.get_service_signers().is_empty());
+    /// // Admin onboards two service signers.
+    /// let signer_a = Address::generate(&env);
+    /// let signer_b = Address::generate(&env);
+    /// client.add_service_signer(&Vec::new(&env), &signer_a);
+    /// client.add_service_signer(&Vec::new(&env), &signer_b);
+    /// let signers = client.get_service_signers();
+    /// assert_eq!(signers.len(), 2);
+    /// assert!(signers.contains(&signer_a));
+    /// assert!(signers.contains(&signer_b));
+    /// ```
     pub fn get_service_signers(env: Env) -> Vec<Address> {
         storage::get_service_set(&env)
     }
@@ -5469,6 +5494,28 @@ impl LedgerLensScoreContract {
     /// set.  Returns `0` when no service set has been configured.  Cheaper
     /// than `get_service_signers` for health-check / quorum-monitoring callers
     /// that only need the count.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // No service set configured yet.
+    /// assert_eq!(client.get_service_signer_count(), 0);
+    /// // Each onboarded signer bumps the count.
+    /// client.add_service_signer(&Vec::new(&env), &Address::generate(&env));
+    /// client.add_service_signer(&Vec::new(&env), &Address::generate(&env));
+    /// assert_eq!(client.get_service_signer_count(), 2);
+    /// // Same tally as the full set, without materialising the addresses.
+    /// assert_eq!(client.get_service_signer_count(), client.get_service_signers().len());
+    /// ```
     pub fn get_service_signer_count(env: Env) -> u32 {
         storage::get_service_set(&env).len()
     }
@@ -5495,6 +5542,32 @@ impl LedgerLensScoreContract {
     /// - [`Error::NotInitialized`] if the contract has no admin yet.
     /// - [`Error::InvalidScore`] if either bound exceeds 100, or if
     ///   `min_score > max_score`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    ///
+    /// let signer = Address::generate(&env);
+    /// // An unconfigured signer is implicitly authorised for the full range.
+    /// assert_eq!(client.get_signer_tier(&signer), (0_u32, 100_u32));
+    ///
+    /// // Admin restricts this signer to the low-risk band [0, 40].
+    /// client.set_signer_tier(&Vec::new(&env), &signer, &0, &40);
+    /// assert_eq!(client.get_signer_tier(&signer), (0_u32, 40_u32));
+    ///
+    /// // Tiers may be reconfigured; the latest bounds win.
+    /// client.set_signer_tier(&Vec::new(&env), &signer, &60, &100);
+    /// assert_eq!(client.get_signer_tier(&signer), (60_u32, 100_u32));
+    /// ```
     pub fn set_signer_tier(
         env: Env,
         admin_signers: Vec<Address>,
@@ -5678,6 +5751,26 @@ impl LedgerLensScoreContract {
     /// Returns the ledger timestamp of the most recent accepted submission
     /// (`submit_score` / `submit_scores_batch`) or `ping_heartbeat` call.
     /// Returns `0` if no submission has ever been accepted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::{Address as _, Ledger as _}, Env, Address};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // Nothing accepted yet.
+    /// assert_eq!(client.get_last_service_activity(), 0);
+    /// // The service proves liveness; the call is stamped with the ledger clock.
+    /// env.ledger().with_mut(|l| l.timestamp += 12_345);
+    /// client.ping_heartbeat();
+    /// assert_eq!(client.get_last_service_activity(), 12_345);
+    /// ```
     pub fn get_last_service_activity(env: Env) -> u64 {
         storage::get_last_service_activity(&env)
     }
