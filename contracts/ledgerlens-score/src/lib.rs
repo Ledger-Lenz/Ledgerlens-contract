@@ -4320,12 +4320,45 @@ impl LedgerLensScoreContract {
 
     /// Returns the rolling window duration used for volatility computation (seconds).
     /// Defaults to 86400 (24 hours).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // Returns the default window (86400 s = 24 h) before any explicit set.
+    /// assert_eq!(client.get_pair_volatility_window(), 86_400);
+    /// ```
     pub fn get_pair_volatility_window(env: Env) -> u64 {
         storage::get_pair_volatility_window(&env)
     }
 
     /// Sets the rolling window duration for volatility computation. Admin only.
     /// Must be in the range `[60, 604800]` (1 minute – 7 days).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // Set the volatility window to 1 hour (3600 s).
+    /// client.set_pair_volatility_window(&Vec::new(&env), &3_600).unwrap();
+    /// assert_eq!(client.get_pair_volatility_window(), 3_600);
+    /// ```
     pub fn set_pair_volatility_window(
         env: Env,
         admin_signers: Vec<Address>,
@@ -4736,6 +4769,36 @@ impl LedgerLensScoreContract {
         res
     }
 
+    /// The primary read-only gate other Soroban contracts call to check wallet risk.
+    ///
+    /// Returns `true` when the wallet's score is **strictly below** `gate_threshold`
+    /// (safe to proceed), and `false` when the score is `>= gate_threshold` or no
+    /// score exists. Never panics and never has side effects beyond a temporary
+    /// flash-loan guard write.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec, symbol_short};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// // No score on record yet — gate fails closed (false).
+    /// assert!(!client.query_risk_gate(&wallet, &pair, &75));
+    /// // Submit a low-risk score well below the threshold.
+    /// client.submit_score(&Vec::new(&env), &wallet, &pair, &30, &false, &false, &1, &90, &1, &None);
+    /// assert!(client.query_risk_gate(&wallet, &pair, &75));
+    /// // Submit a high-risk score above the threshold.
+    /// client.submit_score(&Vec::new(&env), &wallet, &pair, &80, &false, &false, &2, &90, &1, &None);
+    /// assert!(!client.query_risk_gate(&wallet, &pair, &75));
+    /// ```
     pub fn query_risk_gate(
         env: Env,
         wallet: Address,
@@ -4755,6 +4818,24 @@ impl LedgerLensScoreContract {
     ///
     /// # Errors
     /// - [`Error::NotInitialized`] if `initialize` has not been called.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // Set a fee of 100 stroops per gate query.
+    /// client.set_gate_query_fee(&100).unwrap();
+    /// // Disable fee collection.
+    /// client.set_gate_query_fee(&0).unwrap();
+    /// ```
     pub fn set_gate_query_fee(env: Env, amount: i128) -> Result<(), Error> {
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
