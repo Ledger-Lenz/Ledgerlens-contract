@@ -5049,6 +5049,32 @@ impl LedgerLensScoreContract {
     ///
     /// Returns [`Error::InvalidThreshold`] when `threshold` is `0` or exceeds
     /// the current service-set size.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    ///
+    /// // Populate the M-of-N service signer set, then require 2-of-2 signing.
+    /// let signer_a = Address::generate(&env);
+    /// let signer_b = Address::generate(&env);
+    /// client.add_service_signer(&Vec::new(&env), &signer_a);
+    /// client.add_service_signer(&Vec::new(&env), &signer_b);
+    /// client.set_service_threshold(&Vec::new(&env), &2);
+    /// assert_eq!(client.get_service_threshold(), 2);
+    ///
+    /// // A threshold larger than the current set size is rejected.
+    /// assert!(client.try_set_service_threshold(&Vec::new(&env), &3).is_err());
+    /// ```
     pub fn set_service_threshold(
         env: Env,
         admin_signers: Vec<Address>,
