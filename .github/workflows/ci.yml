@@ -96,6 +96,19 @@ jobs:
       - name: Check Error enum discriminants are append-only
         run: tools/check_error_discriminants.sh "${{ github.event.pull_request.base.sha }}" HEAD
 
+  refinement-mapping:
+    name: Refinement mapping consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Issue #928: spec/refinement-mapping.md must only reference Rust symbols
+      # that actually exist in the contract sources. The mapping drifted once
+      # (it documented a nonexistent `finalize_consensus`); this job makes that
+      # class of drift fail CI loudly. Always-on: cheap (<1s) and catches drift
+      # introduced from either side (doc change or code rename).
+      - name: Verify mapping references only real symbols (and test the checker)
+        run: bash tests/check_refinement_mapping.sh
+
   build:
     name: WASM build
     runs-on: ubuntu-latest
