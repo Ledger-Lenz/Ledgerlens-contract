@@ -54,6 +54,11 @@ harness = false
 path = "benches/get_delegation_chain.rs"
 
 [[bench]]
+name = "get_private_aggregate_score"
+harness = false
+path = "benches/get_private_aggregate_score.rs"
+
+[[bench]]
 name = "reconcile_state"
 harness = false
 path = "benches/reconcile_state.rs"
