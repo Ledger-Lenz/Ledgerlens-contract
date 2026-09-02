@@ -76,6 +76,14 @@ fn test_proposal_created_time_passes_executed() {
 }
 
 #[test]
+fn test_get_parameter_proposal_nonexistent_id_returns_not_found() {
+    let (_env, client, _admin, _service) = setup();
+
+    let result = client.try_get_parameter_proposal(&999u64);
+    assert_eq!(result, Err(Ok(Error::ParameterProposalNotFound)));
+}
+
+#[test]
 fn test_vetoed_proposal_cannot_be_executed() {
     let (env, client, admin, service) = setup();
     let value = encode_u64(&env, MIN_COOLDOWN_SECS);
