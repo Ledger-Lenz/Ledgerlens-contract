@@ -93,8 +93,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Test the checker itself
+        run: tests/check_error_discriminants.test.sh
       - name: Check Error enum discriminants are append-only
         run: tools/check_error_discriminants.sh "${{ github.event.pull_request.base.sha }}" HEAD
+
+  refinement-mapping:
+    name: Refinement mapping consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Issue #928: spec/refinement-mapping.md must only reference Rust symbols
+      # that actually exist in the contract sources. The mapping drifted once
+      # (it documented a nonexistent `finalize_consensus`); this job makes that
+      # class of drift fail CI loudly. Always-on: cheap (<1s) and catches drift
+      # introduced from either side (doc change or code rename).
+      - name: Verify mapping references only real symbols (and test the checker)
+        run: bash tests/check_refinement_mapping.sh
 
   build:
     name: WASM build
@@ -129,6 +144,9 @@ jobs:
           name: ledgerlens-score-wasm-size-report
           path: target/wasm-size-report.md
           retention-days: 7
+      - name: Enforce WASM size budget
+        run: ./scripts/check-wasm-size.sh
+
 
   deploy-script-tests:
     name: Deploy script failure-mode tests
@@ -159,6 +177,37 @@ jobs:
         # WASM. Keep this exception narrow and remove it when Soroban permits a
         # newer release toolchain.
         run: cargo +1.88.0 audit --ignore RUSTSEC-2026-0009
+
+  # ── Dependency license / policy gate ────────────────────────────────────────
+  #
+  # Enforces the cargo-deny policy codified in deny.toml:
+  #   • licenses — only the explicitly allow-listed permissive licenses may
+  #     appear anywhere in the locked dependency graph (no copyleft).
+  #   • bans     — no wildcard path dependencies; multiple versions warn.
+  #   • advisories — no yanked or unmaintained crates (documented exceptions
+  #     for toolchain-pinned crates live in deny.toml's `[advisories].ignore`).
+  #   • sources  — only crates.io / pinned git registries.
+  #
+  # A PR that introduces a disallowed license, a yanked crate, or an
+  # unmaintained crate not covered by a documented exception fails here.
+  #
+  # The 1.88.0 toolchain is used only to install the latest cargo-deny (same
+  # pattern as the `audit` job); contract builds remain pinned to Rust 1.81.
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  dependency-license:
+    name: Dependency license & policy gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88.0"
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-deny
+        run: cargo +1.88.0 install cargo-deny --version 0.20.2 --locked
+      - name: Run cargo-deny checks (licenses, bans, advisories, sources)
+        run: cargo-deny check
 
   # ── Supply-chain integrity checks ───────────────────────────────────────────
   #
@@ -272,11 +321,36 @@ jobs:
           sha256sum --check "$MANIFEST"
           echo "OK: WASM artifact integrity verified."
 
+      # ── Step 4: Generate a CycloneDX SBOM for the shipped WASM ────────────────
+      # Produces a CycloneDX JSON SBOM of the workspace dependency graph as
+      # compiled for the wasm32-unknown-unknown target — i.e. the dependency
+      # graph actually embedded in the released ledgerlens_score.wasm. Being
+      # generated in this same job, from the same commit and lockfile, ties the
+      # SBOM to the exact binary whose SHA-256 manifest was signed above.
+      #
+      # Note: SBOM generation deliberately lives in the supply-chain job, NOT in
+      # the reproducible-build double-build jobs. CyclingDX embeds a build
+      # timestamp, so adding it to the reproducibility comparison would
+      # introduce non-determinism; the byte-for-byte WASM comparison remains
+      # clean on its own.
+      - name: Install cargo-cyclonedx
+        run: cargo +1.81.0 install cargo-cyclonedx --version 0.5.8 --locked
+
+      - name: Generate & validate CycloneDX SBOM (wasm32 target)
+        run: tools/generate_sbom.sh
+
       - name: Upload WASM SHA-256 manifest
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08  # v4.6.1
         with:
           name: ledgerlens-score-wasm-sha256-manifest
           path: target/ledgerlens_score.wasm.sha256
+          retention-days: 90
+
+      - name: Upload CycloneDX SBOM artifact
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08  # v4.6.1
+        with:
+          name: ledgerlens-sbom-cdx
+          path: target/sbom/*.cdx.json
           retention-days: 90
 
 
@@ -372,3 +446,33 @@ jobs:
           echo ""
           echo "SUCCESS: Both builds produced identical WASM output."
           echo "  SHA-256: $SHA1"
+
+  spec-model-check:
+    name: TLA+ spec TLC model checking
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Cache TLA+ tools
+        uses: actions/cache@v4
+        with:
+          path: /tmp/tla2tools.jar
+          key: tla2tools-v1.8.0
+
+      - name: Download tla2tools.jar
+        run: |
+          if [ ! -f /tmp/tla2tools.jar ]; then
+            curl -sL -o /tmp/tla2tools.jar https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+          fi
+
+      - name: Run TLC Model Checker on LedgerLens spec
+        run: |
+          cd spec
+          java -XX:+UseParallelGC -jar /tmp/tla2tools.jar -simulate num=20000 -depth 30 -config LedgerLens.cfg LedgerLens.tla
+

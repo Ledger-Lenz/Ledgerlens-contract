@@ -17,7 +17,7 @@ libm = "0.2"
 
 [dev-dependencies]
 soroban-sdk = { version = "21.0.0", features = ["testutils"] }
-ledgerlens-test-support = { path = "../ledgerlens-test-support" }
+ledgerlens-test-support = { version = "0.1.0", path = "../ledgerlens-test-support" }
 # Used only by tests, to produce real secp256k1 ECDSA signatures that
 # exercise `verify_attestation` end-to-end (see `test_attestation.rs`).
 k256 = { version = "0.13.4", features = ["ecdsa"] }
@@ -47,6 +47,26 @@ path = "benches/history_eviction.rs"
 name = "batch_worst_case_profiles"
 harness = false
 path = "benches/batch_worst_case_profiles.rs"
+
+[[bench]]
+name = "get_delegation_chain"
+harness = false
+path = "benches/get_delegation_chain.rs"
+
+[[bench]]
+name = "get_private_aggregate_score"
+harness = false
+path = "benches/get_private_aggregate_score.rs"
+
+[[bench]]
+name = "reconcile_state"
+harness = false
+path = "benches/reconcile_state.rs"
+
+[[bench]]
+name = "estimate_unique_wallets"
+harness = false
+path = "benches/estimate_unique_wallets.rs"
 
 [features]
 testutils = ["soroban-sdk/testutils"]

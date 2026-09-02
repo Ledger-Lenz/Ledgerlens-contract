@@ -7,6 +7,7 @@ This document establishes the baseline WebAssembly (WASM) binary size breakdown 
 - **Target Contract**: `ledgerlens-score`
 - **WASM Binary Path**: `target/wasm32-unknown-unknown/release/ledgerlens_score.wasm`
 - **Total Binary Size**: 442,107 bytes (~442 KB)
+- **Tolerance**: 5%
 
 ---
 
@@ -56,7 +57,7 @@ Install `twiggy` using Cargo:
 
 ```bash
 cargo install twiggy
-```
+```yaml
 
 ### Running the Analysis Script
 
@@ -68,7 +69,6 @@ Run the automated reporting script:
 
 # Generate report for top 20 items to a specific markdown file:
 ./scripts/wasm-size-report.sh --top 20 --output docs/wasm-size-report-latest.md
-```
 
 ### Manual Analysis Commands
 
@@ -83,7 +83,7 @@ twiggy top -n 10 target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
 
 # 3. View top retained size / dominator tree
 twiggy dominators -r 10 target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
-```
+```yaml
 
 ---
 

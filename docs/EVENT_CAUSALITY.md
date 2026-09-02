@@ -38,7 +38,6 @@ Off-chain auditor receives events:
 - score_committed @ ledger 1020
   → Verify same W and P, same correlation_id
   → Workflow complete
-```
 
 ### Admin Transfer Workflow
 
@@ -56,7 +55,6 @@ Off-chain auditor receives events:
 - admin_transfer_accepted for Y @ ledger 5010
   → Verify correlation matches
   → Transfer completed successfully
-```
 
 ### Upgrade Workflow
 
@@ -78,7 +76,6 @@ Off-chain auditor receives events:
 - upgrade_executed with hash H @ ledger 2015
   → Verify all 3 events have same correlation_id
   → Workflow complete with 2-of-2 quorum
-```
 
 ### Parameter Change Workflow
 
@@ -148,7 +145,7 @@ def reconstruct_score_timeline(wallet, asset_pair, events):
                     workflow['status'] = 'committed'
     
     return timeline
-```
+```yaml
 
 ### Pseudocode: Reconstruct Upgrade Timeline
 
@@ -187,7 +184,6 @@ def reconstruct_upgrade_timeline(events):
                     workflow['status'] = 'executed'
     
     return list(upgrades.values())
-```
 
 ## Guarantees
 

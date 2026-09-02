@@ -56,7 +56,7 @@ pub fn get_vector_generators(d: Fe) -> ([Pt; 8], [Pt; 8]) {
     }
     (gs, hs)
 }
-```
+```yaml
 
 Every generator used anywhere in this scheme — `H`, `G_0..G_7`, `H_0..H_7` —
 is constructed as `k * G` for a small, hard-coded, **publicly known** integer
