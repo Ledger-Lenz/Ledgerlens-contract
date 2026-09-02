@@ -873,6 +873,31 @@ impl LedgerLensScoreContract {
     /// - [`Error::NotInitialized`] if the contract has no admin yet.
     /// - [`Error::NoPendingScore`] if no pending score exists for
     ///   `(wallet, asset_pair)`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::LedgerLensScoreContractClient;
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// # use ledgerlens_score::LedgerLensScoreContract;
+    /// # use soroban_sdk::symbol_short;
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let wallet = Address::generate(&env);
+    /// let asset_pair = symbol_short!("XLM_USDC");
+    /// // Enable the finality buffer and submit a score.
+    /// client.set_finality_buffer(&Vec::new(&env), &60);
+    /// client.submit_score(&Vec::new(&env), &wallet, &asset_pair, &42, &true, &false, &1, &90, &1, &None);
+    /// assert!(client.get_pending_score(&wallet, &asset_pair).is_some());
+    /// // Admin cancels the pending score before it can be committed.
+    /// client.cancel_pending_score(&Vec::new(&env), &wallet, &asset_pair);
+    /// assert_eq!(client.get_pending_score(&wallet, &asset_pair), None);
+    /// ```
     pub fn cancel_pending_score(
         env: Env,
         admin_signers: Vec<Address>,
