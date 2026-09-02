@@ -48,6 +48,11 @@ name = "batch_worst_case_profiles"
 harness = false
 path = "benches/batch_worst_case_profiles.rs"
 
+[[bench]]
+name = "estimate_unique_wallets"
+harness = false
+path = "benches/estimate_unique_wallets.rs"
+
 [features]
 testutils = ["soroban-sdk/testutils"]
 
