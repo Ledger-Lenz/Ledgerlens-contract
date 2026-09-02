@@ -161,6 +161,25 @@ fn test_veto_without_pending_rejected() {
     assert_eq!(result, Err(Ok(Error::NoPendingUpgrade)));
 }
 
+/// `veto_upgrade` checks `has_admin` before anything else, so calling it on
+/// a freshly-registered, never-initialized contract must surface
+/// `NotInitialized` rather than `NoPendingUpgrade`. No existing test in this
+/// file (or `test_upgrade_multisig.rs`) exercises `veto_upgrade` against an
+/// uninitialized contract — every test uses `setup()`, which always calls
+/// `initialize` first.
+#[test]
+fn test_veto_upgrade_before_initialize_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = START_TS);
+
+    let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+
+    let result = client.try_veto_upgrade(&Vec::new(&env));
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+}
+
 #[test]
 fn test_can_repropose_after_veto() {
     let (env, client, _admin) = setup();
@@ -180,6 +199,30 @@ fn test_get_pending_upgrade_no_proposal() {
     let (_env, client, _admin) = setup();
     let result = client.try_get_pending_upgrade();
     assert_eq!(result, Err(Ok(Error::NoPendingUpgrade)));
+}
+
+/// A rejected double-propose (`UpgradeAlreadyPending`) must not disturb the
+/// original proposal. This is a genuine gap: `test_double_propose_rejected`
+/// only asserts on the rejected call's own return value and never re-reads
+/// the proposal afterwards via `get_pending_upgrade`.
+#[test]
+fn test_get_pending_upgrade_unchanged_after_rejected_double_propose() {
+    let (env, client, admin) = setup();
+    let hash = dummy_hash(&env);
+    let other_hash = BytesN::from_array(&env, &[9u8; 32]);
+
+    client.propose_upgrade(&Vec::new(&env), &hash);
+
+    let rejected = client.try_propose_upgrade(&Vec::new(&env), &other_hash);
+    assert_eq!(rejected, Err(Ok(Error::UpgradeAlreadyPending)));
+
+    // The original proposal must be exactly what was first stored, not the
+    // rejected attempt's hash and not cleared.
+    let proposal = client.get_pending_upgrade();
+    assert_eq!(proposal.new_wasm_hash, hash);
+    assert_eq!(proposal.proposed_at, START_TS);
+    assert_eq!(proposal.executable_after, START_TS + DEFAULT_UPGRADE_DELAY_SECS);
+    assert_eq!(proposal.proposed_by, admin);
 }
 
 // ── delay configuration ──────────────────────────────────────────────────────────
@@ -236,6 +279,26 @@ fn test_upgrade_delay_above_max_rejected() {
         client.try_set_upgrade_delay(&Vec::new(&env), &(MAX_UPGRADE_DELAY_SECS + 1)),
         Err(Ok(Error::InvalidUpgradeDelay))
     );
+}
+
+/// `set_upgrade_delay` checks `has_admin` before validating `delay_secs`, so
+/// on an uninitialized contract even an in-bounds value must be rejected
+/// with `NotInitialized`, not `InvalidUpgradeDelay` (and not silently
+/// accepted). Every other delay test in this file uses `setup()`, which
+/// always initializes first, so this ordering was previously untested.
+#[test]
+fn test_set_upgrade_delay_before_initialize_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = START_TS);
+
+    let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+
+    // A well-formed, in-bounds delay still fails because there is no admin yet.
+    let mid = (MIN_UPGRADE_DELAY_SECS + MAX_UPGRADE_DELAY_SECS) / 2;
+    let result = client.try_set_upgrade_delay(&Vec::new(&env), &mid);
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
 }
 
 #[test]
