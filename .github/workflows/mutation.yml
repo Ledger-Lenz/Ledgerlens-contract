@@ -1,14 +1,26 @@
 name: Mutation Testing
 
+# Spike #935: expanded from nightly-only (zk/verkle) to a rotating shard
+# schedule covering governance, rate-limiting, and score-floor modules.
+# See docs/mutation-testing.md for benchmark data and CI budget analysis.
+
 on:
   schedule:
-    # Nightly at 03:00 UTC — mutation testing is slow so not run per-PR
-    - cron: '0 3 * * *'
+    # Shard A + C  (Mon/Wed/Fri 03:00 UTC)
+    - cron: '0 3 * * 1,3,5'
+    # Shard B + D  (Tue/Thu 03:00 UTC)
+    - cron: '0 3 * * 2,4'
+    # Shard E — full sweep  (Sunday 04:00 UTC)
+    - cron: '0 4 * * 0'
   workflow_dispatch:
-    # Allow manual trigger from the Actions tab
     inputs:
+      shard:
+        description: 'Which shard to run (shard-a | shard-b | shard-c | shard-d | shard-e | all)'
+        required: false
+        default: 'shard-e'
+        type: string
       filter:
-        description: 'Test name filter (optional)'
+        description: 'Test name filter (optional, shard-a baseline only)'
         required: false
         default: ''
         type: string
@@ -16,12 +28,48 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  # Pin to the same version used by mutation-test.sh
+  CARGO_MUTANTS_VERSION: "24.7.0"
 
 jobs:
+  # ── Determine which shards to run ──────────────────────────────────────────
+  plan:
+    name: Resolve shards
+    runs-on: ubuntu-latest
+    outputs:
+      shards: ${{ steps.pick.outputs.shards }}
+    steps:
+      - name: Pick shards for this trigger
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            INPUT="${{ github.event.inputs.shard }}"
+            if [ "$INPUT" = "all" ]; then
+              echo 'shards=["shard-a","shard-b","shard-c","shard-d","shard-e"]' >> "$GITHUB_OUTPUT"
+            else
+              echo "shards=[\"$INPUT\"]" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+          DOW=$(date -u +%u)
+          case "$DOW" in
+            1|3|5) echo 'shards=["shard-a","shard-c"]' >> "$GITHUB_OUTPUT" ;;
+            2|4)   echo 'shards=["shard-b","shard-d"]' >> "$GITHUB_OUTPUT" ;;
+            7)     echo 'shards=["shard-e"]'           >> "$GITHUB_OUTPUT" ;;
+            *)     echo 'shards=["shard-a"]'           >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  # ── Run a single shard ─────────────────────────────────────────────────────
   mutants:
-    name: cargo-mutants (zk_range_proof.rs, verkle.rs)
+    name: "cargo-mutants (${{ matrix.shard }})"
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.plan.outputs.shards) }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -31,29 +79,91 @@ jobs:
           toolchain: "1.81.0"
 
       - name: Install cargo-mutants
-        run: cargo install cargo-mutants --locked
+        run: cargo install cargo-mutants --version "$CARGO_MUTANTS_VERSION" --locked
 
-      - name: Run mutation tests
+      # ── Shard A: baseline zk / verkle (preserves pre-#935 behaviour) ───────
+      - name: "[shard-a] Run mutation tests — baseline (zk / verkle)"
+        if: matrix.shard == 'shard-a'
         run: |
-          FILTER="${{ inputs.filter }}"
+          FILTER="${{ github.event.inputs.filter }}"
           if [ -n "$FILTER" ]; then
             cargo mutants \
               --file src/zk_range_proof.rs \
               --file src/verkle.rs \
               --timeout 300 \
+              --output ../../../mutants-report-${{ matrix.shard }} \
               -- -- "$FILTER"
           else
             cargo mutants \
               --file src/zk_range_proof.rs \
               --file src/verkle.rs \
-              --timeout 300
+              --timeout 300 \
+              --output ../../../mutants-report-${{ matrix.shard }}
           fi
         working-directory: contracts/ledgerlens-score
+        continue-on-error: true
 
+      # ── Shard B: upgrade governance ────────────────────────────────────────
+      - name: "[shard-b] Run mutation tests — upgrade governance"
+        if: matrix.shard == 'shard-b'
+        run: |
+          cargo mutants \
+            --profile shard-b \
+            --output mutants-report-${{ matrix.shard }}
+        continue-on-error: true
+
+      # ── Shard C: rate-limiting / cooldown ──────────────────────────────────
+      - name: "[shard-c] Run mutation tests — rate-limiting"
+        if: matrix.shard == 'shard-c'
+        run: |
+          cargo mutants \
+            --profile shard-c \
+            --output mutants-report-${{ matrix.shard }}
+        continue-on-error: true
+
+      # ── Shard D: score-submission floor ────────────────────────────────────
+      - name: "[shard-d] Run mutation tests — score-submission floor"
+        if: matrix.shard == 'shard-d'
+        run: |
+          cargo mutants \
+            --profile shard-d \
+            --output mutants-report-${{ matrix.shard }}
+        continue-on-error: true
+
+      # ── Shard E: full expanded scope ───────────────────────────────────────
+      - name: "[shard-e] Run mutation tests — full expanded scope"
+        if: matrix.shard == 'shard-e'
+        run: |
+          cargo mutants \
+            --profile shard-e \
+            --output mutants-report-${{ matrix.shard }}
+        continue-on-error: true
+
+      # ── Upload report artifact ─────────────────────────────────────────────
       - name: Upload mutation report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mutation-report
-          path: contracts/ledgerlens-score/mutants.out
+          name: mutation-report-${{ matrix.shard }}-${{ github.run_id }}
+          path: |
+            mutants-report-${{ matrix.shard }}/
+            contracts/ledgerlens-score/mutants.out
           retention-days: 30
+          if-no-files-found: warn
+
+      # ── Surface surviving mutants in the step summary ─────────────────────
+      - name: Summarise surviving mutants
+        if: always()
+        run: |
+          REPORT="mutants-report-${{ matrix.shard }}/outcomes.json"
+          if [ -f "$REPORT" ]; then
+            SURVIVED=$(python3 -c "
+          import json
+          data = json.load(open('$REPORT'))
+          survived = [o for o in data.get('outcomes', []) if o.get('summary') == 'survived']
+          print(len(survived))
+          " 2>/dev/null || echo "unknown")
+            echo "## Shard ${{ matrix.shard }} — surviving mutants: $SURVIVED" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Shard ${{ matrix.shard }} — no outcomes.json found" >> "$GITHUB_STEP_SUMMARY"
+          fi

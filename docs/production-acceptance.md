@@ -132,7 +132,7 @@ Generate the local acceptance report:
 
 ```bash
 scripts/production-acceptance.sh
-```
+```yaml
 
 Generate and detach-sign the report with GPG:
 
@@ -143,7 +143,6 @@ READY_STATUS="APPROVED_FOR_TESTNET_CANARY" \
 READY_SIGNED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 READY_GPG_KEY="<key-id>" \
 scripts/production-acceptance.sh
-```
 
 Run a dry rehearsal without touching a network:
 
@@ -157,7 +156,7 @@ scripts/testnet-canary-rehearsal.sh \
   --service GYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY \
   --asset-pair XLM_USDC \
   --reviewer reviewer-name
-```
+```yaml
 
 Run the live rehearsal only against a disposable Stellar network alias or
 testnet deployment created for this release candidate. Attach the generated

@@ -78,6 +78,12 @@ contract) only when **all** of the following hold:
 Move a capability from `ledgerlens-aggregator` into `ledgerlens-score` only if
 it stops being a cross-shard composition and becomes single-shard state.
 
+For configuration-style reads that can diverge across shards, see
+[`docs/reports/aggregator-cross-shard-reconciliation-spike.md`](../reports/aggregator-cross-shard-reconciliation-spike.md)
+for the current field-by-field reconciliation decision. The key constraint
+remains the same: do not change caller-visible fail-open/fail-closed behavior
+without a versioned rollout plan.
+
 ## Compatibility impact
 
 Documentation only. No public ABI, event, error, or storage changes.

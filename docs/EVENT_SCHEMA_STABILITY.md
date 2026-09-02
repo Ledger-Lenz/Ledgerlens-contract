@@ -79,7 +79,6 @@ When modifying a stable event:
    ↓
 4. If Internal Test-Only:
    - Change freely; no coordination needed
-```
 
 ## Public API Events (Audit Trail)
 
@@ -180,7 +179,7 @@ Worst-case event payload size: ~500 bytes per score submission + ~200 bytes per 
 // 3. scr_veto(wallet, asset_pair, ...) - veto applied
 
 // Off-chain auditor can reconstruct: what score was submitted, when it changed, and why
-```
+```yaml
 
 ### Monitoring service health
 
@@ -192,7 +191,6 @@ events:
   - svc_res - Service came back online
 
 // Operators can set alerts on these without depending on stable schemas
-```
 
 ## See Also
 

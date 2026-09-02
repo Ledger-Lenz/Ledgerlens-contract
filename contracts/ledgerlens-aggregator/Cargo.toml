@@ -3,6 +3,7 @@ name = "ledgerlens-aggregator"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "MIT"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -10,11 +11,11 @@ doctest = false
 
 [dependencies]
 soroban-sdk = "21.0.0"
-ledgerlens-score = { path = "../ledgerlens-score" }
+ledgerlens-score = { version = "0.1.0", path = "../ledgerlens-score" }
 
 [dev-dependencies]
 soroban-sdk = { version = "21.0.0", features = ["testutils"] }
-ledgerlens-test-support = { path = "../ledgerlens-test-support" }
+ledgerlens-test-support = { version = "0.1.0", path = "../ledgerlens-test-support" }
 
 [features]
 testutils = ["soroban-sdk/testutils"]

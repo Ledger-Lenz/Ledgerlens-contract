@@ -50,19 +50,18 @@ Dry-run a reviewed testnet deployment:
 
 ```bash
 ./deploy.sh --dry-run testnet deployer GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-```
+```yaml
 
 Validate only the reviewed manifest and local tools:
 
 ```bash
 ./deploy.sh --check-toolchain testnet
-```
 
 Use an alternate reviewed manifest file:
 
 ```bash
 ./deploy.sh --manifest /path/to/reviewed-testnet.env --dry-run testnet deployer GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-```
+```yaml
 
 ## Failure mode examples
 
@@ -72,7 +71,6 @@ Rust drift:
 Toolchain drift detected for Rust.
   Expected: 1.81.0
   Actual:   1.82.0
-```
 
 CLI drift:
 
@@ -80,13 +78,12 @@ CLI drift:
 Toolchain drift detected for Stellar CLI.
   Expected: 21.0.0
   Actual:   22.0.0
-```
+```yaml
 
 Unexpected manifest field:
 
 ```text
 ERROR: unexpected manifest key 'SECRET_KEY' ...
-```
 
 ## Resource and compatibility notes
 

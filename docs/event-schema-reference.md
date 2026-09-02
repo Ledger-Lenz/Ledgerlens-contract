@@ -346,7 +346,7 @@ def parse_topic(topic):
     else:
         version = 1  # default
     return version
-```
+```yaml
 
 ### 2. Aggregate by Category
 Create tables indexed by event category for fast queries:
@@ -359,7 +359,6 @@ CREATE TABLE event_streams (
     data JSON,
     PRIMARY KEY (category, timestamp)
 );
-```
 
 ### 3. Alert on Anomalies
 Baseline normal event frequencies, then alert on deviations:
@@ -371,7 +370,7 @@ def check_submission_rate(window_5min):
     submissions = count_events("score", window_5min)
     if submissions < 50 or submissions > 500:
         alert("Anomalous submission rate: " + submissions)
-```
+```yaml
 
 ### 4. Cross-Reference Events
 Link related events for context:
@@ -382,7 +381,6 @@ Link related events for context:
 # - thresh (recent threshold changes?)
 # - paused (contract paused?)
 # - model_version_* (model update?)
-```
 
 ## See Also
 

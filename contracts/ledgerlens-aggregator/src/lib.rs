@@ -189,11 +189,23 @@ impl LedgerLensAggregator {
         }
     }
 
-    pub fn get_consensus_threshold_k(_env: Env) -> u32 {
-        // Adjust this value based on your actual consensus parameters
-        const CONSENSUS_THRESHOLD_K: u32 = 5; // Minimum agreeing models required
+    /// Returns the primary shard's minimum agreeing-model consensus threshold `k`.
+    ///
+    /// Aggregation policy: singleton configuration is read from the primary
+    /// shard, defined as the first registered shard. If shards diverge, the
+    /// aggregator does not average or reconcile the values; operators must keep
+    /// shard configuration aligned or intentionally choose the primary shard's
+    /// value for integrators.
+    pub fn get_consensus_threshold_k(env: Env) -> Result<u32, ScoreError> {
+        let shards: Vec<Address> =
+            env.storage().instance().get(&DataKey::Shards).unwrap_or_else(|| Vec::new(&env));
+        let primary = shards.get(0).ok_or(ScoreError::ScoreNotFound)?;
+        let client = ledgerlens_score::LedgerLensScoreContractClient::new(&env, &primary);
 
-        CONSENSUS_THRESHOLD_K
+        match client.try_get_consensus_config() {
+            Ok(Ok(config)) => Ok(config.0),
+            _ => Err(ScoreError::ScoreNotFound),
+        }
     }
 
     /// Returns whether the given wallet is currently on any shard's monitoring watchlist.

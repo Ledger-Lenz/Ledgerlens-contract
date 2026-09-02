@@ -75,7 +75,7 @@ impl MyAMM {
         Ok(output)
     }
 }
-```
+```yaml
 
 **Key details:**
 - **Infallible:** `query_risk_gate` returns `bool`, never panics, never returns `Result`.
@@ -94,7 +94,6 @@ if !client.query_risk_gate(&user, &asset_pair, &gate_threshold) {
     return Err(AMMError::UserHighRisk);
 }
 // If we reach here, the wallet passed the gate and is safe to proceed.
-```
 
 **What causes the gate to return `false`:**
 1. No score exists for the wallet and asset pair (unknown wallet — fail closed).
@@ -135,7 +134,7 @@ let passes_gate = client.query_risk_gate_with_confidence(
 if !passes_gate {
     return Err(AMMError::UserHighRisk);
 }
-```
+```yaml
 
 This additional floor prevents wallets with low-confidence scores (meaning the ML model had insufficient data) from bypassing the gate. A score of `(score=30, confidence=5)` is epistemically equivalent to "unknown" and should not be trusted.
 
@@ -158,7 +157,6 @@ if env.ledger().timestamp().saturating_sub(score.timestamp) > max_age_secs {
 if !client.query_risk_gate_with_confidence(&user, &asset_pair, &gate_threshold, &min_confidence) {
     return Err(AMMError::UserHighRisk);
 }
-```
 
 The operational pattern is:
 
@@ -196,7 +194,7 @@ match client.get_score(&user, &asset_pair) {
         return Err(AMMError::SystemError);
     }
 }
-```
+```yaml
 
 **Why use `query_risk_gate` instead?** It folds all these cases into a simple `bool` so you don't have to handle each error type.
 

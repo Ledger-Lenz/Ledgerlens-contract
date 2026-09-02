@@ -217,7 +217,7 @@ pub fn pair_weight_updated(env: &Env, asset_pair: &Symbol, weight: u32) {
 pub fn pair_weight_reset(env: &Env, asset_pair: &Symbol) {
     env.events().publish((symbol_short!("pw_rst"), asset_pair.clone()), ());
 }
-```
+```yaml
 
 `pair_weight_reset`'s topic tuple has 2 elements (name, pair) where every sibling event has 3
 (name, `EVENT_VERSION`, ...). This went undetected because

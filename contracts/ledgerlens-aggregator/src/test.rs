@@ -319,13 +319,33 @@ fn test_get_decay_rate_no_shards_returns_error() {
 }
 
 #[test]
-fn test_get_consensus_threshold_k() {
+fn test_get_consensus_threshold_k_returns_primary_shard_when_shards_diverge() {
+    let env = test_env();
+    let agg_id = env.register_contract(None, LedgerLensAggregator);
+    let client = LedgerLensAggregatorClient::new(&env, &agg_id);
+    let admin = Address::generate(&env);
+    let (primary_id, primary_client) = setup_score_shard(&env);
+    let (secondary_id, secondary_client) = setup_score_shard(&env);
+
+    client.initialize(&admin);
+    client.add_shard(&primary_id);
+    client.add_shard(&secondary_id);
+    primary_client.set_consensus_config(&3, &10);
+    secondary_client.set_consensus_config(&7, &10);
+
+    assert_eq!(client.get_consensus_threshold_k(), 3);
+}
+
+#[test]
+fn test_get_consensus_threshold_k_no_shards_returns_error() {
     let env = Env::default();
-    env.mock_all_auths();
     let agg_id = env.register_contract(None, LedgerLensAggregator);
     let client = LedgerLensAggregatorClient::new(&env, &agg_id);
 
-    assert_eq!(client.get_consensus_threshold_k(), 5);
+    assert_eq!(
+        client.try_get_consensus_threshold_k(),
+        Err(Ok(ledgerlens_score::Error::ScoreNotFound))
+    );
 }
 
 #[test]

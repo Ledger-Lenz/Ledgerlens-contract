@@ -96,7 +96,7 @@ submitters' scores for *one* pair.
 
 ### Contract version / interface version
 
-`CONTRACT_VERSION` (currently `4`, in `constants.rs`) and the interface version in
+`CONTRACT_VERSION` (currently `5`, in `constants.rs`) and the interface version in
 [`docs/interface-spec.md`](interface-spec.md) are incremented together and always match — one
 integer identifying which generation of the ABI a deployed instance implements. Prefer
 **capability** detection (§ above) over comparing this number directly; see
