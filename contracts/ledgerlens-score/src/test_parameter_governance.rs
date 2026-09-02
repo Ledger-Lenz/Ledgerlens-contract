@@ -327,6 +327,77 @@ fn test_expired_full_pending_set_is_pruned_before_accepting_new_proposal() {
     }
 }
 
+// ── get_pending_param_prop_ids edge-case tests ─────────────────────────────
+
+#[test]
+fn test_get_pending_param_prop_ids_uninitialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+
+    // Calling before contract initialize() should safely return empty Vec
+    let pending = client.get_pending_param_prop_ids();
+    assert_eq!(pending, Vec::new(&env));
+    assert!(pending.is_empty());
+}
+
+#[test]
+fn test_get_pending_param_prop_ids_multiple_interleaved_lifecycle() {
+    let (env, client, admin, service) = setup();
+    let value1 = encode_u64(&env, MIN_COOLDOWN_SECS);
+    let value2 = encode_u64(&env, MIN_COOLDOWN_SECS + 10);
+    let value3 = encode_u64(&env, MIN_COOLDOWN_SECS + 20);
+
+    // Create three proposals in sequence
+    let p1 = client.propose_parameter_change(
+        &admin_signers(&env, &admin),
+        &param_key_cooldown(),
+        &value1,
+    );
+    let p2 = client.propose_parameter_change(
+        &admin_signers(&env, &admin),
+        &param_key_cooldown(),
+        &value2,
+    );
+    let p3 = client.propose_parameter_change(
+        &admin_signers(&env, &admin),
+        &param_key_cooldown(),
+        &value3,
+    );
+
+    // Verify all three are pending in FIFO order
+    assert_eq!(
+        client.get_pending_param_prop_ids(),
+        Vec::from_array(&env, [p1, p2, p3])
+    );
+
+    // Veto the middle proposal (p2)
+    client.veto_parameter_change(&service_signers(&env, &service), &p2);
+
+    // Verify p2 is removed and p1, p3 remain in pending list preserving order
+    assert_eq!(
+        client.get_pending_param_prop_ids(),
+        Vec::from_array(&env, [p1, p3])
+    );
+
+    // Execute p1 after timelock
+    advance_to(&env, START_TS + DEFAULT_UPGRADE_DELAY_SECS);
+    client.execute_parameter_change(&admin_signers(&env, &admin), &p1);
+
+    // Verify only p3 remains
+    assert_eq!(
+        client.get_pending_param_prop_ids(),
+        Vec::from_array(&env, [p3])
+    );
+
+    // Execute p3
+    client.execute_parameter_change(&admin_signers(&env, &admin), &p3);
+
+    // Verify pending list is completely empty
+    assert!(client.get_pending_param_prop_ids().is_empty());
+}
+
 #[test]
 fn test_execute_nonexistent_proposal_returns_not_found() {
     // Attempt to execute a proposal_id that was never created.

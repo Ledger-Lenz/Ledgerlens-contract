@@ -1,0 +1,16 @@
+[package]
+name = "schema-gen"
+version = "0.1.0"
+edition = "2021"
+description = "Spike PoC: generate JSON Schema / TypeScript / Python bindings for the canonical RiskScore contracttype directly from its Soroban contract-spec metadata"
+
+[dependencies]
+anyhow = "1.0"
+ledgerlens-score = { path = "../../contracts/ledgerlens-score" }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+soroban-sdk = "21.0.0"
+soroban-spec = "21.7.7"
+
+[[bin]]
+name = "schema-gen"
+path = "src/main.rs"

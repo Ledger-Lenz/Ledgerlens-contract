@@ -93,6 +93,40 @@ fn test_epoch_transitions() {
     assert_eq!(client.get_current_epoch(), 2);
 }
 
+// close_epoch before the contract has been initialized (no admin set yet)
+// must fail with NotInitialized rather than panicking. Checked test_epoch.rs,
+// test_admin_multisig.rs, and test_embargo.rs first: every existing
+// close_epoch/open_epoch call goes through setup(), which always calls
+// initialize(), so the pre-initialization path was never exercised.
+#[test]
+fn test_close_epoch_before_initialize_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &id);
+
+    let result = client.try_close_epoch(&Vec::new(&env));
+    assert_eq!(result, Err(Ok(Error::NotInitialized)));
+}
+
+// get_current_epoch must keep returning the last opened epoch id after
+// close_epoch — close_epoch only flips EpochOpen to false, it does not
+// reset the stored epoch id back to 0. This transition (non-zero epoch,
+// immediately after close, before the next open_epoch) isn't asserted by
+// test_epoch_transitions above, which only checks get_current_epoch() == 0
+// while the epoch id was already 0.
+#[test]
+fn test_get_current_epoch_persists_after_close_of_nonzero_epoch() {
+    let (env, client) = setup();
+
+    client.open_epoch(&Vec::new(&env), &7);
+    assert_eq!(client.get_current_epoch(), 7);
+
+    client.close_epoch(&Vec::new(&env));
+    assert!(!client.is_epoch_open());
+    assert_eq!(client.get_current_epoch(), 7);
+}
+
 // is_epoch_open has no NotInitialized guard (unlike open_epoch/close_epoch) —
 // it reads straight from storage, which falls back to `true` via
 // `unwrap_or(true)` when EpochOpen has never been written. Every other test
