@@ -3,6 +3,13 @@
 LedgerLens SDKs for Rust, TypeScript, and Python must agree on the observable
 contract in `tests/composability/sdk_conformance_fixtures.json`.
 
+This repository actively enforces this fixture against the deployed `ledgerlens-score` contract via the `tests/composability/tests/sdk_conformance.rs` test suite. The test runs on every PR as part of the `cargo test --workspace` flow to prevent behavioral drift.
+
+When a fixture case needs to change (e.g., adding a new error code or boundary condition):
+1. Update `tests/composability/sdk_conformance_fixtures.json` in this repository.
+2. Ensure the Rust conformance test still passes (`cargo test -p composability-tests --test sdk_conformance`), adjusting the contract or test harness if necessary.
+3. Once the updated fixture is merged here, downstream SDK repositories (TypeScript/Python) can pull the new JSON and update their own runners.
+
 ## Contract
 
 The fixtures exercise production-shaped consumers, not direct happy-path calls

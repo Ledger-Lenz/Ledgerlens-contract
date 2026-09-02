@@ -45,7 +45,6 @@ GG18 (Gennaro–Goldfeder 2018) and its improved variant GG20 produce standard `
        threshold_sig,
        participating_signers: [addr_i1, addr_i2, …, addr_it],
    })).
-```
 
 ### Key registration
 
@@ -55,7 +54,7 @@ After the DKG ceremony, the group's aggregate public key (an uncompressed 65-byt
 soroban contract invoke ... -- set_aggregate_service_pubkey \
   --admin_signers '[]' \
   --pubkey '<hex-encoded 33 or 65 byte SEC-1 pubkey>'
-```
+```yaml
 
 The key can be rotated at any time by calling `set_aggregate_service_pubkey` again with the new key (requires admin authorization). There is no way to unset it once registered — consistent with the `set_service_pubkey` invariant.
 

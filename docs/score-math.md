@@ -12,7 +12,6 @@ All fractional values in LedgerLens are represented as integers scaled by a fixe
 
 ```
 SCALE = 1,000,000  (10^6)
-```
 
 A value represented in fixed-point is scaled by multiplying by `SCALE`. For example:
 - 1.0 is represented as `1_000_000`
@@ -28,12 +27,10 @@ Soroban (Stellar's smart contract platform) has no floating-point arithmetic. Fi
 **From floating-point to fixed-point:**
 ```
 fixed = float_value * SCALE
-```
 
 **From fixed-point to floating-point:**
 ```
 float_value = fixed / SCALE
-```
 
 **Key property:** All intermediate computations use integers; the result is truncated (not rounded) to match on-chain behavior. A simulator using rounding will diverge from the contract.
 
@@ -70,7 +67,7 @@ for each (pair, score) in wallet.scores {
 }
 
 let aggregate_score = (weighted_sum / weight_sum) as u32;
-```
+```yaml
 
 **Integer arithmetic notes:**
 - `weighted_sum` and `weight_sum` are `u64` to prevent overflow when accumulating across up to 20 pairs.
@@ -116,7 +113,6 @@ def aggregate(pairs_and_scores, pair_weights, decay_factors=None):
     # Truncate division
     aggregate_score = weighted_sum // weight_sum
     return aggregate_score
-```
 
 ---
 
@@ -197,7 +193,7 @@ fn decay_fixed(age_secs: u64, lambda_num: u32, lambda_den: u32) -> u64 {
         result as u64
     }
 }
-```
+```yaml
 
 ### Off-Chain Reference
 
@@ -234,7 +230,6 @@ def decay_factor(age_secs, lambda_num, lambda_den):
     # Clamp
     result = max(0, min(result, s))
     return result
-```
 
 ---
 
@@ -301,7 +296,7 @@ pub fn get_interpolated_score(
     
     history.last().score
 }
-```
+```yaml
 
 **Integer arithmetic notes:**
 - Numerator is `(timestamp - a.timestamp) * (b.score - a.score)` as `i128` to avoid overflow.
@@ -381,18 +376,16 @@ Lookup is a pure function of on-chain storage — same inputs always produce the
 ### Integer Truncation, Not Rounding
 
 All divisions truncate toward zero. For example:
-```
 7 / 2 = 3  (not 3.5 rounded to 4)
-```
+```yaml
 
 This behavior is deterministic and matches across platforms.
 
 ### Precision Loss
 
 When computing:
-```
 aggregate = (weighted_sum / weight_sum)
-```
+```yaml
 
 The result is truncated. For example, if the true average is 42.7, the contract returns 42. Off-chain simulators must use the same truncation to match.
 
@@ -467,11 +460,10 @@ deterministic unit tests with explicit expected values for each property.
 The gate function `query_risk_gate_with_confidence` passes only when **all
 three** of the following conditions hold simultaneously:
 
-```
 PASS  iff  score       >= threshold
        AND confidence  >= query_conf
        AND confidence  >= global_min_confidence
-```
+```yaml
 
 Where `global_min_confidence` is the admin-controlled floor set via
 `set_global_min_confidence`.
@@ -541,7 +533,6 @@ deterministically at submission time.
 
 ### Version Lifecycle
 
-```
                   register_model_version(v, delay)
                            │
                     delay elapsed?
@@ -552,7 +543,7 @@ deterministically at submission time.
                               deprecate_model_version(v)
                                       │
                                   Deprecated  (permanently retired)
-```
+```yaml
 
 ### Compatibility Rules
 
@@ -605,7 +596,6 @@ and triggers an on-chain event.
 
 ### Drift Check Logic
 
-```
 delta = |new_score - previous_score|
 
 if delta > jump_threshold:
@@ -614,7 +604,7 @@ if delta > jump_threshold:
 
 # The submission is still stored (fail-soft by default).
 # Use is_flagged=true to mark emergency overrides.
-```
+```yaml
 
 **Notes:**
 - The first submission for a `(wallet, pair)` has no previous score, so it is

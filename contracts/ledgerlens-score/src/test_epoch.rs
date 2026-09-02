@@ -126,3 +126,19 @@ fn test_get_current_epoch_persists_after_close_of_nonzero_epoch() {
     assert!(!client.is_epoch_open());
     assert_eq!(client.get_current_epoch(), 7);
 }
+
+// is_epoch_open has no NotInitialized guard (unlike open_epoch/close_epoch) —
+// it reads straight from storage, which falls back to `true` via
+// `unwrap_or(true)` when EpochOpen has never been written. Every other test
+// in this file calls setup(), which always initializes the contract, so the
+// pre-initialize / never-set-yet default was never asserted directly. This
+// pins that default down instead of just asserting "doesn't panic".
+#[test]
+fn test_is_epoch_open_defaults_true_before_initialize() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register_contract(None, LedgerLensScoreContract);
+    let client = LedgerLensScoreContractClient::new(&env, &id);
+
+    assert!(client.is_epoch_open());
+}

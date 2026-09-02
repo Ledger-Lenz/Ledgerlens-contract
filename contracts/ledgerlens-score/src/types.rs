@@ -114,6 +114,46 @@ pub struct ScoreSubmission {
     pub model_version: u32,
 }
 
+/// Canonical internal representation produced by `normalize_submission` from
+/// raw caller-supplied parameters before any range checks, attestation
+/// verification, cooldown checks, or storage writes.
+///
+/// Both `submit_score` and `submit_scores_batch` convert raw inputs into this
+/// type first, then pass it through the shared `validate_normalized_submission`
+/// helper. This ensures a **single, deterministic validation order** across
+/// every submission path (single and batch), closing the divergence that
+/// previously existed between the two entry points.
+///
+/// The normalization step is intentionally minimal — it copies fields without
+/// transformation so that the struct is the sole in-memory holder of the
+/// "what will be written" view of the submission while validation runs.
+///
+/// This type is internal and is not part of the public contract ABI; it is
+/// never stored on-chain and never appears in contract function signatures.
+/// Adding or removing fields here does not change the XDR-encoded ABI.
+#[cfg_attr(test, derive(Debug))]
+#[derive(Clone, PartialEq)]
+pub struct NormalizedSubmission {
+    /// Target wallet address for the score.
+    pub wallet: Address,
+    /// Asset-pair symbol the score applies to.
+    pub asset_pair: Symbol,
+    /// Risk score in the range \[0, 100\].
+    pub score: u32,
+    /// Whether a Benford's Law anomaly was detected.
+    pub benford_flag: bool,
+    /// Whether the ML classifier flagged this wallet.
+    pub ml_flag: bool,
+    /// Off-chain ledger timestamp (must be non-zero).
+    pub timestamp: u64,
+    /// Model confidence in the range \[0, 100\].
+    pub confidence: u32,
+    /// Detection-pipeline model version identifier.
+    pub model_version: u32,
+    /// Optional cryptographic KZG/range-proof commitment.
+    pub commitment: Option<soroban_sdk::Bytes>,
+}
+
 /// Cross-asset aggregate risk view for a single wallet.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]

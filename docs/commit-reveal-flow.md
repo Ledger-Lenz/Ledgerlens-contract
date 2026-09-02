@@ -33,7 +33,7 @@ sequenceDiagram
     else Insufficient consensus
         Contract->>Contract: return Err(Error::InsufficientConsensus)
     end
-```
+```yaml
 
 ## Finality Buffer (Pending Score Commit Window)
 
@@ -62,7 +62,6 @@ sequenceDiagram
         Contract->>Contract: emit: score_pending_cancelled
         Downstream->>Contract: get_score(wallet, pair) → still old/absent
     end
-```
 
 ## Multi-Model Consensus Commit-Reveal (MEV-Resistant)
 
@@ -104,7 +103,7 @@ sequenceDiagram
     else Insufficient consensus (k > 2)
         Contract->>Contract: return Err(InsufficientConsensus)
     end
-```
+```yaml
 
 ## Admin Cancel Path
 
@@ -125,7 +124,6 @@ sequenceDiagram
     Contract->>Contract: emit score_pending_cancelled(wallet, pair, admin)
     
     Note over Admin,Contract: Score never becomes visible
-```
 
 ## Consensus Commit-Reveal No-Op Cases
 

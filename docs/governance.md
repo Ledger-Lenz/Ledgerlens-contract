@@ -6,7 +6,6 @@ pattern:
 
 ```
 propose → time-lock → execute (or veto)
-```
 
 This document covers **parameter change governance** and the **governance action
 registry**.  For WASM upgrade governance, see the
@@ -61,10 +60,9 @@ events or documentation.  The registry fixes all three:
 Every time a governance action is appended to the Merkle audit chain the
 contract emits a `gov_action` event:
 
-```
+```yaml
 Topic:  ("gov_action", EVENT_VERSION)
 Data:   (action_id: u32, action_name: Symbol, new_head: BytesN<32>)
-```
 
 `action_id` is the discriminant from the table above.  `action_name` is its
 human-readable name string.  `new_head` is the updated Merkle root after the
@@ -112,7 +110,6 @@ delay.
    │ execute_parameter_change      │                                    │
    ├──────────────────────────────►│  apply param, mark Executed        │
    │                               │  emit prm_exec                     │
-```
 
 ### 1. Propose
 
@@ -270,7 +267,6 @@ can be gated to require multi-admin approval:
 └─ Recovery:
    └─ When safe, call: unpause(admin_signers)
       └─ Effect: Submissions resume; no data loss
-```
 
 **When to use**: System-wide threat or malicious activity. Affects all asset pairs and wallets.
 
@@ -288,7 +284,6 @@ can be gated to require multi-admin approval:
 └─ Recovery:
    └─ When pair is stable, call: set_pair_paused(admin_signers, asset_pair, false)
       └─ Effect: Pair submissions resume
-```
 
 **When to use**: Isolated pair problem (e.g., oracle delay, price spike, model miscalibration).
 Minimal blast radius; other pairs continue operating normally.
@@ -307,7 +302,6 @@ Minimal blast radius; other pairs continue operating normally.
 └─ Recovery:
    └─ When ready, call: set_submission_freeze(admin_signers, false)
       └─ Effect: Submissions resume
-```
 
 **When to use**: Maintenance, data migration, or temporary service disruption. Readers (consuming protocols)
 stay unaffected; dApps querying LedgerLens can continue operating during the freeze.
