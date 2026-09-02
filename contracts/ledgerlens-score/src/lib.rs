@@ -4848,6 +4848,26 @@ impl LedgerLensScoreContract {
     }
 
     /// Returns the running total of fees collected via `query_risk_gate`.
+    ///
+    /// The counter starts at `0` after `initialize` and increments each time
+    /// `query_risk_gate` charges a non-zero fee.  A zero return value means
+    /// either no fee has been configured or no gate queries have been made yet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // No fees have been collected yet after initialization.
+    /// assert_eq!(client.get_accumulated_fees(), 0);
+    /// ```
     pub fn get_accumulated_fees(env: Env) -> i128 {
         storage::get_accumulated_fees(&env)
     }
@@ -4860,7 +4880,7 @@ impl LedgerLensScoreContract {
     ///
     /// # Examples
     ///
-    /// `
+    /// ```
     /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
     /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
     /// let env = Env::default();
@@ -4870,16 +4890,40 @@ impl LedgerLensScoreContract {
     /// let admin = Address::generate(&env);
     /// let service = Address::generate(&env);
     /// client.initialize(&admin, &service);
+    /// // No callers have been configured yet — advisory mode is active.
     /// assert!(client.get_gate_callers().is_empty());
-    /// `
+    /// ```
     pub fn get_gate_callers(env: Env) -> Vec<Address> {
         storage::get_gate_callers(&env)
     }
 
     /// Replaces the authorized gate caller list. Admin only.
     ///
+    /// After this call, `get_gate_callers` returns exactly the supplied list.
+    /// Pass an empty `Vec` to revert to advisory mode (no enforcement).
+    ///
     /// # Errors
     /// - [`Error::NotInitialized`] if the contract has no admin yet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let caller = Address::generate(&env);
+    /// let mut callers: Vec<Address> = Vec::new(&env);
+    /// callers.push_back(caller.clone());
+    /// client.set_gate_callers(&Vec::new(&env), &callers);
+    /// assert_eq!(client.get_gate_callers().len(), 1);
+    /// assert_eq!(client.get_gate_callers().get(0).unwrap(), caller);
+    /// ```
     pub fn set_gate_callers(
         env: Env,
         admin_signers: Vec<Address>,
@@ -4894,6 +4938,30 @@ impl LedgerLensScoreContract {
     }
 
     /// Returns `true` when strict gate enforcement is active.
+    ///
+    /// When strict enforcement is enabled, `query_risk_gate` only accepts
+    /// calls from the allow-list set by `set_gate_callers`.  When disabled
+    /// (the default), gate calls are accepted from any caller regardless of
+    /// the allow-list.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// // Strict enforcement is off by default.
+    /// assert!(!client.get_gate_enforcement_mode());
+    /// // Enable strict enforcement and confirm the change.
+    /// client.set_gate_enforcement_mode(&Vec::new(&env), &true);
+    /// assert!(client.get_gate_enforcement_mode());
+    /// ```
     pub fn get_gate_enforcement_mode(env: Env) -> bool {
         storage::get_gate_enforcement_mode(&env)
     }
