@@ -1,4 +1,4 @@
-#!// Criterion benchmark for `get_delegation_chain`.
+#! // Criterion benchmark for `get_delegation_chain`.
 //!
 //! Run: `cargo bench -p ledgerlens-score --bench get_delegation_chain`
 //!
@@ -44,27 +44,23 @@ fn bench_get_delegation_chain(c: &mut Criterion) {
     group.sample_size(10);
 
     for &depth in &[1u32, 5u32] {
-        group.bench_with_input(
-            BenchmarkId::new("depth", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let env = Env::default();
-                    let client = setup_client(&env);
-                    // Generate the wallet whose delegation chain we'll walk.
-                    let wallet = Address::generate(&env);
-                    // Build a delegation chain of the given depth:
-                    // wallet -> d1 -> d2 -> ... -> dN
-                    let mut current = wallet.clone();
-                    for _ in 1..=depth {
-                        let next = Address::generate(&env);
-                        client.set_score_delegate(&current, &next);
-                        current = next;
-                    }
-                    black_box(client.get_delegation_chain(&wallet));
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("depth", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let env = Env::default();
+                let client = setup_client(&env);
+                // Generate the wallet whose delegation chain we'll walk.
+                let wallet = Address::generate(&env);
+                // Build a delegation chain of the given depth:
+                // wallet -> d1 -> d2 -> ... -> dN
+                let mut current = wallet.clone();
+                for _ in 1..=depth {
+                    let next = Address::generate(&env);
+                    client.set_score_delegate(&current, &next);
+                    current = next;
+                }
+                black_box(client.get_delegation_chain(&wallet));
+            });
+        });
     }
 
     group.finish();

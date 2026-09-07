@@ -37,7 +37,8 @@ struct Case {
 #[test]
 fn sdk_conformance() {
     let fixture_str = include_str!("../sdk_conformance_fixtures.json");
-    let fixture_data: FixtureData = serde_json::from_str(fixture_str).expect("Failed to parse JSON");
+    let fixture_data: FixtureData =
+        serde_json::from_str(fixture_str).expect("Failed to parse JSON");
 
     for case in fixture_data.cases {
         let env = Env::default();
@@ -55,10 +56,8 @@ fn sdk_conformance() {
         let gate_threshold = fixture_data.default_config.gate_threshold;
         let min_confidence = fixture_data.default_config.min_confidence;
 
-        let fail_policy_str = case
-            .fail_policy
-            .as_deref()
-            .unwrap_or(&fixture_data.default_config.fail_policy);
+        let fail_policy_str =
+            case.fail_policy.as_deref().unwrap_or(&fixture_data.default_config.fail_policy);
         let fail_policy = if fail_policy_str == "fail_closed" {
             AmmFailPolicy::FailClosed
         } else {

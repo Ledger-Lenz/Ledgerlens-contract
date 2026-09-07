@@ -40,13 +40,11 @@ fn populate_portfolio(
     wallet: &Address,
     num_pairs: usize,
 ) {
-    let pair_names: [&str; 10] = [
-        "P_AA", "P_BB", "P_CC", "P_DD", "P_EE",
-        "P_FF", "P_GG", "P_HH", "P_II", "P_JJ",
-    ];
+    let pair_names: [&str; 10] =
+        ["P_AA", "P_BB", "P_CC", "P_DD", "P_EE", "P_FF", "P_GG", "P_HH", "P_II", "P_JJ"];
 
-    for i in 0..num_pairs {
-        let pair = Symbol::new(env, pair_names[i]);
+    for (i, pair_name) in pair_names.iter().enumerate().take(num_pairs) {
+        let pair = Symbol::new(env, pair_name);
         client.submit_score(
             &Vec::new(env),
             wallet,
@@ -66,11 +64,7 @@ fn measure<F: FnOnce() -> R, R>(env: &Env, f: F) -> (R, u64, u64) {
     env.budget().reset_unlimited();
     env.budget().reset_tracker();
     let res = f();
-    (
-        res,
-        env.budget().cpu_instruction_cost(),
-        env.budget().memory_bytes_cost(),
-    )
+    (res, env.budget().cpu_instruction_cost(), env.budget().memory_bytes_cost())
 }
 
 fn bench_get_portfolio_var(c: &mut Criterion) {
@@ -88,9 +82,7 @@ fn bench_get_portfolio_var(c: &mut Criterion) {
                     let wallet = Address::generate(&env);
                     populate_portfolio(&env, &client, &wallet, num_pairs);
 
-                    black_box(measure(&env, || {
-                        client.get_portfolio_var(&wallet, &95)
-                    }))
+                    black_box(measure(&env, || client.get_portfolio_var(&wallet, &95)))
                 });
             },
         );

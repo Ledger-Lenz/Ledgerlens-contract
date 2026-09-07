@@ -290,8 +290,7 @@ fn test_veto_parameter_change_double_veto_returns_vetoed_error() {
     client.veto_parameter_change(&service_signers(&env, &service), &proposal_id);
 
     // Second veto on the same proposal — must return ParameterProposalVetoed.
-    let result =
-        client.try_veto_parameter_change(&service_signers(&env, &service), &proposal_id);
+    let result = client.try_veto_parameter_change(&service_signers(&env, &service), &proposal_id);
     assert_eq!(result, Err(Ok(Error::ParameterProposalVetoed)));
 }
 
@@ -367,29 +366,20 @@ fn test_get_pending_param_prop_ids_multiple_interleaved_lifecycle() {
     );
 
     // Verify all three are pending in FIFO order
-    assert_eq!(
-        client.get_pending_param_prop_ids(),
-        Vec::from_array(&env, [p1, p2, p3])
-    );
+    assert_eq!(client.get_pending_param_prop_ids(), Vec::from_array(&env, [p1, p2, p3]));
 
     // Veto the middle proposal (p2)
     client.veto_parameter_change(&service_signers(&env, &service), &p2);
 
     // Verify p2 is removed and p1, p3 remain in pending list preserving order
-    assert_eq!(
-        client.get_pending_param_prop_ids(),
-        Vec::from_array(&env, [p1, p3])
-    );
+    assert_eq!(client.get_pending_param_prop_ids(), Vec::from_array(&env, [p1, p3]));
 
     // Execute p1 after timelock
     advance_to(&env, START_TS + DEFAULT_UPGRADE_DELAY_SECS);
     client.execute_parameter_change(&admin_signers(&env, &admin), &p1);
 
     // Verify only p3 remains
-    assert_eq!(
-        client.get_pending_param_prop_ids(),
-        Vec::from_array(&env, [p3])
-    );
+    assert_eq!(client.get_pending_param_prop_ids(), Vec::from_array(&env, [p3]));
 
     // Execute p3
     client.execute_parameter_change(&admin_signers(&env, &admin), &p3);

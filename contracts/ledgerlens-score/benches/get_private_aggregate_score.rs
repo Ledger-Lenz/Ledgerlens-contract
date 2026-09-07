@@ -1,4 +1,4 @@
-#!// Criterion benchmark for `get_private_aggregate_score`.
+#! // Criterion benchmark for `get_private_aggregate_score`.
 //!
 //! Run: `cargo bench -p ledgerlens-score --bench get_private_aggregate_score`
 //!

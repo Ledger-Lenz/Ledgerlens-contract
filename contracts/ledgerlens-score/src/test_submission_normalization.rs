@@ -15,15 +15,9 @@
 //!       confidence > 100  →  InvalidConfidence  (code 5)
 //!       timestamp == 0    →  InvalidTimestamp   (code 25)
 
-use soroban_sdk::{
-    symbol_short,
-    testutils::Address as _,
-    vec, Address, Env, Vec,
-};
+use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env, Vec};
 
-use crate::{
-    Error, LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreSubmission,
-};
+use crate::{Error, LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreSubmission};
 use ledgerlens_test_support::{
     generate_score_roles, set_ledger_timestamp, test_env_with_unlimited_budget,
 };
@@ -405,7 +399,7 @@ fn normalization_order_score_before_confidence_batch() {
         ScoreSubmission {
             wallet: wallet.clone(),
             asset_pair: symbol_short!("XLM_USDC"),
-            score: 200,   // bad score — checked first
+            score: 200, // bad score — checked first
             benford_flag: false,
             ml_flag: false,
             timestamp: 1_700_000_000,
@@ -452,7 +446,7 @@ fn normalization_order_confidence_before_timestamp_batch() {
             score: 50,
             benford_flag: false,
             ml_flag: false,
-            timestamp: 0,   // also bad, but confidence is checked first
+            timestamp: 0,    // also bad, but confidence is checked first
             confidence: 200, // bad confidence
             model_version: 1,
         },

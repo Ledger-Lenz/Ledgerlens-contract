@@ -68,11 +68,7 @@ fn measure<F: FnOnce() -> R, R>(env: &Env, f: F) -> (R, u64, u64) {
     env.budget().reset_unlimited();
     env.budget().reset_tracker();
     let res = f();
-    (
-        res,
-        env.budget().cpu_instruction_cost(),
-        env.budget().memory_bytes_cost(),
-    )
+    (res, env.budget().cpu_instruction_cost(), env.budget().memory_bytes_cost())
 }
 
 fn bench_get_wallet_cluster(c: &mut Criterion) {

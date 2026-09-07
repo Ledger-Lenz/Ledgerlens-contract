@@ -66,13 +66,17 @@ fn bench_get_score_histogram(c: &mut Criterion) {
     group.sample_size(10);
 
     for population in [0u32, 500] {
-        group.bench_with_input(BenchmarkId::new("population", population), &population, |b, &population| {
-            b.iter(|| {
-                let env = Env::default();
-                let (client, asset_pair) = setup(&env);
-                black_box(histogram_cost(&env, &client, &asset_pair, population))
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("population", population),
+            &population,
+            |b, &population| {
+                b.iter(|| {
+                    let env = Env::default();
+                    let (client, asset_pair) = setup(&env);
+                    black_box(histogram_cost(&env, &client, &asset_pair, population))
+                });
+            },
+        );
     }
 
     group.finish();

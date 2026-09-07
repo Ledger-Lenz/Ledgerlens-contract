@@ -1,4 +1,4 @@
-#!// Criterion benchmark for `estimate_unique_wallets`.
+#! // Criterion benchmark for `estimate_unique_wallets`.
 //!
 //! Run: `cargo bench -p ledgerlens-score --bench estimate_unique_wallets`
 //!

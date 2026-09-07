@@ -252,14 +252,14 @@ pub use types::{
     DeletionAuditWarning, DeletionPreflight, EffectiveRiskScore, EmbargoExpiry,
     FlashProtectionMode, HllSketch, InterfaceMetadata, InterpolationMethod, MaybeRiskScore,
     MaybeScoreAttestation, MaybeThresholdAttestation, ModelSubmission, ModelVersionStats,
-    ModelVersionStatus, NormalizedSubmission, OperatorScoreExport, ParamChangeProposal,
-    ParamValue, ParameterProposal, ParameterProposalRecord, ParameterProposalStatus,
-    PendingConfigExportEntry, PendingScoreEntry, Policy, PolicyApproval, PolicyBundle,
-    PolicyBundleProposal, PublicScoreExport, RiskScore, ScoreAttestation, ScoreAttestationInput,
-    ScoreDispute, ScoreFloorPolicy, ScoreHistogram, ScoreQuery, ScoreSubmission,
-    ScoreSubmissionWithProof, ScoreTrend, ScoreVelocityCap, SignerAccuracyRecord, SignerState,
-    SignerStateRecord, SubmissionProvenance, ThresholdAttestation, TierBounds, TokenBucket,
-    UpgradeProposal, WelfordCorrState,
+    ModelVersionStatus, NormalizedSubmission, OperatorScoreExport, ParamChangeProposal, ParamValue,
+    ParameterProposal, ParameterProposalRecord, ParameterProposalStatus, PendingConfigExportEntry,
+    PendingScoreEntry, Policy, PolicyApproval, PolicyBundle, PolicyBundleProposal,
+    PublicScoreExport, RiskScore, ScoreAttestation, ScoreAttestationInput, ScoreDispute,
+    ScoreFloorPolicy, ScoreHistogram, ScoreQuery, ScoreSubmission, ScoreSubmissionWithProof,
+    ScoreTrend, ScoreVelocityCap, SignerAccuracyRecord, SignerState, SignerStateRecord,
+    SubmissionProvenance, ThresholdAttestation, TierBounds, TokenBucket, UpgradeProposal,
+    WelfordCorrState,
 };
 /// The 32-byte all-zeros field element used as the value in non-membership proofs.
 pub use verkle::NON_MEMBER_SENTINEL;
@@ -1457,165 +1457,166 @@ impl LedgerLensScoreContract {
                 if let Err(e) = Self::validate_normalized_submission(&env, &ns) {
                     rejection_code = e as u32;
                 } else {
-                let last_submit = storage::get_last_submit_time(&env, &ns.wallet, &ns.asset_pair);
-                let base_cooldown = storage::get_pair_cooldown_secs(&env, &ns.asset_pair);
-                let cooldown =
-                    Self::compute_effective_cooldown(&env, &ns.asset_pair, base_cooldown);
-                if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
-                    rejection_code = Error::RateLimitExceeded as u32;
-                } else if Self::score_floor_blocks(&env, &ns.wallet, &ns.asset_pair, ns.score) {
-                    // code 43 = BelowScoreFloor (distinct from InvalidScore=4 for score > 100)
-                    rejection_code = 43u32;
-                } else {
-                    let previous_score =
-                        storage::peek_score(&env, &ns.wallet, &ns.asset_pair).map(|s| s.score);
+                    let last_submit =
+                        storage::get_last_submit_time(&env, &ns.wallet, &ns.asset_pair);
+                    let base_cooldown = storage::get_pair_cooldown_secs(&env, &ns.asset_pair);
+                    let cooldown =
+                        Self::compute_effective_cooldown(&env, &ns.asset_pair, base_cooldown);
+                    if last_submit != 0 && now < last_submit.saturating_add(cooldown) {
+                        rejection_code = Error::RateLimitExceeded as u32;
+                    } else if Self::score_floor_blocks(&env, &ns.wallet, &ns.asset_pair, ns.score) {
+                        // code 43 = BelowScoreFloor (distinct from InvalidScore=4 for score > 100)
+                        rejection_code = 43u32;
+                    } else {
+                        let previous_score =
+                            storage::peek_score(&env, &ns.wallet, &ns.asset_pair).map(|s| s.score);
 
-                    let mut velocity_exceeded = false;
-                    if let Some(prev) = previous_score {
-                        let cap = storage::get_score_velocity_cap(&env);
-                        if cap.enabled {
-                            if storage::is_velocity_cap_overridden(
-                                &env,
-                                &ns.wallet,
-                                &ns.asset_pair,
-                            ) {
-                                storage::clear_velocity_cap_override(
+                        let mut velocity_exceeded = false;
+                        if let Some(prev) = previous_score {
+                            let cap = storage::get_score_velocity_cap(&env);
+                            if cap.enabled {
+                                if storage::is_velocity_cap_overridden(
                                     &env,
                                     &ns.wallet,
                                     &ns.asset_pair,
-                                );
-                            } else if last_submit != 0 {
-                                let elapsed_secs = now.saturating_sub(last_submit);
-                                let allowed_delta = core::cmp::max(
-                                    1,
-                                    (cap.points_per_hour as u64).saturating_mul(elapsed_secs)
-                                        / 3600,
-                                );
-                                let diff = ns.score.abs_diff(prev);
-                                if diff as u64 > allowed_delta {
-                                    rejection_code = Error::RateLimitExceeded as u32;
-                                    velocity_exceeded = true;
+                                ) {
+                                    storage::clear_velocity_cap_override(
+                                        &env,
+                                        &ns.wallet,
+                                        &ns.asset_pair,
+                                    );
+                                } else if last_submit != 0 {
+                                    let elapsed_secs = now.saturating_sub(last_submit);
+                                    let allowed_delta = core::cmp::max(
+                                        1,
+                                        (cap.points_per_hour as u64).saturating_mul(elapsed_secs)
+                                            / 3600,
+                                    );
+                                    let diff = ns.score.abs_diff(prev);
+                                    if diff as u64 > allowed_delta {
+                                        rejection_code = Error::RateLimitExceeded as u32;
+                                        velocity_exceeded = true;
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    if !velocity_exceeded {
-                        storage::set_last_submit_time(&env, &ns.wallet, &ns.asset_pair, now);
+                        if !velocity_exceeded {
+                            storage::set_last_submit_time(&env, &ns.wallet, &ns.asset_pair, now);
 
-                        let risk_score = RiskScore {
-                            score: ns.score,
-                            benford_flag: ns.benford_flag,
-                            ml_flag: ns.ml_flag,
-                            timestamp: ns.timestamp,
-                            confidence: ns.confidence,
-                            model_version: ns.model_version,
-                            benford_score: 0,
-                            ml_score: 0,
-                            network_score: 0,
-                            commitment: ns.commitment.clone(),
-                        };
-                        storage::set_score(&env, &ns.wallet, &ns.asset_pair, &risk_score);
-                        storage::push_score_history(
-                            &env,
-                            &ns.wallet,
-                            &ns.asset_pair,
-                            &risk_score,
-                        );
-                        storage::register_pair_for_wallet(&env, &ns.wallet, &ns.asset_pair);
-                        storage::increment_score_count(&env, &ns.wallet, &ns.asset_pair);
-                        // Increment per-pair submission counter (Issue 1).
-                        storage::increment_pair_score_count(&env, &ns.asset_pair);
-                        // Increment unique wallet-pair counter on first-ever submission (Issue 3).
-                        if previous_score.is_none() {
-                            storage::increment_total_wallets_scored(&env);
-                        }
-                        // #688: persist provenance snapshot for this batch entry.
-                        {
-                            let floor_policy = storage::get_score_floor_policy(&env);
-                            let provenance = SubmissionProvenance {
+                            let risk_score = RiskScore {
+                                score: ns.score,
+                                benford_flag: ns.benford_flag,
+                                ml_flag: ns.ml_flag,
+                                timestamp: ns.timestamp,
+                                confidence: ns.confidence,
                                 model_version: ns.model_version,
-                                service_threshold: storage::get_service_threshold(&env),
-                                signers_count: 1,
-                                score_floor_enabled: floor_policy.enabled,
-                                score_floor_high_water_mark: floor_policy.high_water_mark,
-                                score_floor_value: floor_policy.floor_value,
-                                cooldown_secs: storage::get_pair_cooldown_secs(
-                                    &env,
-                                    &ns.asset_pair,
-                                ),
-                                epoch_id: storage::get_current_epoch(&env),
-                                ledger_sequence: env.ledger().sequence(),
-                                submitted_at: now,
-                                validation_branch: symbol_short!("batch"),
+                                benford_score: 0,
+                                ml_score: 0,
+                                network_score: 0,
+                                commitment: ns.commitment.clone(),
                             };
-                            storage::set_submission_provenance(
+                            storage::set_score(&env, &ns.wallet, &ns.asset_pair, &risk_score);
+                            storage::push_score_history(
                                 &env,
                                 &ns.wallet,
                                 &ns.asset_pair,
-                                &provenance,
+                                &risk_score,
                             );
-                        }
-                        storage::update_model_stats(&env, ns.model_version, ns.score);
-                        storage::update_historical_max_score(
-                            &env,
-                            &ns.wallet,
-                            &ns.asset_pair,
-                            ns.score,
-                        );
-                        storage::update_histogram_on_write(&env, previous_score, ns.score);
-                        Self::refresh_aggregate_cache(&env, &ns.wallet);
-                        Self::update_verkle_commitment(
-                            &env,
-                            &ns.wallet,
-                            &ns.asset_pair,
-                            &risk_score,
-                        );
+                            storage::register_pair_for_wallet(&env, &ns.wallet, &ns.asset_pair);
+                            storage::increment_score_count(&env, &ns.wallet, &ns.asset_pair);
+                            // Increment per-pair submission counter (Issue 1).
+                            storage::increment_pair_score_count(&env, &ns.asset_pair);
+                            // Increment unique wallet-pair counter on first-ever submission (Issue 3).
+                            if previous_score.is_none() {
+                                storage::increment_total_wallets_scored(&env);
+                            }
+                            // #688: persist provenance snapshot for this batch entry.
+                            {
+                                let floor_policy = storage::get_score_floor_policy(&env);
+                                let provenance = SubmissionProvenance {
+                                    model_version: ns.model_version,
+                                    service_threshold: storage::get_service_threshold(&env),
+                                    signers_count: 1,
+                                    score_floor_enabled: floor_policy.enabled,
+                                    score_floor_high_water_mark: floor_policy.high_water_mark,
+                                    score_floor_value: floor_policy.floor_value,
+                                    cooldown_secs: storage::get_pair_cooldown_secs(
+                                        &env,
+                                        &ns.asset_pair,
+                                    ),
+                                    epoch_id: storage::get_current_epoch(&env),
+                                    ledger_sequence: env.ledger().sequence(),
+                                    submitted_at: now,
+                                    validation_branch: symbol_short!("batch"),
+                                };
+                                storage::set_submission_provenance(
+                                    &env,
+                                    &ns.wallet,
+                                    &ns.asset_pair,
+                                    &provenance,
+                                );
+                            }
+                            storage::update_model_stats(&env, ns.model_version, ns.score);
+                            storage::update_historical_max_score(
+                                &env,
+                                &ns.wallet,
+                                &ns.asset_pair,
+                                ns.score,
+                            );
+                            storage::update_histogram_on_write(&env, previous_score, ns.score);
+                            Self::refresh_aggregate_cache(&env, &ns.wallet);
+                            Self::update_verkle_commitment(
+                                &env,
+                                &ns.wallet,
+                                &ns.asset_pair,
+                                &risk_score,
+                            );
 
-                        if ns.score >= threshold {
-                            events::threshold_breached(
+                            if ns.score >= threshold {
+                                events::threshold_breached(
+                                    &env,
+                                    &ns.wallet,
+                                    &ns.asset_pair,
+                                    ns.score,
+                                    threshold,
+                                );
+                            }
+                            Self::update_breach_counter(
                                 &env,
                                 &ns.wallet,
                                 &ns.asset_pair,
                                 ns.score,
                                 threshold,
                             );
-                        }
-                        Self::update_breach_counter(
-                            &env,
-                            &ns.wallet,
-                            &ns.asset_pair,
-                            ns.score,
-                            threshold,
-                        );
-                        Self::evaluate_risk_band(
-                            &env,
-                            &ns.wallet,
-                            &ns.asset_pair,
-                            ns.score,
-                            threshold,
-                        );
+                            Self::evaluate_risk_band(
+                                &env,
+                                &ns.wallet,
+                                &ns.asset_pair,
+                                ns.score,
+                                threshold,
+                            );
 
-                        Self::emit_score_delta(
-                            &env,
-                            &ns.wallet,
-                            &ns.asset_pair,
-                            previous_score,
-                            ns.score,
-                        );
-                        Self::emit_score_jump_anomaly(
-                            &env,
-                            &ns.wallet,
-                            &ns.asset_pair,
-                            previous_score,
-                            ns.score,
-                            ns.model_version,
-                        );
-                        events::score_submitted(&env, &ns.wallet, &ns.asset_pair, &risk_score);
-                        accepted = true;
-                        accepted_count += 1;
+                            Self::emit_score_delta(
+                                &env,
+                                &ns.wallet,
+                                &ns.asset_pair,
+                                previous_score,
+                                ns.score,
+                            );
+                            Self::emit_score_jump_anomaly(
+                                &env,
+                                &ns.wallet,
+                                &ns.asset_pair,
+                                previous_score,
+                                ns.score,
+                                ns.model_version,
+                            );
+                            events::score_submitted(&env, &ns.wallet, &ns.asset_pair, &risk_score);
+                            accepted = true;
+                            accepted_count += 1;
+                        }
                     }
-                }
                 } // close validate_normalized_submission Ok branch
             } // close outer else (not pair-bounded / paused)
 
@@ -11281,6 +11282,7 @@ impl LedgerLensScoreContract {
     /// rather than clamping or transforming them.  Normalization only
     /// establishes the canonical internal form; it does **not** validate —
     /// that is the job of `validate_normalized_submission`.
+    #[allow(clippy::too_many_arguments)]
     fn normalize_submission(
         wallet: Address,
         asset_pair: Symbol,
@@ -11320,10 +11322,7 @@ impl LedgerLensScoreContract {
     /// `submit_score` path and the inline checks in `submit_scores_batch`,
     /// making both paths exercise exactly the same rules in exactly the same
     /// order.
-    fn validate_normalized_submission(
-        env: &Env,
-        sub: &NormalizedSubmission,
-    ) -> Result<(), Error> {
+    fn validate_normalized_submission(env: &Env, sub: &NormalizedSubmission) -> Result<(), Error> {
         if sub.score > 100 {
             return Err(Error::InvalidScore);
         }

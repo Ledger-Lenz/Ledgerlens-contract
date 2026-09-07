@@ -136,18 +136,20 @@ if [[ "\${command}" == "contract" && "\${1:-}" == "invoke" ]]; then
       echo "error: contract error: unfreeze not allowed" >&2
       exit 1
       ;;
-    canary-with-keys:*)
+    canary-with-keys:supports_interface)
       # Verify --source is set to canary-signer when --canary-keys is used
       if [[ "\${source_identity}" == "canary-signer" ]]; then
-        case "\${action}" in
-          supports_interface|freeze_contract|unfreeze_contract)
-            exit 0
-            ;;
-          get_version)
-            echo "1"
-            exit 0
-            ;;
-        esac
+        echo "true"
+        exit 0
+      else
+        echo "error: expected canary-signer source but got \${source_identity}" >&2
+        exit 1
+      fi
+      ;;
+    canary-with-keys:freeze_contract|canary-with-keys:unfreeze_contract)
+      # Verify --source is set to canary-signer when --canary-keys is used
+      if [[ "\${source_identity}" == "canary-signer" ]]; then
+        exit 0
       else
         echo "error: expected canary-signer source but got \${source_identity}" >&2
         exit 1
@@ -321,18 +323,20 @@ if [[ "\${command}" == "contract" && "\${1:-}" == "invoke" ]]; then
       echo "error: contract error: unfreeze not allowed" >&2
       exit 1
       ;;
-    canary-with-keys:*)
+    canary-with-keys:supports_interface)
       # Verify --source is set to canary-signer when --canary-keys is used
       if [[ "\${source_identity}" == "canary-signer" ]]; then
-        case "\${action}" in
-          supports_interface|freeze_contract|unfreeze_contract)
-            exit 0
-            ;;
-          get_version)
-            echo "1"
-            exit 0
-            ;;
-        esac
+        echo "true"
+        exit 0
+      else
+        echo "error: expected canary-signer source but got \${source_identity}" >&2
+        exit 1
+      fi
+      ;;
+    canary-with-keys:freeze_contract|canary-with-keys:unfreeze_contract)
+      # Verify --source is set to canary-signer when --canary-keys is used
+      if [[ "\${source_identity}" == "canary-signer" ]]; then
+        exit 0
       else
         echo "error: expected canary-signer source but got \${source_identity}" >&2
         exit 1

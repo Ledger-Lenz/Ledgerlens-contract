@@ -23,7 +23,7 @@ use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Ledger as _},
-    Address, BytesN, Env, Symbol, Vec,
+    Address, Env, Symbol, Vec,
 };
 
 const START_TS: u64 = 1_700_000_000;
@@ -87,11 +87,7 @@ fn measure<F: FnOnce() -> R, R>(env: &Env, f: F) -> (R, u64, u64) {
     env.budget().reset_unlimited();
     env.budget().reset_tracker();
     let res = f();
-    (
-        res,
-        env.budget().cpu_instruction_cost(),
-        env.budget().memory_bytes_cost(),
-    )
+    (res, env.budget().cpu_instruction_cost(), env.budget().memory_bytes_cost())
 }
 
 fn bench_verify_membership(c: &mut Criterion) {

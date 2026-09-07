@@ -1,4 +1,4 @@
-#!// Criterion benchmark for `reconcile_state`.
+#! // Criterion benchmark for `reconcile_state`.
 //!
 //! Run: `cargo bench -p ledgerlens-score --bench reconcile_state`
 //!
@@ -16,11 +16,11 @@
 //! and its cost must be predictable and invariant for budget planning.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use ledgerlens_score::LedgerLensScoreContractClient;
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     Address, Env, Symbol, Vec,
 };
-use ledgerlens_score::LedgerLensScoreContractClient;
 
 const START_TS: u64 = 1_700_000_000;
 
@@ -31,8 +31,8 @@ fn setup_client(env: &Env) -> LedgerLensScoreContractClient<'_> {
 
     let contract_id = env.register_contract(None, ledgerlens_score::LedgerLensScoreContract);
     let client = LedgerLensScoreContractClient::new(env, &contract_id);
-    let admin = Address::generate(&env);
-    let service = Address::generate(&env);
+    let admin = Address::generate(env);
+    let service = Address::generate(env);
     client.initialize(&admin, &service);
 
     client
