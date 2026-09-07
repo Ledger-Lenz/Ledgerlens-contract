@@ -22,8 +22,7 @@ use soroban_sdk::{
 };
 
 use crate::{
-    BatchEntryResult, BatchResult, Error, LedgerLensScoreContract,
-    LedgerLensScoreContractClient, ScoreSubmission,
+    Error, LedgerLensScoreContract, LedgerLensScoreContractClient, ScoreSubmission,
 };
 use ledgerlens_test_support::{
     generate_score_roles, set_ledger_timestamp, test_env_with_unlimited_budget,

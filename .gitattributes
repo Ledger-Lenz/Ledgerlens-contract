@@ -1,1 +1,9 @@
 *.sh text eol=lf
+
+# Golden ABI/manifest fixtures are compared byte-for-byte against LF-generated
+# output in tests/historical_wasm_compat.rs; without this, Windows checkouts
+# with core.autocrlf=true convert them to CRLF and the comparisons fail.
+tests/fixtures/historical/*.abi text eol=lf
+tests/fixtures/historical/*.manifest text eol=lf
+tests/fixtures/historical/*.Cargo.lock text eol=lf
+tests/fixtures/historical/*.wasm binary
