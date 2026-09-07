@@ -287,58 +287,58 @@ jobs:
 
           # Build release body
           cat > release-body.md <<EOF
-## $TAG
+          ## $TAG
 
-$NOTES
+          $NOTES
 
----
+          ---
 
-### Artifacts
+          ### Artifacts
 
-| Artifact | SHA-256 |
-|---|---|
-| \`ledgerlens_score.optimized.wasm\` (optimized, deployable) | \`$OPT_SHA256\` |
-| \`ledgerlens_score.wasm\` (raw, reproducible build) | \`${{ needs.reproducibility-check.outputs.verified-sha256 }}\` |
+          | Artifact | SHA-256 |
+          |---|---|
+          | \`ledgerlens_score.optimized.wasm\` (optimized, deployable) | \`$OPT_SHA256\` |
+          | \`ledgerlens_score.wasm\` (raw, reproducible build) | \`${{ needs.reproducibility-check.outputs.verified-sha256 }}\` |
 
-> **Verification**: The raw WASM SHA-256 above was verified by the release workflow's
-> double-build reproducibility check (two independent cold builds produced identical
-> output). The optimized WASM is the deployable artifact produced by
-> \`stellar contract optimize\` from the verified raw WASM.
+          > **Verification**: The raw WASM SHA-256 above was verified by the release workflow's
+          > double-build reproducibility check (two independent cold builds produced identical
+          > output). The optimized WASM is the deployable artifact produced by
+          > \`stellar contract optimize\` from the verified raw WASM.
 
-### Verification Procedure
+          ### Verification Procedure
 
-To verify the optimized artifact matches this release:
+          To verify the optimized artifact matches this release:
 
-\`\`\`bash
-# Download the optimized WASM from this release
-curl -LO https://github.com/Ledger-Lenz/Ledgerlens-contract/releases/download/$TAG/ledgerlens_score.optimized.wasm
+          \`\`\`bash
+          # Download the optimized WASM from this release
+          curl -LO https://github.com/Ledger-Lenz/Ledgerlens-contract/releases/download/$TAG/ledgerlens_score.optimized.wasm
 
-# Verify SHA-256
-echo "$OPT_SHA256  ledgerlens_score.optimized.wasm" | sha256sum --check
-\`\`\`
+          # Verify SHA-256
+          echo "$OPT_SHA256  ledgerlens_score.optimized.wasm" | sha256sum --check
+          \`\`\`
 
-To verify the raw artifact matches the on-chain deployed contract (after deployment):
+          To verify the raw artifact matches the on-chain deployed contract (after deployment):
 
-\`\`\`bash
-# Build from source at this tag
-git checkout $TAG
-cargo build --target wasm32-unknown-unknown --release -p ledgerlens-score --locked
-sha256sum target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
-# Compare with raw SHA-256 above
-\`\`\`
+          \`\`\`bash
+          # Build from source at this tag
+          git checkout $TAG
+          cargo build --target wasm32-unknown-unknown --release -p ledgerlens-score --locked
+          sha256sum target/wasm32-unknown-unknown/release/ledgerlens_score.wasm
+          # Compare with raw SHA-256 above
+          \`\`\`
 
-### Toolchain
+          ### Toolchain
 
-- Rust: \`1.81.0\` (pinned in \`rust-toolchain.toml\`)
-- Stellar CLI: \`${STELLAR_CLI_VERSION}\` (for WASM optimization)
-- Target: \`wasm32-unknown-unknown\`
+          - Rust: \`1.81.0\` (pinned in \`rust-toolchain.toml\`)
+          - Stellar CLI: \`${STELLAR_CLI_VERSION}\` (for WASM optimization)
+          - Target: \`wasm32-unknown-unknown\`
 
-### Reproducibility
+          ### Reproducibility
 
-This release was verified by the \`reproducibility-check\` job: two independent
-cold builds on fresh runners produced byte-identical raw WASM output.
+          This release was verified by the \`reproducibility-check\` job: two independent
+          cold builds on fresh runners produced byte-identical raw WASM output.
 
-EOF
+          EOF
 
           # Create the release
           gh release create "$TAG" \
@@ -360,4 +360,3 @@ EOF
       # - name: Upload SBOM to release
       #   run: |
       #     gh release upload "$TAG" target/sbom.json --clobber
-EOF
