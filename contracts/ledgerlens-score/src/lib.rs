@@ -5042,6 +5042,26 @@ impl LedgerLensScoreContract {
     }
 
     /// Returns the baked-in ABI/contract version.
+    ///
+    /// A freshly deployed instance answers with the compile-time
+    /// [`CONTRACT_VERSION`](crate::constants::CONTRACT_VERSION) baked into the WASM.
+    /// The stored key exists so a migration can repoint the value, and nothing
+    /// writes it today.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use ledgerlens_score::constants::CONTRACT_VERSION;
+    /// # use soroban_sdk::Env;
+    /// let env = Env::default();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    ///
+    /// // Compared against the constant, not a literal, so a version bump cannot
+    /// // silently invalidate this example.
+    /// assert_eq!(client.get_contract_version(), CONTRACT_VERSION);
+    /// ```
     pub fn get_contract_version(env: Env) -> u32 {
         storage::get_contract_version(&env)
     }
