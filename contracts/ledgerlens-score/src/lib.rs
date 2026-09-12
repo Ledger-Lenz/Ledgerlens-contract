@@ -5345,6 +5345,28 @@ impl LedgerLensScoreContract {
     /// Returns [`Error::ServiceSetFull`] when the set already contains
     /// `MAX_SERVICE_SIGNERS` members, [`Error::SignerAlreadyInSet`] when
     /// `signer` is already present.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, Env, Address, Vec};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    /// let signer = Address::generate(&env);
+    /// // The service set starts empty and is grown by the admin.
+    /// assert_eq!(client.get_service_signer_count(), 0);
+    /// client.add_service_signer(&Vec::new(&env), &signer);
+    /// assert_eq!(client.get_service_signer_count(), 1);
+    /// assert!(client.get_service_signers().contains(&signer));
+    /// // Onboarding the same signer twice is rejected rather than duplicated.
+    /// assert!(client.try_add_service_signer(&Vec::new(&env), &signer).is_err());
+    /// ```
     pub fn add_service_signer(
         env: Env,
         admin_signers: Vec<Address>,
