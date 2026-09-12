@@ -5060,6 +5060,35 @@ impl LedgerLensScoreContract {
     ///
     /// This function is infallible (returns `bool`, never `Result`) and
     /// side-effect free — it performs pure reads that do not extend TTL.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ledgerlens_score::{LedgerLensScoreContract, LedgerLensScoreContractClient};
+    /// # use soroban_sdk::{testutils::Address as _, symbol_short, Env, Address, Vec};
+    /// let env = Env::default();
+    /// env.mock_all_auths();
+    /// let contract_id = env.register_contract(None, LedgerLensScoreContract);
+    /// let client = LedgerLensScoreContractClient::new(&env, &contract_id);
+    /// let admin = Address::generate(&env);
+    /// let service = Address::generate(&env);
+    /// client.initialize(&admin, &service);
+    ///
+    /// let wallet = Address::generate(&env);
+    /// let pair = symbol_short!("XLM_USDC");
+    /// // Score 30 with confidence 90: inside the threshold with room to spare.
+    /// client.submit_score(&Vec::new(&env), &wallet, &pair, &30, &false, &false, &1, &90, &1, &None);
+    ///
+    /// // The caller is satisfied by a confidence floor of 80.
+    /// assert!(client.query_risk_gate_with_confidence(&wallet, &pair, &75, &80));
+    ///
+    /// // Same score, same threshold — but the caller demands more confidence
+    /// // than the score carries, so the gate refuses.
+    /// assert!(!client.query_risk_gate_with_confidence(&wallet, &pair, &75, &95));
+    ///
+    /// // A floor of 0 is the plain `query_risk_gate` path, which delegates here.
+    /// assert!(client.query_risk_gate_with_confidence(&wallet, &pair, &75, &0));
+    /// ```
     pub fn query_risk_gate_with_confidence(
         env: Env,
         wallet: Address,
