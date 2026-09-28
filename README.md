@@ -832,3 +832,6 @@ Contributions are welcome. LedgerLens is an open-source public good built for th
 
 <!-- handsoff-issue-1162 -->
 - #1162: Tiered gate fee schedules with governed exemptions
+
+<!-- handsoff-issue-1163 -->
+- #1163: Consumer prepaid credit accounts for gate queries
