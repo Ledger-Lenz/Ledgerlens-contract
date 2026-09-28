@@ -838,3 +838,6 @@ Contributions are welcome. LedgerLens is an open-source public good built for th
 
 <!-- handsoff-issue-1164 -->
 - #1164: Permissionless relay of attested scores with relayer tips
+
+<!-- handsoff-issue-1165 -->
+- #1165: Permissionless TTL keeper incentives for storage rent
