@@ -835,3 +835,6 @@ Contributions are welcome. LedgerLens is an open-source public good built for th
 
 <!-- handsoff-issue-1163 -->
 - #1163: Consumer prepaid credit accounts for gate queries
+
+<!-- handsoff-issue-1164 -->
+- #1164: Permissionless relay of attested scores with relayer tips
