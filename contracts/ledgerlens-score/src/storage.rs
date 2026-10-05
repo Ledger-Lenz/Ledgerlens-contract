@@ -3134,6 +3134,56 @@ pub fn set_gate_read_ledger(env: &Env, wallet: &Address, asset_pair: &Symbol) {
     env.storage().temporary().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
 }
 
+pub fn get_consumer_read_quota(env: &Env, consumer: &Address) -> Option<ConsumerReadQuota> {
+    env.storage().persistent().get(&GateDataKey::ConsumerReadQuota(consumer.clone()))
+}
+
+pub fn set_consumer_read_quota(env: &Env, consumer: &Address, quota: &ConsumerReadQuota) {
+    let key = GateDataKey::ConsumerReadQuota(consumer.clone());
+    env.storage().persistent().set(&key, quota);
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+}
+
+pub fn clear_consumer_read_quota(env: &Env, consumer: &Address) {
+    env.storage().persistent().remove(&GateDataKey::ConsumerReadQuota(consumer.clone()));
+}
+
+fn refilled_consumer_quota_tokens(quota: &ConsumerReadQuota, now: u64) -> u32 {
+    if quota.capacity == 0 || quota.refill_rate == 0 {
+        return quota.tokens.min(quota.capacity);
+    }
+    let elapsed = now.saturating_sub(quota.last_refill);
+    let missing = quota.capacity.saturating_sub(quota.tokens);
+    let added = u128::from(elapsed)
+        .saturating_mul(u128::from(quota.refill_rate))
+        .min(u128::from(missing));
+    quota.tokens.saturating_add(added as u32).min(quota.capacity)
+}
+
+pub fn remaining_consumer_read_quota(env: &Env, consumer: &Address) -> u32 {
+    let Some(quota) = get_consumer_read_quota(env, consumer) else {
+        return 0;
+    };
+    refilled_consumer_quota_tokens(&quota, env.ledger().timestamp())
+}
+
+pub fn consume_consumer_read_quota(env: &Env, consumer: &Address) -> bool {
+    let Some(mut quota) = get_consumer_read_quota(env, consumer) else {
+        return true;
+    };
+    let key = GateDataKey::ConsumerReadQuota(consumer.clone());
+    env.storage().persistent().extend_ttl(&key, SCORE_TTL_THRESHOLD, SCORE_TTL_EXTEND_TO);
+    let now = env.ledger().timestamp();
+    quota.tokens = refilled_consumer_quota_tokens(&quota, now);
+    if quota.tokens == 0 {
+        return false;
+    }
+    quota.tokens = quota.tokens.saturating_sub(1);
+    quota.last_refill = now;
+    set_consumer_read_quota(env, consumer, &quota);
+    true
+}
+
 pub fn get_gate_query_fee(env: &Env) -> i128 {
     env.storage().instance().get(&GateDataKey::GateQueryFee).unwrap_or(0)
 }

@@ -71,7 +71,40 @@ Internally, this function delegates to `query_risk_gate_with_confidence` with
 `min_confidence = 0`. All gate logic lives in one place; this function is a
 non-breaking convenience wrapper preserved for backward compatibility.
 
-### 1.2 `query_risk_gate_with_confidence` — confidence-gated integration primitive
+This API remains unmetered. Consumers that need a governed per-consumer token
+bucket must call `query_risk_gate_metered` instead; enabling a quota does not
+change the behavior of this API or `query_risk_gate_with_confidence`.
+
+### 1.2 `query_risk_gate_metered` — quota-governed integration primitive
+
+```rust
+fn query_risk_gate_metered(
+  env: Env,
+  consumer: Address,
+  wallet: Address,
+  asset_pair: Symbol,
+  gate_threshold: u32,
+) -> bool
+```
+
+This variant consumes one token from the persistent bucket configured for
+`consumer` by the admin-only `set_consumer_read_quota`. The consumer address
+must authorize the call. The bucket stores one record per consumer: capacity,
+refill rate in tokens per second, available tokens, and the last-refill
+timestamp. Refill uses ledger time, saturates at capacity, and uses
+overflow-safe arithmetic. A missing quota is unmetered; an exhausted quota
+returns `false`. `get_consumer_read_quota_remaining` calculates the current
+balance without changing storage, and admin-only `clear_consumer_read_quota`
+removes the record.
+
+When strict gate enforcement is enabled, the supplied consumer must also be in
+the `set_gate_callers` allowlist. An allowlist rejection occurs before token
+consumption. Quota accounting is independent of `set_gate_query_fee`: quota
+configuration does not alter fee configuration or accumulated-fee state, and
+an exhausted request fails closed before score evaluation. The two existing
+gate APIs remain unmetered and retain their existing behavior.
+
+### 1.3 `query_risk_gate_with_confidence` — confidence-gated integration primitive
 
 ```rust
 fn query_risk_gate_with_confidence(
@@ -114,7 +147,7 @@ inputs), and never calls `extend_ttl`.
 
 Detect this function at runtime with `supports_interface(symbol_short!("cgate"))`.
 
-### 1.3 `supports_interface` — capability detection
+### 1.4 `supports_interface` — capability detection
 
 ```rust
 fn supports_interface(env: Env, capability: Symbol) -> bool

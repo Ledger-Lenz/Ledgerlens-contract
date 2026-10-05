@@ -4920,6 +4920,80 @@ impl LedgerLensScoreContract {
         Self::query_risk_gate_with_confidence(env, wallet, asset_pair, gate_threshold, 0)
     }
 
+    /// Performs a risk-gate query against a governed per-consumer token bucket.
+    /// The consumer must authorize the call; quota exhaustion returns `false`.
+    pub fn query_risk_gate_metered(
+        env: Env,
+        consumer: Address,
+        wallet: Address,
+        asset_pair: Symbol,
+        gate_threshold: u32,
+    ) -> bool {
+        consumer.require_auth();
+        Self::query_risk_gate_for_consumer(
+            env,
+            consumer,
+            wallet,
+            asset_pair,
+            gate_threshold,
+            0,
+            true,
+        )
+    }
+
+    /// Governs a per-consumer token bucket for risk-gate queries.
+    /// `capacity` is the full bucket, `refill_rate` is tokens per second; once the
+    /// configured bucket is exhausted, the query path fails closed until enough time
+    /// elapses to replenish at least one token.
+    pub fn set_consumer_read_quota(
+        env: Env,
+        admin_signers: Vec<Address>,
+        consumer: Address,
+        capacity: u32,
+        refill_rate: u32,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if capacity == 0 {
+            return Err(Error::InvalidThreshold);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        let now = env.ledger().timestamp();
+        storage::set_consumer_read_quota(
+            &env,
+            &consumer,
+            &crate::types::ConsumerReadQuota {
+                capacity,
+                refill_rate,
+                tokens: capacity,
+                last_refill: now,
+            },
+        );
+        Ok(())
+    }
+
+    /// Clears the configured quota for a consumer. Once removed, the query path
+    /// reverts to the default unmetered behavior for that consumer.
+    pub fn clear_consumer_read_quota(
+        env: Env,
+        admin_signers: Vec<Address>,
+        consumer: Address,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::clear_consumer_read_quota(&env, &consumer);
+        Ok(())
+    }
+
+    /// Returns the remaining tokens for a consumer quota without consuming
+    /// anything. `0` means the quota is absent or exhausted.
+    pub fn get_consumer_read_quota_remaining(env: Env, consumer: Address) -> u32 {
+        storage::remaining_consumer_read_quota(&env, &consumer)
+    }
+
     /// Sets the per-query fee (in fee-token stroops) charged on each
     /// `query_risk_gate` call. `0` disables fee collection. Admin only.
     ///
@@ -5200,17 +5274,39 @@ impl LedgerLensScoreContract {
         gate_threshold: u32,
         min_confidence: u32,
     ) -> bool {
+        Self::query_risk_gate_for_consumer(
+            env.clone(),
+            env.current_contract_address(),
+            wallet,
+            asset_pair,
+            gate_threshold,
+            min_confidence,
+            false,
+        )
+    }
+
+    fn query_risk_gate_for_consumer(
+        env: Env,
+        consumer: Address,
+        wallet: Address,
+        asset_pair: Symbol,
+        gate_threshold: u32,
+        min_confidence: u32,
+        metered: bool,
+    ) -> bool {
         if !Self::asset_pair_is_bounded(&env, &asset_pair) {
             return false;
         }
         Self::check_service_silence(&env);
         // #302: strict gate enforcement — reject callers not in the allowlist.
         if storage::get_gate_enforcement_mode(&env) {
-            let caller = env.current_contract_address();
             let callers = storage::get_gate_callers(&env);
-            if !callers.contains(&caller) {
+            if !callers.contains(&consumer) {
                 return false; // CallerNotAuthorized: infallible, so return false
             }
+        }
+        if metered && !storage::consume_consumer_read_quota(&env, &consumer) {
+            return false;
         }
         if gate_threshold > 100 || min_confidence > 100 {
             return false;

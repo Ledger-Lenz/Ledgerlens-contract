@@ -172,3 +172,178 @@ fn fee_skipped_silently_when_no_token() {
     assert!(!result); // no score → false
     assert_eq!(s.client.get_accumulated_fees(), 0);
 }
+
+// ── per-consumer gate quota ──────────────────────────────────────────────────
+
+fn configure_quota(
+    env: &Env,
+    client: &LedgerLensScoreContractClient,
+    consumer: &Address,
+    capacity: u32,
+    refill_rate: u32,
+) {
+    client
+        .set_consumer_read_quota(&Vec::new(env), consumer, &capacity, &refill_rate)
+        .unwrap();
+}
+
+fn submit_safe_score(s: &Setup<'_>, wallet: &Address) {
+    s.client
+        .submit_score(
+            &Vec::new(&s.env),
+            wallet,
+            &symbol_short!("XLM_USDC"),
+            &30,
+            &false,
+            &false,
+            &1,
+            &90,
+            &1,
+            &None,
+        )
+        .unwrap();
+}
+
+fn metered_query(
+    s: &Setup<'_>,
+    consumer: &Address,
+    wallet: &Address,
+) -> bool {
+    s.client.query_risk_gate_metered(
+        consumer,
+        wallet,
+        &symbol_short!("XLM_USDC"),
+        &75,
+    )
+}
+
+#[test]
+fn consumer_read_quota_refill_boundary_and_partial_refill() {
+    let s = setup_no_token();
+    let consumer = Address::generate(&s.env);
+    let wallet = Address::generate(&s.env);
+    configure_quota(&s.env, &s.client, &consumer, 2, 1);
+
+    assert!(!metered_query(&s, &consumer, &wallet));
+    assert!(!metered_query(&s, &consumer, &wallet));
+    assert_eq!(s.client.get_consumer_read_quota_remaining(&consumer), 0);
+
+    let start = s.env.ledger().timestamp();
+    s.env.ledger().with_mut(|l| l.timestamp = start + 1);
+    assert_eq!(s.client.get_consumer_read_quota_remaining(&consumer), 1);
+    s.env.ledger().with_mut(|l| l.timestamp = start + 2);
+    assert_eq!(s.client.get_consumer_read_quota_remaining(&consumer), 2);
+}
+
+#[test]
+fn consumer_read_quota_saturates_for_huge_elapsed_time() {
+    let s = setup_no_token();
+    let consumer = Address::generate(&s.env);
+    let wallet = Address::generate(&s.env);
+    configure_quota(&s.env, &s.client, &consumer, 3, u32::MAX);
+    for _ in 0..3 {
+        assert!(!metered_query(&s, &consumer, &wallet));
+    }
+
+    s.env.ledger().with_mut(|l| l.timestamp = u64::MAX);
+    assert_eq!(s.client.get_consumer_read_quota_remaining(&consumer), 3);
+}
+
+#[test]
+fn consumer_read_quota_exhaustion_fails_closed() {
+    let s = setup_no_token();
+    let consumer = Address::generate(&s.env);
+    let wallet = Address::generate(&s.env);
+    configure_quota(&s.env, &s.client, &consumer, 1, 0);
+
+    assert!(!metered_query(&s, &consumer, &wallet));
+    assert_eq!(s.client.get_consumer_read_quota_remaining(&consumer), 0);
+    assert!(!metered_query(&s, &consumer, &wallet));
+}
+
+#[test]
+fn clearing_consumer_quota_restores_unmetered_metered_queries() {
+    let s = setup_no_token();
+    let consumer = Address::generate(&s.env);
+    let wallet = Address::generate(&s.env);
+    submit_safe_score(&s, &wallet);
+    configure_quota(&s.env, &s.client, &consumer, 1, 0);
+
+    assert!(metered_query(&s, &consumer, &wallet));
+    assert!(!metered_query(&s, &consumer, &wallet));
+    s.client
+        .clear_consumer_read_quota(&Vec::new(&s.env), &consumer)
+        .unwrap();
+    assert!(metered_query(&s, &consumer, &wallet));
+    assert!(metered_query(&s, &consumer, &wallet));
+}
+
+#[test]
+fn consumer_quota_set_and_clear_require_admin_authorization() {
+    let s = setup_no_token();
+    let consumer = Address::generate(&s.env);
+
+    assert!(s
+        .client
+        .mock_auths(&[])
+        .try_set_consumer_read_quota(&Vec::new(&s.env), &consumer, &1, &1)
+        .is_err());
+    assert!(s
+        .client
+        .mock_auths(&[])
+        .try_clear_consumer_read_quota(&Vec::new(&s.env), &consumer)
+        .is_err());
+}
+
+#[test]
+fn metered_query_requires_consumer_authorization() {
+    let s = setup_no_token();
+    let consumer = Address::generate(&s.env);
+    let wallet = Address::generate(&s.env);
+
+    assert!(s
+        .client
+        .mock_auths(&[])
+        .try_query_risk_gate_metered(
+            &consumer,
+            &wallet,
+            &symbol_short!("XLM_USDC"),
+            &75,
+        )
+        .is_err());
+}
+
+#[test]
+fn consumer_quota_checks_allowlist_before_consuming_tokens() {
+    let s = setup_no_token();
+    let consumer = Address::generate(&s.env);
+    let wallet = Address::generate(&s.env);
+    submit_safe_score(&s, &wallet);
+    configure_quota(&s.env, &s.client, &consumer, 1, 0);
+    s.client.set_gate_enforcement_mode(&Vec::new(&s.env), &true);
+
+    assert!(!metered_query(&s, &consumer, &wallet));
+    assert_eq!(s.client.get_consumer_read_quota_remaining(&consumer), 1);
+
+    let mut callers = Vec::new(&s.env);
+    callers.push_back(consumer.clone());
+    s.client.set_gate_callers(&Vec::new(&s.env), &callers);
+    assert!(metered_query(&s, &consumer, &wallet));
+    assert_eq!(s.client.get_consumer_read_quota_remaining(&consumer), 0);
+}
+
+#[test]
+fn metered_quota_exhaustion_does_not_change_query_fee_accounting() {
+    let s = setup_with_token(0);
+    let consumer = Address::generate(&s.env);
+    let wallet = Address::generate(&s.env);
+    StellarAssetClient::new(&s.env, &s.token).mint(&wallet, &1_000);
+    submit_safe_score(&s, &wallet);
+    configure_quota(&s.env, &s.client, &consumer, 1, 0);
+    s.client.set_gate_query_fee(&123).unwrap();
+
+    assert!(metered_query(&s, &consumer, &wallet));
+    let fees_before_exhausted_call = s.client.get_accumulated_fees();
+    assert!(!metered_query(&s, &consumer, &wallet));
+    assert_eq!(s.client.get_accumulated_fees(), fees_before_exhausted_call);
+}

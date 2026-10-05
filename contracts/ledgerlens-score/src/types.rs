@@ -595,6 +595,7 @@ pub enum GateDataKey {
     GateQueryFee,
     AccumulatedFees,
     GateReadLedger(Address, Symbol),
+    ConsumerReadQuota(Address),
 }
 
 /// Privacy-preserving export view modes for score data.
@@ -1280,6 +1281,19 @@ pub struct WelfordCorrState {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TokenBucket {
+    pub tokens: u32,
+    pub last_refill: u64,
+}
+
+/// Per-consumer token-bucket quota for gate reads. Remaining tokens are
+/// calculated deterministically from the bucket's `capacity`, `refill_rate`,
+/// and `last_refill` timestamp. An absent record is unmetered; configured
+/// buckets have nonzero capacity.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConsumerReadQuota {
+    pub capacity: u32,
+    pub refill_rate: u32,
     pub tokens: u32,
     pub last_refill: u64,
 }
