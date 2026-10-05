@@ -94,7 +94,7 @@ Soroban contract errors are returned as `u32` discriminant values. When a transa
 | Code | Name | Description | When returned | Client action |
 |-----:|------|-------------|---------------|---------------|
 | 26 | `ServicePubkeyNotSet` | No service public key has been configured | `submit_score` with an attestation when no pubkey exists; `submit_scores_batch_attested` always (hard requirement); `get_service_pubkey` before one is set | Admin must call `set_service_pubkey` before attestation-guarded submission paths work. |
-| 27 | `InvalidAttestation` | Attestation verification failed | `submit_score` when the commitment mismatch, invalid recovery id, or recovered pubkey doesn't match; `submit_scores_batch_attested` (per-entry rejection) on Merkle proof mismatch | Regenerate the attestation. Verify the commitment is computed over the exact same payload fields. See `docs/attestation-spec.md`. |
+| 27 | `InvalidAttestation` | Attestation verification failed | `submit_score` when the commitment mismatch, invalid recovery id, recovered pubkey doesn't match, or the signer fingerprint is currently revoked; `submit_scores_batch_attested` (per-entry rejection) on Merkle proof mismatch | Regenerate the attestation. Verify the commitment is computed over the exact same payload fields. The key-revocation path reuses this error value to keep the XDR enum compatible with the existing 50-variant ceiling. See `docs/attestation-spec.md`. |
 | 28 | `InvalidPubkeyLength` | Public key is not 33 or 65 bytes | `set_service_pubkey` with a key that is not SEC-1 compressed (33 bytes) or uncompressed (65 bytes) | Supply a valid secp256k1 public key in SEC-1 encoding. |
 
 ### History & confidence

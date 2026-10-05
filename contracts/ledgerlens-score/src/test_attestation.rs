@@ -578,3 +578,118 @@ fn test_attestation_signed_for_one_instance_rejected_on_another_instance() {
     );
     assert_eq!(replayed_on_b, Err(Ok(Error::InvalidAttestation)));
 }
+
+#[test]
+fn test_revoked_attestation_key_before_boundary_allows_submission() {
+    let (env, client, admin, _service) = initialized();
+    let key = signing_key(1);
+    let pubkey = pubkey_bytes(&env, &key, true);
+    client.set_service_pubkey(&Vec::new(&env), &pubkey);
+
+    let fingerprint = env.crypto().sha256(&pubkey.clone().into()).to_bytes();
+    let boundary = env.ledger().timestamp().saturating_add(1_000);
+    client.set_revoked_key(&Vec::new(&env), &fingerprint, &boundary, &7, &admin);
+
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+    let contract_id = get_contract_id_bytes(&env, &client.address);
+    let digest = commitment(&env, &client.address, &wallet, &pair, 42, false, false, 1, 90, 1, &contract_id, 3);
+    let attestation = attest(&env, &key, digest, contract_id, 3);
+
+    let result = client.try_submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &pair,
+        &42,
+        &false,
+        &false,
+        &1,
+        &90,
+        &1,
+        &Some(ScoreAttestationInput { attestation: MaybeScoreAttestation::Some(attestation), threshold_attestation: MaybeThresholdAttestation::None, commitment: None }),
+    );
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_revoked_attestation_key_at_and_after_boundary_rejects_submission() {
+    let (env, client, admin, _service) = initialized();
+    let key = signing_key(1);
+    let pubkey = pubkey_bytes(&env, &key, true);
+    client.set_service_pubkey(&Vec::new(&env), &pubkey);
+
+    let fingerprint = env.crypto().sha256(&pubkey.clone().into()).to_bytes();
+    let boundary = env.ledger().timestamp().saturating_add(1_000);
+    client.set_revoked_key(&Vec::new(&env), &fingerprint, &boundary, &7, &admin);
+
+    let wallet = Address::generate(&env);
+    let pair = symbol_short!("XLM_USDC");
+    let contract_id = get_contract_id_bytes(&env, &client.address);
+    let at_boundary_digest = commitment(&env, &client.address, &wallet, &pair, 42, false, false, boundary as u64, 90, 1, &contract_id, 3);
+    let after_boundary_digest = commitment(&env, &client.address, &wallet, &pair, 42, false, false, boundary.saturating_add(1) as u64, 90, 1, &contract_id, 3);
+
+    let at_boundary_att = attest(&env, &key, at_boundary_digest, contract_id.clone(), 3);
+    let after_att = attest(&env, &key, after_boundary_digest, contract_id.clone(), 3);
+
+    let before = client.try_submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &pair,
+        &42,
+        &false,
+        &false,
+        boundary as u64,
+        &90,
+        &1,
+        &Some(ScoreAttestationInput { attestation: MaybeScoreAttestation::Some(at_boundary_att), threshold_attestation: MaybeThresholdAttestation::None, commitment: None }),
+    );
+    assert_eq!(before, Err(Ok(Error::InvalidAttestation)));
+
+    let after = client.try_submit_score(
+        &Vec::new(&env),
+        &wallet,
+        &pair,
+        &42,
+        &false,
+        &false,
+        boundary.saturating_add(1) as u64,
+        &90,
+        &1,
+        &Some(ScoreAttestationInput { attestation: MaybeScoreAttestation::Some(after_att), threshold_attestation: MaybeThresholdAttestation::None, commitment: None }),
+    );
+    assert_eq!(after, Err(Ok(Error::InvalidAttestation)));
+}
+
+#[test]
+fn test_revoked_key_registry_is_deterministic_on_double_revocation_and_pagination() {
+    let (env, client, admin, _service) = initialized();
+    let key = signing_key(1);
+    let pubkey = pubkey_bytes(&env, &key, true);
+    let fingerprint = env.crypto().sha256(&pubkey.clone().into()).to_bytes();
+
+    let earlier = env.ledger().timestamp().saturating_add(100);
+    let later = env.ledger().timestamp().saturating_add(200);
+    client.set_revoked_key(&Vec::new(&env), &fingerprint, &later, &7, &admin);
+    client.set_revoked_key(&Vec::new(&env), &fingerprint, &earlier, &9, &admin);
+
+    let record = client.get_revoked_key(&fingerprint).unwrap();
+    assert_eq!(record.effective_from, earlier);
+    assert_eq!(record.reason_code, 9);
+
+    let page = client.get_revoked_keys_paginated(&0, &10);
+    assert_eq!(page.len(), 1);
+    assert_eq!(page.get(0).unwrap().fingerprint, fingerprint);
+}
+
+#[test]
+fn test_revoked_key_registry_requires_admin_auth() {
+    let (env, client, _, _service) = initialized();
+    let key = signing_key(1);
+    let pubkey = pubkey_bytes(&env, &key, true);
+    let fingerprint = env.crypto().sha256(&pubkey.clone().into()).to_bytes();
+    let unauthorized = Address::generate(&env);
+    let auth_vec = Vec::from_array(&env, [unauthorized.clone()]);
+
+    let result = client.try_set_revoked_key(&auth_vec, &fingerprint, &1, &7, &unauthorized);
+    assert!(result.is_err());
+}

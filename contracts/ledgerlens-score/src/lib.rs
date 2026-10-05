@@ -6329,6 +6329,83 @@ impl LedgerLensScoreContract {
         storage::get_pending_service_pubkey(&env)
     }
 
+    /// Registers a compromised signer key in the persistent revocation registry.
+    ///
+    /// The same key fingerprint is used by the verification helper for all
+    /// attestation flows. On-chain runtime compatibility is preserved because a
+    /// revoked-key failure still surfaces as the existing `Error::InvalidAttestation`.
+    /// This is the strongest compatible representation when the XDR enum is already at
+    /// its 50-variant ceiling.
+    pub fn set_revoked_key(
+        env: Env,
+        admin_signers: Vec<Address>,
+        fingerprint: BytesN<32>,
+        effective_from: u64,
+        reason_code: u32,
+        revoking_authority: Address,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+
+        let mut record = storage::get_revoked_key(&env, &fingerprint).unwrap_or(RevokedKeyRecord {
+            fingerprint: fingerprint.clone(),
+            effective_from,
+            reason_code,
+            revoking_authority: revoking_authority.clone(),
+        });
+
+        if effective_from < record.effective_from {
+            record.effective_from = effective_from;
+            record.reason_code = reason_code;
+            record.revoking_authority = revoking_authority.clone();
+        }
+
+        storage::set_revoked_key(&env, &record);
+        Ok(())
+    }
+
+    /// Removes a revocation record for a previously revoked key.
+    pub fn clear_revoked_key(
+        env: Env,
+        admin_signers: Vec<Address>,
+        fingerprint: BytesN<32>,
+    ) -> Result<(), Error> {
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        storage::remove_revoked_key(&env, &fingerprint);
+        Ok(())
+    }
+
+    /// Returns the revocation record for one fingerprint, if present.
+    pub fn get_revoked_key(env: Env, fingerprint: BytesN<32>) -> Option<RevokedKeyRecord> {
+        storage::get_revoked_key(&env, &fingerprint)
+    }
+
+    /// Returns a bounded pagination window over the revocation registry.
+    /// `start` is zero-based and `limit` is capped to a sane maximum.
+    pub fn get_revoked_keys_paginated(
+        env: Env,
+        start: u32,
+        limit: u32,
+    ) -> Vec<RevokedKeyRecord> {
+        let mut output = Vec::new(&env);
+        let index = storage::get_revoked_key_index(&env);
+        let cap = limit.min(32);
+        let start_idx = start as usize;
+        let end_idx = (start_idx + cap as usize).min(index.len());
+        for i in start_idx..end_idx {
+            let fingerprint = index.get(i as u32).unwrap();
+            if let Some(record) = storage::get_revoked_key(&env, &fingerprint) {
+                output.push_back(record);
+            }
+        }
+        output
+    }
+
     // ── Threshold signature aggregation ──────────────────────────────────────
 
     /// Register (or rotate) the aggregate secp256k1 public key for the t-of-n
@@ -12774,6 +12851,21 @@ impl LedgerLensScoreContract {
     /// to the pubkey stored by `set_service_pubkey`. During an active
     /// dual-key overlap window the pending key is also accepted; once the
     /// window expires the pending key is automatically promoted to active.
+    fn key_fingerprint(env: &Env, key: &Bytes) -> BytesN<32> {
+        let digest = env.crypto().sha256(&key.clone().into());
+        BytesN::from_array(env, &digest.to_bytes().to_array())
+    }
+
+    /// Shared revocation gate for attestation keys.
+    ///
+    /// Semantics are explicit to preserve compatibility and make policy
+    /// decisions deterministic: `timestamp < effective_from` is allowed,
+    /// `timestamp == effective_from` and `timestamp > effective_from` are
+    /// rejected. Unknown keys are treated as "not revoked".
+    fn is_key_revoked_at(env: &Env, key: &Bytes, timestamp: u64) -> bool {
+        storage::is_key_revoked_at(env, &Self::key_fingerprint(env, key), timestamp)
+    }
+
     fn verify_signature(env: &Env, digest: &Hash<32>, sig: &BytesN<65>) -> Result<(), Error> {
         // If a rotation is pending, resolve the overlap state first so the
         // active-key slot always reflects the current state before we check it.
@@ -12786,6 +12878,9 @@ impl LedgerLensScoreContract {
         }
 
         let pubkey = storage::get_service_pubkey(env).ok_or(Error::ServicePubkeyNotSet)?;
+        if Self::is_key_revoked_at(env, &pubkey, env.ledger().timestamp()) {
+            return Err(Error::InvalidAttestation);
+        }
 
         let sig_bytes = sig.to_array();
         let recovery_id = sig_bytes[64] as u32;
@@ -12827,6 +12922,9 @@ impl LedgerLensScoreContract {
             if env.ledger().timestamp() <= expiry
                 && storage::pubkeys_match(&recovered, &pending_key)
             {
+                if Self::is_key_revoked_at(env, &pending_key, env.ledger().timestamp()) {
+                    return Err(Error::InvalidAttestation);
+                }
                 return Ok(());
             }
         }
@@ -12899,6 +12997,9 @@ impl LedgerLensScoreContract {
 
         let pubkey =
             storage::get_aggregate_service_pubkey(env).ok_or(Error::ServicePubkeyNotSet)?;
+        if Self::is_key_revoked_at(env, &pubkey, env.ledger().timestamp()) {
+            return Err(Error::InvalidAttestation);
+        }
 
         let sig_bytes = ta.threshold_sig.to_array();
         let recovery_id = sig_bytes[64] as u32;
@@ -12920,6 +13021,9 @@ impl LedgerLensScoreContract {
             if env.ledger().timestamp() <= expiry
                 && storage::pubkeys_match(&recovered, &pending_key)
             {
+                if Self::is_key_revoked_at(env, &pending_key, env.ledger().timestamp()) {
+                    return Err(Error::InvalidAttestation);
+                }
                 return Ok(());
             }
         }

@@ -2993,6 +2993,50 @@ pub fn clear_pending_aggregate_service_pubkey(env: &Env) {
     env.storage().instance().remove(&DataKeyD::PendingAggregateServicePubKey);
 }
 
+/// Persisted registry of revoked attestation pubkeys. The index is a vector of
+/// fingerprints so the registry can be enumerated paginated without scanning
+/// the full storage namespace.
+pub fn get_revoked_key_index(env: &Env) -> Vec<BytesN<32>> {
+    env.storage().instance().get(&DataKeyD::RevokedKeyIndex).unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn set_revoked_key_index(env: &Env, index: &Vec<BytesN<32>>) {
+    env.storage().instance().set(&DataKeyD::RevokedKeyIndex, index);
+}
+
+pub fn get_revoked_key(env: &Env, fingerprint: &BytesN<32>) -> Option<crate::types::RevokedKeyRecord> {
+    env.storage().instance().get(&DataKeyD::RevokedKey(fingerprint.clone()))
+}
+
+pub fn set_revoked_key(env: &Env, record: &crate::types::RevokedKeyRecord) {
+    env.storage().instance().set(&DataKeyD::RevokedKey(record.fingerprint.clone()), record);
+    let mut index = get_revoked_key_index(env);
+    if !index.contains(&record.fingerprint) {
+        index.push_back(record.fingerprint.clone());
+        env.storage().instance().set(&DataKeyD::RevokedKeyIndex, &index);
+    }
+}
+
+pub fn remove_revoked_key(env: &Env, fingerprint: &BytesN<32>) {
+    env.storage().instance().remove(&DataKeyD::RevokedKey(fingerprint.clone()));
+    let mut index = get_revoked_key_index(env);
+    if let Some(pos) = index.first_index_of(fingerprint) {
+        index.remove(pos);
+        if index.is_empty() {
+            env.storage().instance().remove(&DataKeyD::RevokedKeyIndex);
+        } else {
+            env.storage().instance().set(&DataKeyD::RevokedKeyIndex, &index);
+        }
+    }
+}
+
+pub fn is_key_revoked_at(env: &Env, fingerprint: &BytesN<32>, timestamp: u64) -> bool {
+    match get_revoked_key(env, fingerprint) {
+        Some(record) => timestamp >= record.effective_from,
+        None => false,
+    }
+}
+
 /// Compares a recovered 65-byte uncompressed secp256k1 pubkey against a
 /// stored pubkey, which may be either the same 65-byte uncompressed form or
 /// the 33-byte compressed form.

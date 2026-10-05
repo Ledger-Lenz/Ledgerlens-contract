@@ -191,6 +191,22 @@ pub struct ThresholdAttestation {
     pub contract_version: u32,
 }
 
+/// An attestation key that has been explicitly revoked by governance.
+///
+/// The on-chain runtime error surface cannot grow beyond the existing XDR
+/// 50-variant ContractError set, so revocation violations surface as the
+/// existing `InvalidAttestation` failure rather than a new enum variant.
+/// The registry is still persisted so operators can audit which keys were
+/// revoked, when they became effective, and why.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RevokedKeyRecord {
+    pub fingerprint: BytesN<32>,
+    pub effective_from: u64,
+    pub reason_code: u32,
+    pub revoking_authority: Address,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MaybeScoreAttestation {
@@ -969,6 +985,8 @@ pub enum DataKeyD {
     /// overlap-window expiry, mirroring `PendingServicePubKey` for
     /// `rotate_aggregate_service_pubkey` (issue #697).
     PendingAggregateServicePubKey,
+    RevokedKey(BytesN<32>),
+    RevokedKeyIndex,
     RateLimitOverrideLog,
     IqrRejectionMultiplier,
     PendingParamChange(Symbol),

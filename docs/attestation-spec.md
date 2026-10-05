@@ -207,7 +207,17 @@ instance) cannot be replayed against another.
      by the x-coordinate — and compare that. No elliptic-curve point
      arithmetic is needed since the recovered point's coordinates are already
      known.
-5. Any mismatch at any step is `Error::InvalidAttestation`.
+5. Check the signer fingerprint against the governance revocation registry:
+   - `timestamp < effective_from`: allowed.
+   - `timestamp == effective_from`: revoked.
+   - `timestamp > effective_from`: revoked.
+   - unknown fingerprints: not revoked.
+6. Any mismatch at any step is `Error::InvalidAttestation`.
+
+The revocation registry is persisted as a first-class on-chain record, but the
+failure still surfaces as `InvalidAttestation` because the contract already
+operates at the Soroban XDR 50-variant ceiling and cannot add a new enum value
+without breaking existing compatibility.
 
 Because the evidence digest is part of the recomputed commitment (§3a), any
 tampering with `algorithm`, `digest`, or `locator_scheme` changes the
