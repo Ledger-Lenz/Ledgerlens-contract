@@ -3196,6 +3196,36 @@ pub fn get_accumulated_fees(env: &Env) -> i128 {
     env.storage().instance().get(&GateDataKey::AccumulatedFees).unwrap_or(0)
 }
 
+pub fn get_score_change_hooks(env: &Env) -> Vec<ScoreChangeHook> {
+    env.storage()
+        .instance()
+        .get(&ScoreHookDataKey::Registry)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn set_score_change_hooks(env: &Env, hooks: &Vec<ScoreChangeHook>) {
+    env.storage().instance().set(&ScoreHookDataKey::Registry, hooks);
+}
+
+pub fn get_score_hook_failure_threshold(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&ScoreHookDataKey::FailureThreshold)
+        .unwrap_or(crate::constants::DEFAULT_SCORE_HOOK_FAILURE_THRESHOLD)
+}
+
+pub fn set_score_hook_failure_threshold(env: &Env, threshold: u32) {
+    env.storage().instance().set(&ScoreHookDataKey::FailureThreshold, &threshold);
+}
+
+pub fn is_score_hook_dispatching(env: &Env) -> bool {
+    env.storage().instance().get(&ScoreHookDataKey::Dispatching).unwrap_or(false)
+}
+
+pub fn set_score_hook_dispatching(env: &Env, dispatching: bool) {
+    env.storage().instance().set(&ScoreHookDataKey::Dispatching, &dispatching);
+}
+
 pub fn set_arch_owner(env: &Env, owner: &Address) {
     env.storage().instance().set(&ArchitectureDataKey::ArchOwner, owner);
 }

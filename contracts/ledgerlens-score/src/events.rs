@@ -54,6 +54,19 @@ pub fn score_submitted(env: &Env, wallet: &Address, asset_pair: &Symbol, score: 
     );
 }
 
+pub fn score_hook_auto_disabled(
+    env: &Env,
+    consumer: &Address,
+    wallet: &Address,
+    asset_pair: &Symbol,
+    consecutive_failures: u32,
+) {
+    env.events().publish(
+        (symbol_short!("hook_off"), EVENT_VERSION, consumer.clone()),
+        (wallet.clone(), asset_pair.clone(), consecutive_failures),
+    );
+}
+
 pub fn service_updated(env: &Env, new_service: &Address) {
     env.events().publish((symbol_short!("svc_upd"), EVENT_VERSION), new_service.clone());
 }

@@ -48,6 +48,18 @@ pub struct RiskScore {
     pub commitment: Option<Bytes>,
 }
 
+/// A consumer-authorized callback subscription for one wallet/pair.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScoreChangeHook {
+    pub consumer: Address,
+    pub wallet: Address,
+    pub asset_pair: Symbol,
+    pub enabled: bool,
+    pub consecutive_failures: u32,
+    pub last_dispatched_count: u32,
+}
+
 /// Query descriptor for a batch score read.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -596,6 +608,14 @@ pub enum GateDataKey {
     AccumulatedFees,
     GateReadLedger(Address, Symbol),
     ConsumerReadQuota(Address),
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub enum ScoreHookDataKey {
+    Registry,
+    FailureThreshold,
+    Dispatching,
 }
 
 /// Privacy-preserving export view modes for score data.

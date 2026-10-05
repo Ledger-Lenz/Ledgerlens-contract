@@ -425,6 +425,7 @@ impl LedgerLensScoreContract {
         capabilities.push_back(Symbol::new(&env, "snapshot"));
         capabilities.push_back(Symbol::new(&env, "export_score"));
         capabilities.push_back(Symbol::new(&env, "freeze"));
+        capabilities.push_back(Symbol::new(&env, "score_hooks"));
 
         let mut constraints = Vec::new(&env);
         constraints.push_back(Symbol::new(&env, "fail_closed"));
@@ -507,6 +508,9 @@ impl LedgerLensScoreContract {
         model_version: u32,
         attestation_input: Option<ScoreAttestationInput>,
     ) -> Result<(), Error> {
+        if storage::is_score_hook_dispatching(&env) {
+            return Err(Error::ScoreHookDispatchInProgress);
+        }
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
         }
@@ -756,6 +760,192 @@ impl LedgerLensScoreContract {
         Ok(())
     }
 
+    /// Registers the calling consumer as a score-change callback for one
+    /// wallet/pair. The callback contract must implement `on_score_change`.
+    pub fn register_score_change_hook(
+        env: Env,
+        consumer: Address,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        if storage::is_score_hook_dispatching(&env) {
+            return Err(Error::ScoreHookDispatchInProgress);
+        }
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        consumer.require_auth();
+        Self::ensure_asset_pair_bounded(&env, &asset_pair)?;
+
+        let mut hooks = storage::get_score_change_hooks(&env);
+        let mut pair_count = 0u32;
+        for i in 0..hooks.len() {
+            let existing = hooks.get(i).unwrap();
+            if existing.wallet == wallet && existing.asset_pair == asset_pair {
+                pair_count += 1;
+                if existing.consumer == consumer {
+                    return Err(Error::ScoreHookAlreadyRegistered);
+                }
+            }
+        }
+        if hooks.len() >= constants::MAX_SCORE_CHANGE_HOOKS_GLOBAL
+            || pair_count >= constants::MAX_SCORE_CHANGE_HOOKS_PER_PAIR
+        {
+            return Err(Error::ScoreHookLimitReached);
+        }
+
+        hooks.push_back(ScoreChangeHook {
+            consumer,
+            wallet: wallet.clone(),
+            asset_pair: asset_pair.clone(),
+            enabled: true,
+            consecutive_failures: 0,
+            last_dispatched_count: storage::get_score_count(&env, &wallet, &asset_pair),
+        });
+        storage::set_score_change_hooks(&env, &hooks);
+        Ok(())
+    }
+
+    /// Removes the caller's hook registration for one wallet/pair.
+    pub fn unregister_score_change_hook(
+        env: Env,
+        consumer: Address,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<(), Error> {
+        if storage::is_score_hook_dispatching(&env) {
+            return Err(Error::ScoreHookDispatchInProgress);
+        }
+        consumer.require_auth();
+        let hooks = storage::get_score_change_hooks(&env);
+        let mut retained = Vec::new(&env);
+        let mut removed = false;
+        for i in 0..hooks.len() {
+            let hook = hooks.get(i).unwrap();
+            if hook.consumer == consumer && hook.wallet == wallet && hook.asset_pair == asset_pair {
+                removed = true;
+            } else {
+                retained.push_back(hook);
+            }
+        }
+        if !removed {
+            return Err(Error::ScoreHookNotRegistered);
+        }
+        storage::set_score_change_hooks(&env, &retained);
+        Ok(())
+    }
+
+    /// Returns all hook records registered for a wallet/pair, including
+    /// disabled hooks and their consecutive-failure counters.
+    pub fn get_score_change_hooks(
+        env: Env,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Vec<ScoreChangeHook> {
+        let hooks = storage::get_score_change_hooks(&env);
+        let mut matching = Vec::new(&env);
+        for i in 0..hooks.len() {
+            let hook = hooks.get(i).unwrap();
+            if hook.wallet == wallet && hook.asset_pair == asset_pair {
+                matching.push_back(hook);
+            }
+        }
+        matching
+    }
+
+    /// Sets the consecutive callback-failure threshold. Admin only. Active
+    /// hook counters must remain below the new threshold.
+    pub fn set_score_hook_failure_threshold(
+        env: Env,
+        admin_signers: Vec<Address>,
+        threshold: u32,
+    ) -> Result<(), Error> {
+        if storage::is_score_hook_dispatching(&env) {
+            return Err(Error::ScoreHookDispatchInProgress);
+        }
+        if !storage::has_admin(&env) {
+            return Err(Error::NotInitialized);
+        }
+        if threshold == 0 || threshold > constants::MAX_SCORE_HOOK_FAILURE_THRESHOLD {
+            return Err(Error::InvalidThreshold);
+        }
+        Self::require_admin_auth(&env, &admin_signers)?;
+        let hooks = storage::get_score_change_hooks(&env);
+        for i in 0..hooks.len() {
+            let hook = hooks.get(i).unwrap();
+            if hook.enabled && hook.consecutive_failures >= threshold {
+                return Err(Error::InvalidThreshold);
+            }
+        }
+        storage::set_score_hook_failure_threshold(&env, threshold);
+        Ok(())
+    }
+
+    pub fn get_score_hook_failure_threshold(env: Env) -> u32 {
+        storage::get_score_hook_failure_threshold(&env)
+    }
+
+    /// Dispatches up to the fixed per-call hook budget for the latest committed
+    /// score. Repeated score changes coalesce to the newest score count.
+    pub fn dispatch_score_change_hooks(
+        env: Env,
+        dispatcher: Address,
+        wallet: Address,
+        asset_pair: Symbol,
+    ) -> Result<u32, Error> {
+        if storage::is_score_hook_dispatching(&env) {
+            return Err(Error::ScoreHookDispatchInProgress);
+        }
+        dispatcher.require_auth();
+        let score_count = storage::get_score_count(&env, &wallet, &asset_pair);
+        let risk_score = storage::peek_score(&env, &wallet, &asset_pair)
+            .ok_or(Error::ScoreNotFound)?;
+        let mut hooks = storage::get_score_change_hooks(&env);
+        let threshold = storage::get_score_hook_failure_threshold(&env);
+        let callback = Symbol::new(&env, "on_score_change");
+        let mut dispatched = 0u32;
+
+        storage::set_score_hook_dispatching(&env, true);
+        for i in 0..hooks.len() {
+            if dispatched >= constants::MAX_SCORE_CHANGE_HOOKS_PER_DISPATCH {
+                break;
+            }
+            let mut hook = hooks.get(i).unwrap();
+            if !hook.enabled
+                || hook.wallet != wallet
+                || hook.asset_pair != asset_pair
+                || hook.last_dispatched_count >= score_count
+            {
+                continue;
+            }
+
+            dispatched += 1;
+            let args = (wallet.clone(), asset_pair.clone(), risk_score.clone(), score_count)
+                .into_val(&env);
+            let result = env.try_invoke_contract::<(), Error>(&hook.consumer, &callback, args);
+            if matches!(result, Ok(())) {
+                hook.consecutive_failures = 0;
+            } else {
+                hook.consecutive_failures = hook.consecutive_failures.saturating_add(1);
+                if hook.consecutive_failures == threshold {
+                    hook.enabled = false;
+                    events::score_hook_auto_disabled(
+                        &env,
+                        &hook.consumer,
+                        &wallet,
+                        &asset_pair,
+                        hook.consecutive_failures,
+                    );
+                }
+            }
+            hook.last_dispatched_count = score_count;
+            hooks.set(i, &hook);
+        }
+        storage::set_score_change_hooks(&env, &hooks);
+        storage::set_score_hook_dispatching(&env, false);
+        Ok(dispatched)
+    }
+
     // ── Finality buffer (pending score commit window) ───────────────────────
 
     /// Sets the finality buffer: the number of seconds a `submit_score`
@@ -910,6 +1100,9 @@ impl LedgerLensScoreContract {
         wallet: Address,
         asset_pair: Symbol,
     ) -> Result<(), Error> {
+        if storage::is_score_hook_dispatching(&env) {
+            return Err(Error::ScoreHookDispatchInProgress);
+        }
         let pending =
             storage::get_pending_score(&env, &wallet, &asset_pair).ok_or(Error::NoPendingScore)?;
 
@@ -1486,6 +1679,9 @@ impl LedgerLensScoreContract {
         env: Env,
         submissions: Vec<ScoreSubmission>,
     ) -> Result<BatchResult, Error> {
+        if storage::is_score_hook_dispatching(&env) {
+            return Err(Error::ScoreHookDispatchInProgress);
+        }
         Self::ensure_active(&env)?;
         // Epoch sealing: reject the whole batch when no epoch is open (#301).
         if !storage::is_epoch_open(&env) {
@@ -1814,6 +2010,9 @@ impl LedgerLensScoreContract {
         submissions: Vec<ScoreSubmissionWithProof>,
         attestation: BatchAttestation,
     ) -> Result<BatchResult, Error> {
+        if storage::is_score_hook_dispatching(&env) {
+            return Err(Error::ScoreHookDispatchInProgress);
+        }
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
         }
@@ -5565,6 +5764,7 @@ impl LedgerLensScoreContract {
             || capability == Symbol::new(&env, "export_score")
             || capability == symbol_short!("freeze")
             || capability == symbol_short!("arch")
+            || capability == Symbol::new(&env, "score_hooks")
     }
 
     // ── Service management ───────────────────────────────────────────────────
@@ -8741,6 +8941,9 @@ impl LedgerLensScoreContract {
         asset_pair: Symbol,
         corrected_score: u32,
     ) -> Result<(), Error> {
+        if storage::is_score_hook_dispatching(&env) {
+            return Err(Error::ScoreHookDispatchInProgress);
+        }
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
         }
@@ -9748,6 +9951,9 @@ impl LedgerLensScoreContract {
         reason: Bytes,
         category: Bytes,
     ) -> Result<(), Error> {
+        if storage::is_score_hook_dispatching(&env) {
+            return Err(Error::ScoreHookDispatchInProgress);
+        }
         if !storage::has_admin(&env) {
             return Err(Error::NotInitialized);
         }
@@ -11759,6 +11965,9 @@ impl LedgerLensScoreContract {
         asset_pair: &Symbol,
         risk_score: &RiskScore,
     ) -> Result<(), Error> {
+        if storage::is_score_hook_dispatching(env) {
+            return Err(Error::ScoreHookDispatchInProgress);
+        }
         Self::validate_risk_score(env, risk_score)?;
 
         let now = env.ledger().timestamp();
@@ -13303,6 +13512,9 @@ impl LedgerLensScoreContract {
     /// counterparty of `anchor` for `asset_pair`.  Affected scores are
     /// capped at 100.  Returns the number of wallets that were boosted.
     pub fn propagate_contagion(env: Env, anchor: Address, asset_pair: Symbol, boost: u32) -> u32 {
+        if storage::is_score_hook_dispatching(&env) {
+            return 0;
+        }
         let counterparties = storage::get_counterparties(&env, &anchor, &asset_pair);
         let mut affected = 0u32;
         for i in 0..counterparties.len() {
